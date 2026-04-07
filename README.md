@@ -7,6 +7,11 @@
 - Start in `C:\Users\zjhre\dev\_stack` for workflow and operator commands.
 - Start in each repo root for repo-local coding and implementation work.
 
+## Dispatcher protocol
+- The workspace-root dispatcher protocol lives at `C:\Users\zjhre\dev\_stack\docs\dispatcher-protocol.md`.
+- Child-task handoff templates live at `C:\Users\zjhre\dev\_stack\templates\child-task-handoff.md`.
+- Lightweight future automation task drops live at `C:\Users\zjhre\dev\_stack\queue`.
+
 ## Fitness operator commands
 - `pnpm run fitness:doctor`
 - `pnpm run fitness:verify`
