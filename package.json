@@ -1,0 +1,15 @@
+{
+  "name": "fawxzzy-stack",
+  "private": true,
+  "scripts": {
+    "fitness:doctor": "pnpm dlx vercel --cwd ../fawxzzy-fitness whoami && pnpm dlx vercel --cwd ../fawxzzy-fitness env ls preview && pnpm dlx vercel --cwd ../fawxzzy-fitness env ls production",
+    "fitness:verify": "pnpm --dir ../fawxzzy-fitness verify:strict",
+    "fitness:git:disconnect": "pnpm dlx vercel --cwd ../fawxzzy-fitness git disconnect --yes",
+    "fitness:build:vercel": "pnpm run fitness:verify && pnpm dlx vercel --cwd ../fawxzzy-fitness build --yes",
+    "fitness:deploy:preview": "pnpm run fitness:verify && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy",
+    "fitness:deploy:prod": "pnpm run fitness:verify && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prod",
+    "fitness:deploy:prebuilt": "pnpm run fitness:build:vercel && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prebuilt",
+    "fitness:deploy:prebuilt:prod": "pnpm run fitness:build:vercel && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prebuilt --prod",
+    "fitness:deploy:preview:logs": "pnpm run fitness:verify && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --logs"
+  }
+}

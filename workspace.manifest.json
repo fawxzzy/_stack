@@ -1,0 +1,25 @@
+{
+  "repos": {
+    "fitness": {
+      "path": "../fawxzzy-fitness",
+      "verify": "pnpm verify:strict",
+      "deployModel": "vercel-cli",
+      "deployPreview": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy",
+      "deployPreviewPrebuilt": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prebuilt",
+      "deployProd": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prod",
+      "deployProdPrebuilt": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prebuilt --prod"
+    },
+    "playbook": {
+      "path": "../fawxzzy-playbook",
+      "deployModel": "self-hosted"
+    },
+    "lifeline": {
+      "path": "../fawxzzy-lifeline",
+      "deployModel": "self-hosted"
+    },
+    "atlas": {
+      "path": "../fawxzzy-atlas",
+      "deployModel": "self-hosted"
+    }
+  }
+}
