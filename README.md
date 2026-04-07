@@ -11,6 +11,7 @@
 - The workspace-root dispatcher protocol lives at `C:\Users\zjhre\dev\_stack\docs\dispatcher-protocol.md`.
 - Child-task handoff templates live at `C:\Users\zjhre\dev\_stack\templates\child-task-handoff.md`.
 - Lightweight future automation task drops live at `C:\Users\zjhre\dev\_stack\queue`.
+- Fitness local verify guidance lives at `C:\Users\zjhre\dev\_stack\docs\fitness-local-verify.md`.
 
 ## Fitness operator commands
 - `pnpm run fitness:doctor`
@@ -28,6 +29,11 @@
 3. Use `pnpm run fitness:deploy:preview` for the standard preview path.
 4. If preview deploy debugging is needed, use `pnpm run fitness:build:vercel` and then `pnpm run fitness:deploy:prebuilt`.
 5. Do not run production deploys unless you explicitly intend to promote the current state.
+
+## Fitness local verify split
+- Run `_stack` workflow entrypoints from `C:\Users\zjhre\dev\_stack`.
+- Run Fitness lint, test, build, and UI-contract validation from `C:\Users\zjhre\dev\fawxzzy-fitness`.
+- Use `C:\Users\zjhre\dev\_stack\docs\fitness-local-verify.md` for the bottom-action intent consistency checklist.
 
 ## Scope boundaries
 - `_stack` owns workflow commands, editor tasks, receipts scaffolding, and operator docs.
