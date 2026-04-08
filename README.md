@@ -36,6 +36,7 @@
 - Atlas stays docs-first and repo-local; push remains manual-only and successful mutating tasks still auto-commit by default.
 - Lifeline stays repo-local and self-hosted; push remains manual-only and successful mutating tasks still auto-commit by default.
 - `_stack` self-manages through the same runner path with repo-local `_stack\.codex\` artifacts, manual-only push, the same validated commit metadata contract used by the other adapters, and optional local auto-land to local `main` in `ff-only` mode.
+- Shared base-ref selection is local-first: prefer `origin/main` when it exists locally, otherwise fall back to local `main`, and record the resolved ref in each run manifest.
 - Shared auto-commit now uses a validated commit metadata contract via a temporary `.codex/commit-meta.json` artifact, with deterministic fallback messages when Codex output is missing or too generic.
 - Shared local landing is adapter-controlled through `localLandingPolicy`; `_stack` is the only repo currently opted into `ff-only`, while Atlas, Playbook, and Lifeline stay disabled by default.
 

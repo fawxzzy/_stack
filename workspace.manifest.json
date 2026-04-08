@@ -4,7 +4,8 @@
       "path": ".",
       "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-StackOperatorSurface.ps1 && git diff --check",
       "deployModel": "operator-layer",
-      "codexLocalLanding": "ff-only-local-main"
+      "codexLocalLanding": "ff-only-local-main",
+      "codexBaseRefRule": "prefer-origin-main-else-local-main"
     },
     "fitness": {
       "path": "../fawxzzy-fitness",

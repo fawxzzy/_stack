@@ -33,7 +33,7 @@ The shared runner operates inside repo-local worktrees. It does not move repo ar
 1. The operator starts the shared runner from `_stack` with a repo config.
 2. The repo config resolves the target repo root plus the adapter file.
 3. The watcher reads the repo-local inbox path from the adapter and waits for settled `.md` prompt files.
-4. Each prompt gets a fresh repo-local worktree and `codex/<slug>` task branch from the adapter `execution.baseRef`.
+4. Each prompt gets a fresh repo-local worktree and `codex/<slug>` task branch from the adapter `execution.baseRef`, resolved locally by preferring `origin/main` and falling back to local `main` when the remote-tracking ref is unavailable.
 5. Codex runs non-interactively inside that worktree.
 6. Verification bootstrap commands run first, then the effective verify list from prompt metadata or adapter defaults.
 7. The runner blocks commit if verification fails or if changed files exceed `allowedMutationSurfaces`.
@@ -136,13 +136,14 @@ Default behavior is explicit and fail-closed:
 - no-change tasks do not create empty commits
 - verification failure blocks commit
 - mutation-scope failure blocks commit
+- base-ref resolution is local-first: prefer configured `origin/<branch>` when it exists locally, otherwise fall back to the matching local branch name
 - local landing is adapter-controlled and defaults to disabled
 - `_stack` currently opts into `ff-only` landing to local `main`
 - `ff-only` landing requires the repo-root worktree to already be on local `main`, to be clean, and to be able to fast-forward to the task commit
 - if landing is unsafe or fast-forward is not possible, the runner leaves the commit on the task branch and records the reason in the run log
 - push stays manual-only and skipped by default
 
-The runner records the resolved policy, commit metadata decision, final commit message, adapter data, task branch, commit sha, landing mode, `landed_to_main`, and any landing failure reason in each repo-local `run.json` manifest.
+The runner records the configured and resolved base refs, resolved patch export base ref, commit metadata decision, final commit message, adapter data, task branch, commit sha, landing mode, `landed_to_main`, and any landing failure reason in each repo-local `run.json` manifest.
 
 ## Commit metadata contract
 

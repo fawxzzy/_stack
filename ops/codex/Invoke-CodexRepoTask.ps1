@@ -32,6 +32,9 @@ $verifyRecords = @()
 $promptRecord = $null
 $config = @{}
 $baseRef = "origin/main"
+$configuredBaseRef = "origin/main"
+$baseRefCandidates = @()
+$baseRefUsedFallback = $false
 $codexStdOutPath = $null
 $codexStdErrPath = $null
 $summaryPath = $null
@@ -65,6 +68,12 @@ $localLandingMode = "disabled"
 $localLandingTargetBranch = "main"
 $landedToMain = $false
 $landingFailureReason = "disabled_by_policy"
+$configuredFormatPatchBaseRef = $null
+$resolvedFormatPatchBaseRef = $null
+$formatPatchBaseRefCandidates = @()
+$formatPatchBaseRefUsedFallback = $false
+$exportPatch = $false
+$exportBundle = $false
 
 try {
     $PromptPath = (Resolve-Path -LiteralPath $PromptPath).Path
@@ -78,10 +87,11 @@ try {
         throw ("Adapter contract is empty or unreadable: {0}" -f $adapterContractPath)
     }
 
-    $baseRef = [string]$adapterContract.execution.baseRef
-    if ([string]::IsNullOrWhiteSpace($baseRef)) {
-        $baseRef = "origin/main"
+    $configuredBaseRef = [string]$adapterContract.execution.baseRef
+    if ([string]::IsNullOrWhiteSpace($configuredBaseRef)) {
+        $configuredBaseRef = "origin/main"
     }
+    $baseRef = $configuredBaseRef
 
     $branchPrefix = [string]$adapterContract.execution.branchPrefix
     if ([string]::IsNullOrWhiteSpace($branchPrefix)) {
@@ -171,9 +181,9 @@ try {
     }
 
     if ($fetchOrigin) {
-        Write-RunnerMessage -Message ("Fetching {0} before worktree creation" -f $baseRef)
+        Write-RunnerMessage -Message ("Fetching {0} before worktree creation" -f $configuredBaseRef)
         $fetchArguments = @("fetch", "--quiet")
-        if ($baseRef -match '^origin/(?<branch>.+)$') {
+        if ($configuredBaseRef -match '^origin/(?<branch>.+)$') {
             $fetchArguments += @("origin", $Matches.branch)
         }
         else {
@@ -184,8 +194,19 @@ try {
         Assert-CommandSucceeded -Result $fetchResult -Description ("git {0}" -f ($fetchArguments -join " "))
     }
 
-    if (-not (Test-GitRefExists -RefName $baseRef -WorkingDirectory $repoRoot)) {
-        throw ("Base ref does not exist locally: {0}" -f $baseRef)
+    $baseRefResolution = Resolve-GitRef -PreferredRef $configuredBaseRef -WorkingDirectory $repoRoot
+    $baseRefCandidates = @($baseRefResolution.candidates)
+    $baseRefUsedFallback = [bool]$baseRefResolution.usedFallback
+    $baseRef = [string]$baseRefResolution.resolvedRef
+    if ([string]::IsNullOrWhiteSpace($baseRef)) {
+        throw ("Base ref does not exist locally. Tried: {0}" -f ($baseRefCandidates -join ", "))
+    }
+
+    if ($baseRefUsedFallback) {
+        Write-RunnerMessage -Message ("Configured base ref {0} unavailable locally; using fallback {1}" -f $configuredBaseRef, $baseRef) -Level "WARN"
+    }
+    else {
+        Write-RunnerMessage -Message ("Resolved base ref to {0}" -f $baseRef)
     }
 
     Write-RunnerMessage -Message ("Creating worktree {0} on branch {1} from {2}" -f $worktreePath, $branchName, $baseRef)
@@ -431,19 +452,35 @@ try {
     }
 
     if ($commitSha) {
-        $formatPatchBaseRef = [string]$adapterContract.exports.formatPatchBaseRef
-        if ([string]::IsNullOrWhiteSpace($formatPatchBaseRef)) {
-            $formatPatchBaseRef = $baseRef
+        $configuredFormatPatchBaseRef = [string]$adapterContract.exports.formatPatchBaseRef
+        if ([string]::IsNullOrWhiteSpace($configuredFormatPatchBaseRef)) {
+            $configuredFormatPatchBaseRef = $configuredBaseRef
         }
+        $formatPatchBaseRefResolution = Resolve-GitRef -PreferredRef $configuredFormatPatchBaseRef -WorkingDirectory $worktreePath
+        $formatPatchBaseRefCandidates = @($formatPatchBaseRefResolution.candidates)
+        $formatPatchBaseRefUsedFallback = [bool]$formatPatchBaseRefResolution.usedFallback
+        $resolvedFormatPatchBaseRef = [string]$formatPatchBaseRefResolution.resolvedRef
 
         if ($exportPatch) {
             $patchPath = Join-Path -Path $exportsDirectory -ChildPath ("{0}.patch" -f $runId)
-            $patchResult = Invoke-Git -Arguments @("format-patch", "--stdout", ("{0}..HEAD" -f $formatPatchBaseRef)) -WorkingDirectory $worktreePath
-            if ($patchResult.ExitCode -eq 0) {
-                Write-TextFile -Path $patchPath -Content $patchResult.StdOut
+            if ([string]::IsNullOrWhiteSpace($resolvedFormatPatchBaseRef)) {
+                $exportErrors += ("Patch export failed: format patch base ref was not available locally. Tried: {0}" -f ($formatPatchBaseRefCandidates -join ", "))
             }
             else {
-                $exportErrors += ("Patch export failed: {0}" -f $patchResult.StdErr.Trim())
+                if ($formatPatchBaseRefUsedFallback) {
+                    Write-RunnerMessage -Message ("Configured patch base ref {0} unavailable locally; using fallback {1}" -f $configuredFormatPatchBaseRef, $resolvedFormatPatchBaseRef) -Level "WARN"
+                }
+                else {
+                    Write-RunnerMessage -Message ("Resolved patch export base ref to {0}" -f $resolvedFormatPatchBaseRef)
+                }
+
+                $patchResult = Invoke-Git -Arguments @("format-patch", "--stdout", ("{0}..HEAD" -f $resolvedFormatPatchBaseRef)) -WorkingDirectory $worktreePath
+                if ($patchResult.ExitCode -eq 0) {
+                    Write-TextFile -Path $patchPath -Content $patchResult.StdOut
+                }
+                else {
+                    $exportErrors += ("Patch export failed: {0}" -f $patchResult.StdErr.Trim())
+                }
             }
         }
 
@@ -497,6 +534,9 @@ finally {
             archivePath = $archivePath
             branchName = $branchName
             baseRef = $baseRef
+            configuredBaseRef = $configuredBaseRef
+            baseRefUsedFallback = $baseRefUsedFallback
+            baseRefCandidates = @($baseRefCandidates)
             worktreePath = $worktreePath
             commitSha = $commitSha
             commit = [ordered]@{
@@ -527,6 +567,14 @@ finally {
             changedPaths = @($changedPaths)
             mutationScopeViolations = @($mutationScopeViolations)
             exportErrors = @($exportErrors)
+            exports = [ordered]@{
+                enabledPatch = $exportPatch
+                enabledBundle = $exportBundle
+                configuredFormatPatchBaseRef = $configuredFormatPatchBaseRef
+                resolvedFormatPatchBaseRef = $resolvedFormatPatchBaseRef
+                formatPatchBaseRefUsedFallback = $formatPatchBaseRefUsedFallback
+                formatPatchBaseRefCandidates = @($formatPatchBaseRefCandidates)
+            }
             docsUpdateNote = if ($null -ne $promptRecord) { $promptRecord.DocsUpdateNote } else { $null }
             repoAdapter = [ordered]@{
                 path = $adapterContractPath

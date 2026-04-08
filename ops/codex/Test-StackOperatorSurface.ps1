@@ -61,6 +61,12 @@ $stackAdapter = Get-Content -LiteralPath "ops/codex/repos/stack/adapter.json" -R
 if ($stackAdapter.pushPolicy.mode -ne "manual-only" -or -not $stackAdapter.pushPolicy.skipPush -or $stackAdapter.pushPolicy.allowAutoPush) {
     throw "_stack adapter pushPolicy must stay manual-only with auto-push disabled."
 }
+if ($stackAdapter.execution.baseRef -ne "origin/main") {
+    throw "_stack adapter execution.baseRef must keep origin/main as the preferred base ref."
+}
+if ($stackAdapter.exports.formatPatchBaseRef -ne "origin/main") {
+    throw "_stack adapter exports.formatPatchBaseRef must keep origin/main as the preferred patch base ref."
+}
 if ($stackAdapter.localLandingPolicy.mode -ne "ff-only" -or $stackAdapter.localLandingPolicy.targetBranch -ne "main") {
     throw "_stack adapter localLandingPolicy must be ff-only on local main."
 }

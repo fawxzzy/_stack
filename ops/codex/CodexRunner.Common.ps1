@@ -1175,6 +1175,52 @@ function Test-GitRefExists {
     return $result.ExitCode -eq 0
 }
 
+function Get-GitRefResolutionCandidates {
+    param([string]$PreferredRef)
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+    $resolvedPreferredRef = [string]$PreferredRef
+    if ([string]::IsNullOrWhiteSpace($resolvedPreferredRef)) {
+        $resolvedPreferredRef = "origin/main"
+    }
+
+    foreach ($candidate in @($resolvedPreferredRef, $(if ($resolvedPreferredRef -match '^origin/(?<branch>.+)$') { $Matches.branch }))) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and -not $candidates.Contains($candidate)) {
+            [void]$candidates.Add($candidate)
+        }
+    }
+
+    return @($candidates.ToArray())
+}
+
+function Resolve-GitRef {
+    param(
+        [string]$PreferredRef,
+        [string]$WorkingDirectory
+    )
+
+    $candidates = @(Get-GitRefResolutionCandidates -PreferredRef $PreferredRef)
+    $configuredRef = if ($candidates.Count -gt 0) { $candidates[0] } else { "origin/main" }
+
+    foreach ($candidate in $candidates) {
+        if (Test-GitRefExists -RefName $candidate -WorkingDirectory $WorkingDirectory) {
+            return [pscustomobject]@{
+                configuredRef = $configuredRef
+                resolvedRef = $candidate
+                usedFallback = $candidate -ne $configuredRef
+                candidates = @($candidates)
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        configuredRef = $configuredRef
+        resolvedRef = $null
+        usedFallback = $false
+        candidates = @($candidates)
+    }
+}
+
 function Test-GitPathTracked {
     param(
         [string]$Path,

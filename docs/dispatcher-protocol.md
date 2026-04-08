@@ -74,10 +74,11 @@ Use only when the task explicitly spans more than one repo and coordination is r
 4. `_stack` is the declared execution surface for shared `doctor`, `heal`, `route`, `verify`, and `deploy` actions.
 5. `_stack` may also self-manage `_stack`-only workflow changes through its thin shared-runner adapter; this does not widen `_stack` into a dev-root multi-repo dispatcher.
 6. `_stack` may optionally fast-forward successful shared-runner task commits back onto local `_stack` `main` when its adapter enables `ff-only`; this remains local-only and does not permit auto-push.
-7. Fitness is the only repo currently using Vercel.
-8. Playbook, Lifeline, and Atlas are currently self-hosted and should not be routed through Vercel workflows.
-9. Cross-repo work should produce thin orchestration artifacts in `_stack` and keep repo mutations delegated.
-10. Do not restructure sibling repos from the dispatcher layer.
+7. Shared runner base-ref resolution stays local-first: prefer `origin/main` when it exists locally, otherwise use local `main`, and record the resolved ref in the run manifest.
+8. Fitness is the only repo currently using Vercel.
+9. Playbook, Lifeline, and Atlas are currently self-hosted and should not be routed through Vercel workflows.
+10. Cross-repo work should produce thin orchestration artifacts in `_stack` and keep repo mutations delegated.
+11. Do not restructure sibling repos from the dispatcher layer.
 
 ## Dispatcher Decision Table
 
