@@ -1,0 +1,12 @@
+{
+    "source":  "artifact",
+    "type":  "docs",
+    "scope":  "readme",
+    "summary":  "clarify fitness verification wording",
+    "message":  "docs(readme): clarify fitness verification wording",
+    "fallbackType":  null,
+    "fallbackArea":  null,
+    "candidateErrors":  {
+
+                        }
+}

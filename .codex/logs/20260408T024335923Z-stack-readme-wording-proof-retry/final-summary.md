@@ -1,0 +1,5 @@
+Updated the dispatcher bullet in [README.md](/C:/Users/zjhre/dev/_stack/.codex/worktrees/stack-readme-wording-proof-retry/README.md#L14) from “verify” to “verification”. No sibling repos were touched, and I did not push.
+
+I ran the stack adapter’s default verification commands: `powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Test-StackOperatorSurface.ps1` and `git diff --check`. Both exited `0`. `git diff --check` did emit a CRLF warning in stderr, which is captured in the run logs, but it did not fail verification.
+
+Artifacts are in [.codex/archive/readme-wording-proof-retry.prompt.md](/C:/Users/zjhre/dev/_stack/.codex/worktrees/stack-readme-wording-proof-retry/.codex/archive/readme-wording-proof-retry.prompt.md), [.codex/logs/readme-wording-proof-retry/run-summary.json](/C:/Users/zjhre/dev/_stack/.codex/worktrees/stack-readme-wording-proof-retry/.codex/logs/readme-wording-proof-retry/run-summary.json), and [.codex/commit-meta.json](/C:/Users/zjhre/dev/_stack/.codex/worktrees/stack-readme-wording-proof-retry/.codex/commit-meta.json).

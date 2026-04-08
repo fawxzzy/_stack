@@ -1,0 +1,157 @@
+{
+    "runId":  "20260408T024335923Z-stack-readme-wording-proof-retry",
+    "status":  "success",
+    "repoRoot":  "C:\\Users\\zjhre\\dev\\_stack\\",
+    "configPath":  "C:\\Users\\zjhre\\dev\\_stack\\ops\\codex\\repos\\stack\\config.toml",
+    "defaultsPath":  "C:\\Users\\zjhre\\dev\\_stack\\ops\\codex\\config.defaults.toml",
+    "promptPath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\inbox\\stack-readme-wording-proof-retry.md",
+    "archivePath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\archive\\20260408T024812785Z-stack-readme-wording-proof-retry-success.md",
+    "branchName":  "codex/stack-readme-wording-proof-retry",
+    "baseRef":  "origin/main",
+    "worktreePath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\worktrees\\stack-readme-wording-proof-retry",
+    "commitSha":  "7cb2e327ba291390fef354abb801c366c84c6cce",
+    "commit":  {
+                   "enabled":  true,
+                   "message":  "docs(readme): clarify fitness verification wording",
+                   "messagePath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T024335923Z-stack-readme-wording-proof-retry\\commit-message.txt",
+                   "metadataPath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T024335923Z-stack-readme-wording-proof-retry\\commit-meta.resolved.json",
+                   "source":  "artifact",
+                   "artifactPath":  ".codex/commit-meta.json",
+                   "artifactLogPath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T024335923Z-stack-readme-wording-proof-retry\\commit-meta.raw.json",
+                   "artifactProvided":  true,
+                   "artifactParseError":  null,
+                   "artifactTracked":  false,
+                   "artifactRemoved":  true,
+                   "validationFailures":  {
+
+                                          }
+               },
+    "sandboxMode":  "danger-full-access",
+    "logs":  {
+                 "directory":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T024335923Z-stack-readme-wording-proof-retry",
+                 "manifest":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T024335923Z-stack-readme-wording-proof-retry\\run.json",
+                 "codexStdOut":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T024335923Z-stack-readme-wording-proof-retry\\codex.stdout.log",
+                 "codexStdErr":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T024335923Z-stack-readme-wording-proof-retry\\codex.stderr.log",
+                 "finalSummary":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T024335923Z-stack-readme-wording-proof-retry\\final-summary.md"
+             },
+    "verification":  [
+                         {
+                             "command":  "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-StackOperatorSurface.ps1",
+                             "exitCode":  0,
+                             "stdoutPath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T024335923Z-stack-readme-wording-proof-retry\\verification\\verify-01.stdout.log",
+                             "stderrPath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T024335923Z-stack-readme-wording-proof-retry\\verification\\verify-01.stderr.log"
+                         },
+                         {
+                             "command":  "git diff --check",
+                             "exitCode":  0,
+                             "stdoutPath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T024335923Z-stack-readme-wording-proof-retry\\verification\\verify-02.stdout.log",
+                             "stderrPath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T024335923Z-stack-readme-wording-proof-retry\\verification\\verify-02.stderr.log"
+                         }
+                     ],
+    "verificationBootstrap":  [
+
+                              ],
+    "verificationSource":  "adapter-default",
+    "changedPaths":  [
+                         "README.md",
+                         ".codex/archive/readme-wording-proof-retry.prompt.md",
+                         ".codex/logs/readme-wording-proof-retry/run-summary.json",
+                         ".codex/logs/readme-wording-proof-retry/verify-01.stderr.log",
+                         ".codex/logs/readme-wording-proof-retry/verify-01.stdout.log",
+                         ".codex/logs/readme-wording-proof-retry/verify-02.stderr.log",
+                         ".codex/logs/readme-wording-proof-retry/verify-02.stdout.log"
+                     ],
+    "mutationScopeViolations":  [
+
+                                ],
+    "exportErrors":  [
+
+                     ],
+    "docsUpdateNote":  null,
+    "repoAdapter":  {
+                        "path":  "C:\\Users\\zjhre\\dev\\_stack\\ops\\codex\\repos\\stack\\adapter.json",
+                        "kind":  "stack-codex-repo-adapter",
+                        "schemaVersion":  "1.1",
+                        "repoId":  "stack",
+                        "description":  "_stack adapter for the shared _stack Codex inbox/worktree runner.",
+                        "allowedMutationSurfaces":  [
+                                                        ".codex/**",
+                                                        ".vscode/**",
+                                                        "AGENTS.md",
+                                                        "README.md",
+                                                        "docs/**",
+                                                        "ops/**",
+                                                        "package.json",
+                                                        "queue/**",
+                                                        "receipts/**",
+                                                        "templates/**",
+                                                        "workspace.manifest.json"
+                                                    ],
+                        "docsUpdateRules":  [
+                                                "If shared Codex runner behavior, _stack adapter inventory, or operator command surfaces change, keep README.md, docs/codex-orchestration.md, docs/dispatcher-protocol.md, and workspace.manifest.json aligned in the same change or immediately after.",
+                                                "If dispatcher handoff boundaries or operator workflow expectations change, keep AGENTS.md and templates/child-task-handoff.md aligned with the operator docs in the same change or immediately after.",
+                                                "Keep _stack focused on workflow commands, editor tasks, receipts scaffolding, queue drops, templates, and cross-repo operator docs; do not add dev-level multi-repo dispatcher logic, Fitness deploy changes, or automatic commit-triggered receipts from this adapter."
+                                            ],
+                        "bootstrapVerifyCommands":  {
+
+                                                    },
+                        "defaultVerifyCommands":  [
+                                                      "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-StackOperatorSurface.ps1",
+                                                      "git diff --check"
+                                                  ],
+                        "artifacts":  {
+                                          "inboxDir":  ".codex/inbox",
+                                          "archiveDir":  ".codex/archive",
+                                          "logsDir":  ".codex/logs",
+                                          "worktreeRoot":  ".codex/worktrees",
+                                          "exportsDir":  ".codex/exports"
+                                      },
+                        "pushPolicy":  {
+                                           "mode":  "manual-only",
+                                           "skipPush":  true,
+                                           "allowAutoPush":  false
+                                       },
+                        "autoCommitPolicy":  {
+                                                 "enabled":  true,
+                                                 "mode":  "on-successful-mutation",
+                                                 "skipEmptyCommit":  true,
+                                                 "requireVerificationPass":  true,
+                                                 "commitMetadata":  {
+                                                                        "artifactPath":  ".codex/commit-meta.json",
+                                                                        "allowedTypes":  [
+                                                                                             "feat",
+                                                                                             "fix",
+                                                                                             "docs",
+                                                                                             "refactor",
+                                                                                             "test",
+                                                                                             "chore"
+                                                                                         ],
+                                                                        "rejectedSummaries":  [
+                                                                                                  "update",
+                                                                                                  "done",
+                                                                                                  "fixes",
+                                                                                                  "misc changes"
+                                                                                              ],
+                                                                        "fallbackScope":  "stack"
+                                                                    }
+                                             },
+                        "exports":  {
+                                        "patch":  true,
+                                        "bundle":  false,
+                                        "formatPatchBaseRef":  "origin/main"
+                                    },
+                        "execution":  {
+                                          "baseRef":  "origin/main",
+                                          "branchPrefix":  "codex/",
+                                          "defaultSandbox":  "workspace-write",
+                                          "documentedWindowsFallback":  "danger-full-access",
+                                          "cleanupWorktreeOnSuccess":  false,
+                                          "fetchOrigin":  false
+                                      }
+                    },
+    "effectivePolicies":  {
+                              "autoCommitEnabled":  true,
+                              "pushMode":  "manual-only",
+                              "skipPush":  true
+                          }
+}

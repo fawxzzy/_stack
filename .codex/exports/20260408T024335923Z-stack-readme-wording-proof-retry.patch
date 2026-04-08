@@ -1,0 +1,123 @@
+From 7cb2e327ba291390fef354abb801c366c84c6cce Mon Sep 17 00:00:00 2001
+From: Codex Inbox Runner <codex-inbox@local>
+Date: Tue, 7 Apr 2026 22:48:12 -0400
+Subject: [PATCH] docs(readme): clarify fitness verification wording
+
+---
+ .../readme-wording-proof-retry.prompt.md      | 34 +++++++++++++++++++
+ .../run-summary.json                          | 20 +++++++++++
+ .../verify-01.stderr.log                      |  0
+ .../verify-01.stdout.log                      |  1 +
+ .../verify-02.stderr.log                      |  1 +
+ .../verify-02.stdout.log                      |  0
+ README.md                                     |  2 +-
+ 7 files changed, 57 insertions(+), 1 deletion(-)
+ create mode 100644 .codex/archive/readme-wording-proof-retry.prompt.md
+ create mode 100644 .codex/logs/readme-wording-proof-retry/run-summary.json
+ create mode 100644 .codex/logs/readme-wording-proof-retry/verify-01.stderr.log
+ create mode 100644 .codex/logs/readme-wording-proof-retry/verify-01.stdout.log
+ create mode 100644 .codex/logs/readme-wording-proof-retry/verify-02.stderr.log
+ create mode 100644 .codex/logs/readme-wording-proof-retry/verify-02.stdout.log
+
+diff --git a/.codex/archive/readme-wording-proof-retry.prompt.md b/.codex/archive/readme-wording-proof-retry.prompt.md
+new file mode 100644
+index 0000000..609364d
+--- /dev/null
++++ b/.codex/archive/readme-wording-proof-retry.prompt.md
+@@ -0,0 +1,34 @@
++# Prompt Archive
++
++Date: 2026-04-07
++Task: `readme-wording-proof-retry`
++
++```text
++Make one tiny docs-only wording improvement in `README.md` and nothing else.
++
++Exact change:
++- Replace `Fitness local verify guidance lives at ` with `Fitness local verification guidance lives at ` in the existing dispatcher protocol bullet.
++
++Requirements:
++- Change only `README.md`.
++- Keep the change tiny and safe.
++- Do not touch sibling repos.
++- Do not push.
++
++Verification:
++- Run the adapter default verification commands.
++- Archive this prompt and write run logs.
++
++Commit metadata:
++- If you change the file, write valid commit metadata for a docs-only README wording clarification.
++
++Commit metadata contract:
++- If you make repository changes that should be committed, write UTF-8 JSON to .codex/commit-meta.json.
++- Use exactly this shape: {"type":"<type>","scope":"<scope>","summary":"<summary>"}
++- Allowed commit types: feat, fix, docs, refactor, test, chore.
++- Scope must be a short lowercase slug using letters, digits, and hyphens.
++- Summary must be specific, contain at least two words, and must not be generic like update, done, fixes, or misc changes.
++- If you make no repository changes, do not create the commit metadata artifact.
++- The runner will consume and remove the artifact before staging.
++- Do not push. Push remains manual-only.
++```
+diff --git a/.codex/logs/readme-wording-proof-retry/run-summary.json b/.codex/logs/readme-wording-proof-retry/run-summary.json
+new file mode 100644
+index 0000000..c95658d
+--- /dev/null
++++ b/.codex/logs/readme-wording-proof-retry/run-summary.json
+@@ -0,0 +1,20 @@
++﻿{
++    "task":  "readme-wording-proof-retry",
++    "timestamp":  "2026-04-07T22:47:05.1230610-04:00",
++    "commands":  [
++                     {
++                         "index":  1,
++                         "command":  "powershell -NoProfile -ExecutionPolicy Bypass -File .\\\\ops\\\\codex\\\\Test-StackOperatorSurface.ps1",
++                         "exitCode":  0,
++                         "stdout":  ".codex/logs/readme-wording-proof-retry/verify-01.stdout.log",
++                         "stderr":  ".codex/logs/readme-wording-proof-retry/verify-01.stderr.log"
++                     },
++                     {
++                         "index":  2,
++                         "command":  "git diff --check",
++                         "exitCode":  0,
++                         "stdout":  ".codex/logs/readme-wording-proof-retry/verify-02.stdout.log",
++                         "stderr":  ".codex/logs/readme-wording-proof-retry/verify-02.stderr.log"
++                     }
++                 ]
++}
+diff --git a/.codex/logs/readme-wording-proof-retry/verify-01.stderr.log b/.codex/logs/readme-wording-proof-retry/verify-01.stderr.log
+new file mode 100644
+index 0000000..e69de29
+diff --git a/.codex/logs/readme-wording-proof-retry/verify-01.stdout.log b/.codex/logs/readme-wording-proof-retry/verify-01.stdout.log
+new file mode 100644
+index 0000000..7abdbe6
+--- /dev/null
++++ b/.codex/logs/readme-wording-proof-retry/verify-01.stdout.log
+@@ -0,0 +1 @@
++Validated _stack operator surface and Codex entrypoints.
+diff --git a/.codex/logs/readme-wording-proof-retry/verify-02.stderr.log b/.codex/logs/readme-wording-proof-retry/verify-02.stderr.log
+new file mode 100644
+index 0000000..c1813b4
+--- /dev/null
++++ b/.codex/logs/readme-wording-proof-retry/verify-02.stderr.log
+@@ -0,0 +1 @@
++warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+diff --git a/.codex/logs/readme-wording-proof-retry/verify-02.stdout.log b/.codex/logs/readme-wording-proof-retry/verify-02.stdout.log
+new file mode 100644
+index 0000000..e69de29
+diff --git a/README.md b/README.md
+index b648be0..241fbef 100644
+--- a/README.md
++++ b/README.md
+@@ -11,7 +11,7 @@
+ - The workspace-root dispatcher protocol lives at `C:\Users\zjhre\dev\_stack\docs\dispatcher-protocol.md`.
+ - Child-task handoff templates live at `C:\Users\zjhre\dev\_stack\templates\child-task-handoff.md`.
+ - Lightweight future automation task drops live at `C:\Users\zjhre\dev\_stack\queue`.
+-- Fitness local verify guidance lives at `C:\Users\zjhre\dev\_stack\docs\fitness-local-verify.md`.
++- Fitness local verification guidance lives at `C:\Users\zjhre\dev\_stack\docs\fitness-local-verify.md`.
+ - Shared Codex runner guidance lives at `C:\Users\zjhre\dev\_stack\docs\codex-orchestration.md`.
+ 
+ ## Shared Codex operator commands
+-- 
+2.46.1.windows.1
+

@@ -1,0 +1,151 @@
+{
+    "runId":  "20260408T023639339Z-stack-readme-wording-proof",
+    "status":  "no_changes",
+    "repoRoot":  "C:\\Users\\zjhre\\dev\\_stack\\",
+    "configPath":  "C:\\Users\\zjhre\\dev\\_stack\\ops\\codex\\repos\\stack\\config.toml",
+    "defaultsPath":  "C:\\Users\\zjhre\\dev\\_stack\\ops\\codex\\config.defaults.toml",
+    "promptPath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\inbox\\stack-readme-wording-proof.md",
+    "archivePath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\archive\\20260408T024246819Z-stack-readme-wording-proof-no_changes.md",
+    "branchName":  "codex/stack-readme-wording-proof",
+    "baseRef":  "origin/main",
+    "worktreePath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\worktrees\\stack-readme-wording-proof",
+    "commitSha":  null,
+    "commit":  {
+                   "enabled":  true,
+                   "message":  null,
+                   "messagePath":  null,
+                   "metadataPath":  null,
+                   "source":  null,
+                   "artifactPath":  ".codex/commit-meta.json",
+                   "artifactLogPath":  null,
+                   "artifactProvided":  false,
+                   "artifactParseError":  null,
+                   "artifactTracked":  false,
+                   "artifactRemoved":  false,
+                   "validationFailures":  {
+
+                                          }
+               },
+    "sandboxMode":  "workspace-write",
+    "logs":  {
+                 "directory":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T023639339Z-stack-readme-wording-proof",
+                 "manifest":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T023639339Z-stack-readme-wording-proof\\run.json",
+                 "codexStdOut":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T023639339Z-stack-readme-wording-proof\\codex.stdout.log",
+                 "codexStdErr":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T023639339Z-stack-readme-wording-proof\\codex.stderr.log",
+                 "finalSummary":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T023639339Z-stack-readme-wording-proof\\final-summary.md"
+             },
+    "verification":  [
+                         {
+                             "command":  "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-StackOperatorSurface.ps1",
+                             "exitCode":  0,
+                             "stdoutPath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T023639339Z-stack-readme-wording-proof\\verification\\verify-01.stdout.log",
+                             "stderrPath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T023639339Z-stack-readme-wording-proof\\verification\\verify-01.stderr.log"
+                         },
+                         {
+                             "command":  "git diff --check",
+                             "exitCode":  0,
+                             "stdoutPath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T023639339Z-stack-readme-wording-proof\\verification\\verify-02.stdout.log",
+                             "stderrPath":  "C:\\Users\\zjhre\\dev\\_stack\\.codex\\logs\\20260408T023639339Z-stack-readme-wording-proof\\verification\\verify-02.stderr.log"
+                         }
+                     ],
+    "verificationBootstrap":  [
+
+                              ],
+    "verificationSource":  "adapter-default",
+    "changedPaths":  [
+
+                     ],
+    "mutationScopeViolations":  [
+
+                                ],
+    "exportErrors":  [
+
+                     ],
+    "docsUpdateNote":  null,
+    "repoAdapter":  {
+                        "path":  "C:\\Users\\zjhre\\dev\\_stack\\ops\\codex\\repos\\stack\\adapter.json",
+                        "kind":  "stack-codex-repo-adapter",
+                        "schemaVersion":  "1.1",
+                        "repoId":  "stack",
+                        "description":  "_stack adapter for the shared _stack Codex inbox/worktree runner.",
+                        "allowedMutationSurfaces":  [
+                                                        ".codex/**",
+                                                        ".vscode/**",
+                                                        "AGENTS.md",
+                                                        "README.md",
+                                                        "docs/**",
+                                                        "ops/**",
+                                                        "package.json",
+                                                        "queue/**",
+                                                        "receipts/**",
+                                                        "templates/**",
+                                                        "workspace.manifest.json"
+                                                    ],
+                        "docsUpdateRules":  [
+                                                "If shared Codex runner behavior, _stack adapter inventory, or operator command surfaces change, keep README.md, docs/codex-orchestration.md, docs/dispatcher-protocol.md, and workspace.manifest.json aligned in the same change or immediately after.",
+                                                "If dispatcher handoff boundaries or operator workflow expectations change, keep AGENTS.md and templates/child-task-handoff.md aligned with the operator docs in the same change or immediately after.",
+                                                "Keep _stack focused on workflow commands, editor tasks, receipts scaffolding, queue drops, templates, and cross-repo operator docs; do not add dev-level multi-repo dispatcher logic, Fitness deploy changes, or automatic commit-triggered receipts from this adapter."
+                                            ],
+                        "bootstrapVerifyCommands":  {
+
+                                                    },
+                        "defaultVerifyCommands":  [
+                                                      "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-StackOperatorSurface.ps1",
+                                                      "git diff --check"
+                                                  ],
+                        "artifacts":  {
+                                          "inboxDir":  ".codex/inbox",
+                                          "archiveDir":  ".codex/archive",
+                                          "logsDir":  ".codex/logs",
+                                          "worktreeRoot":  ".codex/worktrees",
+                                          "exportsDir":  ".codex/exports"
+                                      },
+                        "pushPolicy":  {
+                                           "mode":  "manual-only",
+                                           "skipPush":  true,
+                                           "allowAutoPush":  false
+                                       },
+                        "autoCommitPolicy":  {
+                                                 "enabled":  true,
+                                                 "mode":  "on-successful-mutation",
+                                                 "skipEmptyCommit":  true,
+                                                 "requireVerificationPass":  true,
+                                                 "commitMetadata":  {
+                                                                        "artifactPath":  ".codex/commit-meta.json",
+                                                                        "allowedTypes":  [
+                                                                                             "feat",
+                                                                                             "fix",
+                                                                                             "docs",
+                                                                                             "refactor",
+                                                                                             "test",
+                                                                                             "chore"
+                                                                                         ],
+                                                                        "rejectedSummaries":  [
+                                                                                                  "update",
+                                                                                                  "done",
+                                                                                                  "fixes",
+                                                                                                  "misc changes"
+                                                                                              ],
+                                                                        "fallbackScope":  "stack"
+                                                                    }
+                                             },
+                        "exports":  {
+                                        "patch":  true,
+                                        "bundle":  false,
+                                        "formatPatchBaseRef":  "origin/main"
+                                    },
+                        "execution":  {
+                                          "baseRef":  "origin/main",
+                                          "branchPrefix":  "codex/",
+                                          "defaultSandbox":  "workspace-write",
+                                          "documentedWindowsFallback":  "danger-full-access",
+                                          "cleanupWorktreeOnSuccess":  false,
+                                          "fetchOrigin":  false
+                                      }
+                    },
+    "effectivePolicies":  {
+                              "autoCommitEnabled":  true,
+                              "pushMode":  "manual-only",
+                              "skipPush":  true
+                          }
+}

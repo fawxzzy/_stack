@@ -1,0 +1,5 @@
+I wasn’t able to complete this because the local tool runtime failed before any safe inspection or write could happen.
+
+Every `shell_command` call failed with `windows sandbox: spawn setup refresh`, and after a few successful no-op `apply_patch` attempts, file writes started failing with the same error. I also tried read-only fallbacks to inspect `README.md` so I could make the exact wording change without guessing, but those paths were unavailable in this session. Because of that, I did not make a blind edit, did not run verification, did not write receipts/logs, did not create `.codex/commit-meta.json`, and did not push.
+
+If you want, rerun this in a fresh session or after the sandbox issue is cleared and I’ll make the single `README.md` wording change, run the adapter verification commands, and write the prompt/log artifacts exactly as requested.

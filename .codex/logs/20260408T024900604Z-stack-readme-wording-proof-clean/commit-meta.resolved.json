@@ -1,0 +1,12 @@
+{
+    "source":  "artifact",
+    "type":  "docs",
+    "scope":  "readme",
+    "summary":  "refine verification wording",
+    "message":  "docs(readme): refine verification wording",
+    "fallbackType":  null,
+    "fallbackArea":  null,
+    "candidateErrors":  {
+
+                        }
+}

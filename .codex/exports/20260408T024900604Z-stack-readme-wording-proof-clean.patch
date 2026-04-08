@@ -1,0 +1,25 @@
+From 26f26b332abbe5fab6c331c476d4ec42e7a5e909 Mon Sep 17 00:00:00 2001
+From: Codex Inbox Runner <codex-inbox@local>
+Date: Tue, 7 Apr 2026 22:50:37 -0400
+Subject: [PATCH] docs(readme): refine verification wording
+
+---
+ README.md | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/README.md b/README.md
+index b648be0..241fbef 100644
+--- a/README.md
++++ b/README.md
+@@ -11,7 +11,7 @@
+ - The workspace-root dispatcher protocol lives at `C:\Users\zjhre\dev\_stack\docs\dispatcher-protocol.md`.
+ - Child-task handoff templates live at `C:\Users\zjhre\dev\_stack\templates\child-task-handoff.md`.
+ - Lightweight future automation task drops live at `C:\Users\zjhre\dev\_stack\queue`.
+-- Fitness local verify guidance lives at `C:\Users\zjhre\dev\_stack\docs\fitness-local-verify.md`.
++- Fitness local verification guidance lives at `C:\Users\zjhre\dev\_stack\docs\fitness-local-verify.md`.
+ - Shared Codex runner guidance lives at `C:\Users\zjhre\dev\_stack\docs\codex-orchestration.md`.
+ 
+ ## Shared Codex operator commands
+-- 
+2.46.1.windows.1
+
