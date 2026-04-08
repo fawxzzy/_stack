@@ -1,0 +1,24 @@
+# Shared defaults for the _stack Codex inbox/worktree runner.
+# Per-repo config files should stay thin and normally only declare repo_root
+# plus the adapter_path.
+
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+personality = "pragmatic"
+
+[windows]
+codex_command = "%USERPROFILE%/.codex/.sandbox-bin/codex.exe"
+sandbox = "workspace-write"
+approval_policy = "never"
+
+[runner]
+poll_interval_seconds = 5
+settle_seconds = 2
+
+[exports]
+patch = true
+bundle = false
+
+[git]
+author_name = "Codex Inbox Runner"
+author_email = "codex-inbox@local"

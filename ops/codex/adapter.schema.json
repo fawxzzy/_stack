@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fawxzzy.local/_stack/ops/codex/adapter.schema.json",
+  "title": "_stack Codex Repo Adapter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "repoId",
+    "verify",
+    "allowedMutationSurfaces",
+    "docsUpdateRules",
+    "artifacts",
+    "exports",
+    "pushPolicy",
+    "autoCommitPolicy",
+    "execution"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "const": "stack-codex-repo-adapter"
+    },
+    "repoId": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "verify": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bootstrapCommands",
+        "defaultCommands"
+      ],
+      "properties": {
+        "bootstrapCommands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "defaultCommands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "allowedMutationSurfaces": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "docsUpdateRules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inboxDir",
+        "archiveDir",
+        "logsDir",
+        "worktreeRoot",
+        "exportsDir"
+      ],
+      "properties": {
+        "inboxDir": {
+          "type": "string"
+        },
+        "archiveDir": {
+          "type": "string"
+        },
+        "logsDir": {
+          "type": "string"
+        },
+        "worktreeRoot": {
+          "type": "string"
+        },
+        "exportsDir": {
+          "type": "string"
+        }
+      }
+    },
+    "exports": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "patch",
+        "bundle"
+      ],
+      "properties": {
+        "patch": {
+          "type": "boolean"
+        },
+        "bundle": {
+          "type": "boolean"
+        },
+        "formatPatchBaseRef": {
+          "type": "string"
+        }
+      }
+    },
+    "pushPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "skipPush",
+        "allowAutoPush"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "skipPush": {
+          "type": "boolean"
+        },
+        "allowAutoPush": {
+          "type": "boolean"
+        }
+      }
+    },
+    "autoCommitPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "mode",
+        "skipEmptyCommit",
+        "requireVerificationPass"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "skipEmptyCommit": {
+          "type": "boolean"
+        },
+        "requireVerificationPass": {
+          "type": "boolean"
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseRef",
+        "branchPrefix",
+        "defaultSandbox",
+        "documentedWindowsFallback",
+        "cleanupWorktreeOnSuccess",
+        "fetchOrigin"
+      ],
+      "properties": {
+        "baseRef": {
+          "type": "string"
+        },
+        "branchPrefix": {
+          "type": "string"
+        },
+        "defaultSandbox": {
+          "type": "string"
+        },
+        "documentedWindowsFallback": {
+          "type": "string"
+        },
+        "cleanupWorktreeOnSuccess": {
+          "type": "boolean"
+        },
+        "fetchOrigin": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

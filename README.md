@@ -12,6 +12,15 @@
 - Child-task handoff templates live at `C:\Users\zjhre\dev\_stack\templates\child-task-handoff.md`.
 - Lightweight future automation task drops live at `C:\Users\zjhre\dev\_stack\queue`.
 - Fitness local verify guidance lives at `C:\Users\zjhre\dev\_stack\docs\fitness-local-verify.md`.
+- Shared Codex runner guidance lives at `C:\Users\zjhre\dev\_stack\docs\codex-orchestration.md`.
+
+## Shared Codex operator commands
+- `pnpm run codex:playbook:inbox`
+- `pnpm run codex:playbook:inbox:once`
+- `pnpm run codex:playbook:task -- -PromptPath C:\path\to\prompt.md`
+- Shared engine scripts live in `C:\Users\zjhre\dev\_stack\ops\codex`.
+- Playbook remains the first adapter example through `C:\Users\zjhre\dev\_stack\ops\codex\repos\playbook`.
+- `_stack` owns the runner; repo-local `.codex/` folders still own inbox, archive, logs, worktrees, and exports.
 
 ## Fitness operator commands
 - `pnpm run fitness:doctor`
@@ -22,6 +31,20 @@
 - `pnpm run fitness:deploy:prebuilt`
 - `pnpm run fitness:deploy:prod`
 - `pnpm run fitness:deploy:prebuilt:prod`
+
+## Mazer operator commands
+- `pnpm run mazer:verify`
+- `pnpm run mazer:dev`
+- `pnpm run mazer:preview`
+- `pnpm run mazer:deploy:preview`
+- `pnpm run mazer:deploy:prod`
+
+### Windows launchers to pin
+- `C:\Users\zjhre\dev\_stack\ops\bin\mazer-dev.cmd`
+- `C:\Users\zjhre\dev\_stack\ops\bin\mazer-preview.cmd`
+- `C:\Users\zjhre\dev\_stack\ops\bin\mazer-deploy-preview.cmd`
+- `C:\Users\zjhre\dev\_stack\ops\bin\mazer-deploy-prod.cmd`
+- Each launcher opens a separate durable PowerShell window rooted in `_stack`, so the command keeps running and the window stays available for logs or restart.
 
 ## Fitness deploy model
 1. Run `pnpm run fitness:doctor` from `_stack`.
@@ -37,13 +60,16 @@
 
 ## Scope boundaries
 - `_stack` owns workflow commands, editor tasks, receipts scaffolding, and operator docs.
-- Fitness is the only repo currently using Vercel.
+- `_stack` now also owns the shared Codex inbox/worktree orchestration engine, but not repo implementation policy.
+- Fitness and Mazer currently use Vercel from the local CLI path.
 - Playbook, Lifeline, and Atlas are currently non-Vercel and self-hosted.
 - Keep commands manual and explicit; no automatic commit-triggered receipts yet.
 
 ## Vercel notes
 - Use `pnpm dlx vercel --cwd ../fawxzzy-fitness ...` for Fitness Vercel operations.
+- Use `pnpm dlx vercel --cwd ../fawxzzy-mazer ...` for Mazer Vercel operations.
 - `fitness:build:vercel` uses `vercel build --yes` so the CLI can pull local project settings on the first local Vercel build.
+- Mazer deploys verify locally first and then deploy from the local repo path; no GitHub-triggered deploy flow is assumed.
 - Do not use untargeted env listing; use explicit targets:
   - `vercel env ls preview`
   - `vercel env ls production`

@@ -1,0 +1,63 @@
+{
+  "$schema": "../../adapter.schema.json",
+  "schemaVersion": "1.0",
+  "kind": "stack-codex-repo-adapter",
+  "repoId": "playbook",
+  "description": "Playbook adapter for the shared _stack Codex inbox/worktree runner.",
+  "verify": {
+    "bootstrapCommands": [
+      "pnpm install --frozen-lockfile"
+    ],
+    "defaultCommands": [
+      "pnpm -r build",
+      "pnpm playbook docs audit --json"
+    ],
+    "notes": [
+      "Docs-only and governance-doc tasks should stay inside the documented mutation surfaces.",
+      "Fresh worktrees do not carry repo-local node_modules, so verification bootstrap runs before declared verify commands.",
+      "If command or workflow state changes, also run pnpm agents:update and pnpm agents:check before promotion."
+    ]
+  },
+  "allowedMutationSurfaces": [
+    ".codex/**",
+    "README.md",
+    "docs/**",
+    "scripts/codex-*.ps1"
+  ],
+  "docsUpdateRules": [
+    "If command or workflow state changes, keep README.md, docs/commands/README.md, docs/PLAYBOOK_PRODUCT_ROADMAP.md, and docs/CHANGELOG.md aligned in the same change or immediately after.",
+    "Keep Playbook Codex execution repo-local in this phase; do not edit _stack, Atlas, Lifeline, or Fitness from Playbook tasks.",
+    "Prefer Playbook command outputs over broad repository inference when command coverage exists."
+  ],
+  "artifacts": {
+    "inboxDir": ".codex/inbox",
+    "archiveDir": ".codex/archive",
+    "logsDir": ".codex/logs",
+    "worktreeRoot": ".codex/worktrees",
+    "exportsDir": ".codex/exports"
+  },
+  "exports": {
+    "patch": true,
+    "bundle": false,
+    "formatPatchBaseRef": "origin/main"
+  },
+  "pushPolicy": {
+    "mode": "manual-only",
+    "skipPush": true,
+    "allowAutoPush": false
+  },
+  "autoCommitPolicy": {
+    "enabled": true,
+    "mode": "on-successful-mutation",
+    "skipEmptyCommit": true,
+    "requireVerificationPass": true
+  },
+  "execution": {
+    "baseRef": "origin/main",
+    "branchPrefix": "codex/",
+    "defaultSandbox": "workspace-write",
+    "documentedWindowsFallback": "danger-full-access",
+    "cleanupWorktreeOnSuccess": false,
+    "fetchOrigin": false
+  }
+}

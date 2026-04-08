@@ -2,6 +2,9 @@
   "name": "fawxzzy-stack",
   "private": true,
   "scripts": {
+    "codex:playbook:inbox": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Start-CodexInboxRunner.ps1 -ConfigPath .\\ops\\codex\\repos\\playbook\\config.toml",
+    "codex:playbook:inbox:once": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Start-CodexInboxRunner.ps1 -ConfigPath .\\ops\\codex\\repos\\playbook\\config.toml -RunOnce",
+    "codex:playbook:task": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Invoke-CodexRepoTask.ps1 -ConfigPath .\\ops\\codex\\repos\\playbook\\config.toml",
     "fitness:doctor": "pnpm dlx vercel --cwd ../fawxzzy-fitness whoami && pnpm dlx vercel --cwd ../fawxzzy-fitness env ls preview && pnpm dlx vercel --cwd ../fawxzzy-fitness env ls production",
     "fitness:verify": "pnpm --dir ../fawxzzy-fitness verify:strict",
     "fitness:git:disconnect": "pnpm dlx vercel --cwd ../fawxzzy-fitness git disconnect --yes",
@@ -10,6 +13,11 @@
     "fitness:deploy:prod": "pnpm run fitness:verify && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prod",
     "fitness:deploy:prebuilt": "pnpm run fitness:build:vercel && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prebuilt",
     "fitness:deploy:prebuilt:prod": "pnpm run fitness:build:vercel && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prebuilt --prod",
-    "fitness:deploy:preview:logs": "pnpm run fitness:verify && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --logs"
+    "fitness:deploy:preview:logs": "pnpm run fitness:verify && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --logs",
+    "mazer:verify": "npm --prefix ../fawxzzy-mazer run lint && npm --prefix ../fawxzzy-mazer run test && npm --prefix ../fawxzzy-mazer run build",
+    "mazer:dev": "npm --prefix ../fawxzzy-mazer run dev -- --host 0.0.0.0",
+    "mazer:preview": "npm --prefix ../fawxzzy-mazer run build && pnpm --dir ../fawxzzy-mazer exec vite preview --host 0.0.0.0 --port 4173 --strictPort",
+    "mazer:deploy:preview": "pnpm run mazer:verify && pnpm dlx vercel --cwd ../fawxzzy-mazer deploy",
+    "mazer:deploy:prod": "pnpm run mazer:verify && pnpm dlx vercel --cwd ../fawxzzy-mazer deploy --prod"
   }
 }

@@ -2,6 +2,34 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Codex: Playbook Inbox",
+      "type": "shell",
+      "command": "pnpm run codex:playbook:inbox",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Codex: Playbook Inbox (Once)",
+      "type": "shell",
+      "command": "pnpm run codex:playbook:inbox:once",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
       "label": "Fitness: Doctor",
       "type": "shell",
       "command": "pnpm run fitness:doctor",
@@ -117,6 +145,76 @@
       "label": "Fitness: Disconnect Vercel Git",
       "type": "shell",
       "command": "pnpm run fitness:git:disconnect",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Mazer: Verify",
+      "type": "shell",
+      "command": "pnpm run mazer:verify",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Mazer: Dev",
+      "type": "shell",
+      "command": "pnpm run mazer:dev",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Mazer: Local Preview",
+      "type": "shell",
+      "command": "pnpm run mazer:preview",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Mazer: Preview Deploy",
+      "type": "shell",
+      "command": "pnpm run mazer:deploy:preview",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Mazer: Prod Deploy",
+      "type": "shell",
+      "command": "pnpm run mazer:deploy:prod",
       "options": {
         "cwd": "${workspaceFolder}"
       },

@@ -9,6 +9,15 @@
       "deployProd": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prod",
       "deployProdPrebuilt": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prebuilt --prod"
     },
+    "mazer": {
+      "path": "../fawxzzy-mazer",
+      "verify": "npm run lint && npm run test && npm run build",
+      "localDev": "npm run dev -- --host 0.0.0.0",
+      "localPreview": "npm run build && pnpm --dir ../fawxzzy-mazer exec vite preview --host 0.0.0.0 --port 4173 --strictPort",
+      "deployModel": "vercel-cli",
+      "deployPreview": "pnpm dlx vercel --cwd ../fawxzzy-mazer deploy",
+      "deployProd": "pnpm dlx vercel --cwd ../fawxzzy-mazer deploy --prod"
+    },
     "playbook": {
       "path": "../fawxzzy-playbook",
       "deployModel": "self-hosted"
