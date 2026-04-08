@@ -352,6 +352,20 @@
       }
     },
     {
+      "label": "Mazer: Deploy Preflight",
+      "type": "shell",
+      "command": "pnpm run mazer:deploy:preflight",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
       "label": "Mazer: Preview Deploy (Alias)",
       "type": "shell",
       "command": "pnpm run mazer:deploy-preview",

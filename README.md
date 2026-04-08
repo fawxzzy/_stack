@@ -55,6 +55,7 @@
 - `pnpm run mazer:dev:open`
 - `pnpm run mazer:preview`
 - `pnpm run mazer:preview:open`
+- `pnpm run mazer:deploy:preflight`
 - `pnpm run mazer:deploy:preview`
 - `pnpm run mazer:deploy-preview`
 - `pnpm run mazer:deploy:prod`
@@ -65,8 +66,19 @@
 - Use `pnpm run mazer:dev:open` to open a durable `_stack` PowerShell window for the dev server and open the browser at `http://127.0.0.1:5173`.
 - Use `pnpm run mazer:preview` to build and run local preview in the current terminal on `http://127.0.0.1:4173`.
 - Use `pnpm run mazer:preview:open` to open a durable `_stack` PowerShell window for local preview.
+- Use `pnpm run mazer:deploy:preflight` to check the repo Git identity before any Mazer Vercel deploy.
 - Use either `pnpm run mazer:deploy:preview` or `pnpm run mazer:deploy-preview` for the same preview deploy path.
 - Use either `pnpm run mazer:deploy:prod` or `pnpm run mazer:deploy-prod` for the same production deploy path.
+
+### Mazer deploy author preflight
+- Mazer deploy wrappers now stop before Vercel if the repo Git identity does not match the required owner identity for private Hobby-team deploys.
+- The preflight checks `git config user.name`, `git config user.email`, and the latest commit author on `C:\Users\zjhre\dev\fawxzzy-mazer`.
+- This exists because private Hobby-team deploys can fail at Vercel when the latest commit author is not the owner identity. Catching that locally avoids running a deploy that will be rejected upstream.
+- Required owner identity: `Zachariah Redfield <zjhredfield@icloud.com>`.
+- Fix commands from `_stack`:
+  - `git -C "C:\Users\zjhre\dev\fawxzzy-mazer" config user.name "Zachariah Redfield"`
+  - `git -C "C:\Users\zjhre\dev\fawxzzy-mazer" config user.email "zjhredfield@icloud.com"`
+  - `git -C "C:\Users\zjhre\dev\fawxzzy-mazer" commit --amend --reset-author --no-edit`
 
 ### Windows launchers to pin
 - `C:\Users\zjhre\dev\_stack\ops\bin\mazer-dev.cmd`
@@ -100,7 +112,7 @@
 - Use `pnpm dlx vercel --cwd ../fawxzzy-fitness ...` for Fitness Vercel operations.
 - Use `pnpm dlx vercel --cwd ../fawxzzy-mazer ...` for Mazer Vercel operations.
 - `fitness:build:vercel` uses `vercel build --yes` so the CLI can pull local project settings on the first local Vercel build.
-- Mazer deploys verify locally first and then deploy from the local repo path; no GitHub-triggered deploy flow is assumed.
+- Mazer deploys run the owner-author preflight, verify locally, and then deploy from the local repo path; no GitHub-triggered deploy flow is assumed.
 - Do not use untargeted env listing; use explicit targets:
   - `vercel env ls preview`
   - `vercel env ls production`
@@ -112,5 +124,6 @@
 
 ## Troubleshooting
 - If `_stack` scripts are missing, confirm the file is really `package.json`, not `package.json.txt`.
+- If a Mazer deploy stops before Vercel, run `pnpm run mazer:deploy:preflight` and apply the printed Git config and amend commands.
 - If preview deploy fails after local verify/build succeeds, use the prebuilt path to isolate whether the failure is in remote build versus upload/deploy.
 - If preview or prod envs look missing, rerun the targeted doctor command.
