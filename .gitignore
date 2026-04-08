@@ -1,0 +1,10 @@
+# _stack-local Codex runtime output
+.codex/archive/
+.codex/exports/
+.codex/logs/
+.codex/worktrees/
+
+# Repo-local inbox drops created by _stack runs
+.codex/inbox/*
+!.codex/inbox/.gitkeep
+!.codex/inbox/README*
