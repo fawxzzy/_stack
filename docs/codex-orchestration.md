@@ -98,6 +98,20 @@ Atlas stays intentionally thin:
 - push remains manual-only
 - auto-commit remains enabled by default for successful mutating tasks
 
+Lifeline is the next thin non-Vercel extracted adapter:
+
+- config: `ops/codex/repos/lifeline/config.toml`
+- adapter: `ops/codex/repos/lifeline/adapter.json`
+
+Lifeline stays intentionally repo-local:
+
+- repo-local inbox/archive/log/worktree/export paths remain under Lifeline `.codex/`
+- verification bootstraps with `pnpm install --frozen-lockfile` and then uses the repo's grouped typecheck, build, deterministic-suite, and smoke-suite commands
+- mutation scope stays limited to Lifeline source, scripts, fixtures, examples, docs, core repo config, and explicit workflow files; generated runtime state and push automation remain out of scope
+- docs rules keep runtime, manifest, startup-contract, and testing docs aligned with README and changelog when Lifeline behavior changes
+- push remains manual-only
+- auto-commit remains enabled by default for successful mutating tasks using the shared commit metadata artifact contract
+
 ## Auto-commit and push policy
 
 Default behavior is explicit and fail-closed:
@@ -170,6 +184,24 @@ Run the Playbook watcher:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\playbook\config.toml
+```
+
+Run the Lifeline watcher:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\lifeline\config.toml
+```
+
+Run Lifeline inbox processing once:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\lifeline\config.toml -RunOnce
+```
+
+Run one Lifeline prompt directly:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\lifeline\config.toml -PromptPath C:\path\to\prompt.md
 ```
 
 Run Playbook inbox processing once:

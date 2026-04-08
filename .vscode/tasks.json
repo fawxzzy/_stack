@@ -58,6 +58,48 @@
       }
     },
     {
+      "label": "Codex: Lifeline Inbox",
+      "type": "shell",
+      "command": "pnpm run codex:lifeline:inbox",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Codex: Lifeline Inbox (Once)",
+      "type": "shell",
+      "command": "pnpm run codex:lifeline:inbox:once",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Codex: Lifeline Task",
+      "type": "shell",
+      "command": "pnpm run codex:lifeline:task -- -PromptPath ${input:codexLifelinePromptPath}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
       "label": "Fitness: Doctor",
       "type": "shell",
       "command": "pnpm run fitness:doctor",
@@ -252,6 +294,13 @@
         "panel": "shared",
         "clear": true
       }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "codexLifelinePromptPath",
+      "type": "promptString",
+      "description": "Absolute prompt path for the Lifeline Codex task"
     }
   ]
 }

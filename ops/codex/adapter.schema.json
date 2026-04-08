@@ -18,6 +18,9 @@
     "execution"
   ],
   "properties": {
+    "$schema": {
+      "type": "string"
+    },
     "schemaVersion": {
       "type": "string"
     },

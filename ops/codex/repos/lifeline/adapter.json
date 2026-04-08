@@ -1,0 +1,100 @@
+{
+  "$schema": "../../adapter.schema.json",
+  "schemaVersion": "1.1",
+  "kind": "stack-codex-repo-adapter",
+  "repoId": "lifeline",
+  "description": "Lifeline adapter for the shared _stack Codex inbox/worktree runner.",
+  "verify": {
+    "bootstrapCommands": [
+      "pnpm install --frozen-lockfile"
+    ],
+    "defaultCommands": [
+      "pnpm ci:verify:esbuild",
+      "pnpm typecheck",
+      "pnpm build",
+      "node scripts/lib/ensure-built.mjs",
+      "pnpm test:run all",
+      "pnpm smoke:suite all"
+    ],
+    "notes": [
+      "Fresh worktrees do not carry repo-local node_modules, so verification bootstrap runs before the grouped Lifeline verify commands.",
+      "Lifeline is self-hosted and non-Vercel in this phase; keep verification repo-local and centered on the TypeScript CLI, deterministic suites, and smoke suites already defined in the repo.",
+      "Do not add dispatcher-level multi-repo orchestration, Vercel deploy logic, or cross-repo mutation policy from the Lifeline adapter."
+    ]
+  },
+  "allowedMutationSurfaces": [
+    ".codex/**",
+    ".editorconfig",
+    ".github/workflows/ci.yml",
+    ".github/workflows/playbook-verify.yml",
+    ".gitignore",
+    ".gitkeep",
+    ".npmrc",
+    ".nvmrc",
+    "README.md",
+    "biome.json",
+    "docs/**",
+    "examples/**",
+    "fixtures/**",
+    "package.json",
+    "playbook.config.json",
+    "pnpm-lock.yaml",
+    "scripts/**",
+    "src/**",
+    "tsconfig.json"
+  ],
+  "docsUpdateRules": [
+    "If Lifeline command surface, runtime behavior, manifest contract, or startup contract changes, keep README.md, docs/architecture.md, docs/contracts/app-manifest.md, docs/startup-contract.md, docs/testing.md, and docs/CHANGELOG.md aligned in the same change or immediately after.",
+    "If grouped verify runners, smoke suite wiring, or helper-script invocation changes, keep README.md and docs/testing.md aligned and prefer the existing suite-runner entrypoints over inventing one-off verification commands.",
+    "Keep Lifeline repo-local and self-hosted in this phase; do not route Lifeline adapter work through Vercel or expand _stack into dispatcher-level multi-repo Codex orchestration from this adapter."
+  ],
+  "artifacts": {
+    "inboxDir": ".codex/inbox",
+    "archiveDir": ".codex/archive",
+    "logsDir": ".codex/logs",
+    "worktreeRoot": ".codex/worktrees",
+    "exportsDir": ".codex/exports"
+  },
+  "exports": {
+    "patch": true,
+    "bundle": false,
+    "formatPatchBaseRef": "origin/main"
+  },
+  "pushPolicy": {
+    "mode": "manual-only",
+    "skipPush": true,
+    "allowAutoPush": false
+  },
+  "autoCommitPolicy": {
+    "enabled": true,
+    "mode": "on-successful-mutation",
+    "skipEmptyCommit": true,
+    "requireVerificationPass": true,
+    "commitMetadata": {
+      "artifactPath": ".codex/commit-meta.json",
+      "allowedTypes": [
+        "feat",
+        "fix",
+        "docs",
+        "refactor",
+        "test",
+        "chore"
+      ],
+      "rejectedSummaries": [
+        "update",
+        "done",
+        "fixes",
+        "misc changes"
+      ],
+      "fallbackScope": "lifeline"
+    }
+  },
+  "execution": {
+    "baseRef": "origin/main",
+    "branchPrefix": "codex/",
+    "defaultSandbox": "workspace-write",
+    "documentedWindowsFallback": "danger-full-access",
+    "cleanupWorktreeOnSuccess": false,
+    "fetchOrigin": false
+  }
+}

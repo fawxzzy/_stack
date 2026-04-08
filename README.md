@@ -18,14 +18,19 @@
 - `pnpm run codex:atlas:inbox`
 - `pnpm run codex:atlas:inbox:once`
 - `pnpm run codex:atlas:task -- -PromptPath C:\path\to\prompt.md`
+- `pnpm run codex:lifeline:inbox`
+- `pnpm run codex:lifeline:inbox:once`
+- `pnpm run codex:lifeline:task -- -PromptPath C:\path\to\prompt.md`
 - `pnpm run codex:playbook:inbox`
 - `pnpm run codex:playbook:inbox:once`
 - `pnpm run codex:playbook:task -- -PromptPath C:\path\to\prompt.md`
 - Shared engine scripts live in `C:\Users\zjhre\dev\_stack\ops\codex`.
 - Playbook remains the first adapter example through `C:\Users\zjhre\dev\_stack\ops\codex\repos\playbook`.
 - Atlas is the first non-Playbook thin adapter through `C:\Users\zjhre\dev\_stack\ops\codex\repos\atlas`.
+- Lifeline is the next thin non-Vercel adapter through `C:\Users\zjhre\dev\_stack\ops\codex\repos\lifeline`.
 - `_stack` owns the runner; repo-local `.codex/` folders still own inbox, archive, logs, worktrees, and exports.
 - Atlas stays docs-first and repo-local; push remains manual-only and successful mutating tasks still auto-commit by default.
+- Lifeline stays repo-local and self-hosted; push remains manual-only and successful mutating tasks still auto-commit by default.
 - Shared auto-commit now uses a validated commit metadata contract via a temporary `.codex/commit-meta.json` artifact, with deterministic fallback messages when Codex output is missing or too generic.
 
 ## Fitness operator commands
@@ -69,7 +74,7 @@
 - `_stack` now also owns the shared Codex inbox/worktree orchestration engine, but not repo implementation policy.
 - Fitness and Mazer currently use Vercel from the local CLI path.
 - Playbook, Lifeline, and Atlas are currently non-Vercel and self-hosted.
-- Atlas is wired as a thin shared-runner adapter only; `_stack` still does not add dispatcher-level multi-repo Codex orchestration in this pass.
+- Atlas and Lifeline are wired as thin shared-runner adapters only; `_stack` still does not add dispatcher-level multi-repo Codex orchestration in this pass.
 - Keep commands manual and explicit; no automatic commit-triggered receipts yet.
 
 ## Vercel notes
