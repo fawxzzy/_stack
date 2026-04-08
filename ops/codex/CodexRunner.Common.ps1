@@ -291,6 +291,107 @@ function ConvertTo-Slug {
     return $text
 }
 
+function Get-PromptMetadataValue {
+    param(
+        [hashtable]$Metadata,
+        [string]$Key
+    )
+
+    if ($null -eq $Metadata -or [string]::IsNullOrWhiteSpace($Key)) {
+        return $null
+    }
+
+    if ($Metadata.ContainsKey($Key)) {
+        return [string]$Metadata[$Key]
+    }
+
+    return $null
+}
+
+function Get-NextPromptContentLine {
+    param(
+        [string[]]$Lines,
+        [int]$StartIndex
+    )
+
+    if ($null -eq $Lines) {
+        return $null
+    }
+
+    for ($index = $StartIndex; $index -lt $Lines.Count; $index++) {
+        $trimmed = $Lines[$index].Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed)) {
+            continue
+        }
+
+        if ($trimmed -match '^(?:#{1,6}\s+)?[A-Za-z][A-Za-z0-9 -]*:\s*$') {
+            return $null
+        }
+
+        if ($trimmed -match '^#{1,6}\s+') {
+            return $null
+        }
+
+        if ($trimmed -match '^(?:[-*+]\s+|\d+\.\s+)(?<value>.+)$') {
+            return $Matches.value.Trim()
+        }
+
+        return $trimmed
+    }
+
+    return $null
+}
+
+function Resolve-PromptTitle {
+    param(
+        [hashtable]$Metadata,
+        [string[]]$Lines,
+        [string]$Path
+    )
+
+    $explicitTitle = Get-PromptMetadataValue -Metadata $Metadata -Key "Title"
+    if (-not [string]::IsNullOrWhiteSpace($explicitTitle)) {
+        return $explicitTitle.Trim()
+    }
+
+    if ($null -ne $Lines) {
+        foreach ($line in $Lines) {
+            $trimmed = $line.Trim()
+            if ($trimmed -match '^#{1,6}\s+(?<title>.+)$') {
+                return $Matches.title.Trim()
+            }
+        }
+
+        for ($index = 0; $index -lt $Lines.Count; $index++) {
+            $trimmed = $Lines[$index].Trim()
+            if ([string]::IsNullOrWhiteSpace($trimmed)) {
+                continue
+            }
+
+            if ($trimmed -match '^(?:#{1,6}\s*)?Objective\s*:\s*(?<value>.*)$') {
+                $objectiveTitle = $Matches.value.Trim()
+                if (-not [string]::IsNullOrWhiteSpace($objectiveTitle)) {
+                    return $objectiveTitle
+                }
+
+                $nextObjectiveLine = Get-NextPromptContentLine -Lines $Lines -StartIndex ($index + 1)
+                if (-not [string]::IsNullOrWhiteSpace($nextObjectiveLine)) {
+                    return $nextObjectiveLine
+                }
+            }
+
+            if ($trimmed -match '^(?:#{1,6}\s*)?Objective\s*$') {
+                $nextObjectiveLine = Get-NextPromptContentLine -Lines $Lines -StartIndex ($index + 1)
+                if (-not [string]::IsNullOrWhiteSpace($nextObjectiveLine)) {
+                    return $nextObjectiveLine
+                }
+            }
+        }
+    }
+
+    return [System.IO.Path]::GetFileNameWithoutExtension($Path)
+}
+
 function Read-JsonFile {
     param([string]$Path)
 
@@ -363,7 +464,7 @@ function Get-PendingPromptFiles {
 function Parse-PromptFile {
     param([string]$Path)
 
-    $lines = Get-Content -LiteralPath $Path
+    $lines = @(Get-Content -LiteralPath $Path)
     $metadata = @{
         Verify = New-Object System.Collections.Generic.List[string]
     }
@@ -416,14 +517,7 @@ function Parse-PromptFile {
         $body = $rawContent.Trim()
     }
 
-    if ([string]::IsNullOrWhiteSpace($metadata.Title)) {
-        $firstContentLine = $lines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
-        if ($null -ne $firstContentLine -and $firstContentLine -match '^#\s+(?<title>.+)$') {
-            $metadata.Title = $Matches.title.Trim()
-        }
-    }
-
-    $title = if ($metadata.ContainsKey("Title")) { $metadata["Title"] } else { $null }
+    $title = Resolve-PromptTitle -Metadata $metadata -Lines $lines -Path $Path
     $branchSlug = if ($metadata.ContainsKey("BranchSlug")) { $metadata["BranchSlug"] } else { $null }
     $commitMessage = if ($metadata.ContainsKey("CommitMessage")) { $metadata["CommitMessage"] } else { $null }
     $docsUpdateNote = if ($metadata.ContainsKey("DocsUpdateNote")) { $metadata["DocsUpdateNote"] } else { $null }
