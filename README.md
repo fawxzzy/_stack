@@ -51,16 +51,29 @@
 ## Mazer operator commands
 - `pnpm run mazer:verify`
 - `pnpm run mazer:dev`
+- `pnpm run mazer:dev:open`
 - `pnpm run mazer:preview`
+- `pnpm run mazer:preview:open`
 - `pnpm run mazer:deploy:preview`
+- `pnpm run mazer:deploy-preview`
 - `pnpm run mazer:deploy:prod`
+- `pnpm run mazer:deploy-prod`
+
+### Mazer command guide
+- Use `pnpm run mazer:dev` to run the repo dev server in the current terminal.
+- Use `pnpm run mazer:dev:open` to open a durable `_stack` PowerShell window for the dev server and open the browser at `http://127.0.0.1:5173`.
+- Use `pnpm run mazer:preview` to build and run local preview in the current terminal on `http://127.0.0.1:4173`.
+- Use `pnpm run mazer:preview:open` to open a durable `_stack` PowerShell window for local preview.
+- Use either `pnpm run mazer:deploy:preview` or `pnpm run mazer:deploy-preview` for the same preview deploy path.
+- Use either `pnpm run mazer:deploy:prod` or `pnpm run mazer:deploy-prod` for the same production deploy path.
 
 ### Windows launchers to pin
 - `C:\Users\zjhre\dev\_stack\ops\bin\mazer-dev.cmd`
 - `C:\Users\zjhre\dev\_stack\ops\bin\mazer-preview.cmd`
 - `C:\Users\zjhre\dev\_stack\ops\bin\mazer-deploy-preview.cmd`
 - `C:\Users\zjhre\dev\_stack\ops\bin\mazer-deploy-prod.cmd`
-- Each launcher opens a separate durable PowerShell window rooted in `_stack`, so the command keeps running and the window stays available for logs or restart.
+- `mazer-dev.cmd` opens the dev server in a durable PowerShell window and then opens the browser at `http://127.0.0.1:5173`.
+- The other launchers open separate durable PowerShell windows rooted in `_stack`, so the command keeps running and the window stays available for logs or restart.
 
 ## Fitness deploy model
 1. Run `pnpm run fitness:doctor` from `_stack`.

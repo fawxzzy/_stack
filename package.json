@@ -25,8 +25,12 @@
     "fitness:deploy:preview:logs": "pnpm run fitness:verify && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --logs",
     "mazer:verify": "npm --prefix ../fawxzzy-mazer run lint && npm --prefix ../fawxzzy-mazer run test && npm --prefix ../fawxzzy-mazer run build",
     "mazer:dev": "npm --prefix ../fawxzzy-mazer run dev -- --host 0.0.0.0",
+    "mazer:dev:open": "ops\\bin\\mazer-dev.cmd",
     "mazer:preview": "npm --prefix ../fawxzzy-mazer run build && pnpm --dir ../fawxzzy-mazer exec vite preview --host 0.0.0.0 --port 4173 --strictPort",
+    "mazer:preview:open": "ops\\bin\\mazer-preview.cmd",
     "mazer:deploy:preview": "pnpm run mazer:verify && pnpm dlx vercel --cwd ../fawxzzy-mazer deploy",
-    "mazer:deploy:prod": "pnpm run mazer:verify && pnpm dlx vercel --cwd ../fawxzzy-mazer deploy --prod"
+    "mazer:deploy-preview": "pnpm run mazer:deploy:preview",
+    "mazer:deploy:prod": "pnpm run mazer:verify && pnpm dlx vercel --cwd ../fawxzzy-mazer deploy --prod",
+    "mazer:deploy-prod": "pnpm run mazer:deploy:prod"
   }
 }

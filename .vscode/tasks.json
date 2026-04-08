@@ -296,9 +296,37 @@
       }
     },
     {
+      "label": "Mazer: Dev (Open Terminal + Browser)",
+      "type": "shell",
+      "command": "pnpm run mazer:dev:open",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
       "label": "Mazer: Local Preview",
       "type": "shell",
       "command": "pnpm run mazer:preview",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Mazer: Local Preview (Open Terminal)",
+      "type": "shell",
+      "command": "pnpm run mazer:preview:open",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -324,9 +352,37 @@
       }
     },
     {
+      "label": "Mazer: Preview Deploy (Alias)",
+      "type": "shell",
+      "command": "pnpm run mazer:deploy-preview",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
       "label": "Mazer: Prod Deploy",
       "type": "shell",
       "command": "pnpm run mazer:deploy:prod",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Mazer: Prod Deploy (Alias)",
+      "type": "shell",
+      "command": "pnpm run mazer:deploy-prod",
       "options": {
         "cwd": "${workspaceFolder}"
       },
