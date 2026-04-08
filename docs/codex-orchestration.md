@@ -69,7 +69,7 @@ adapter_path = "./adapter.json"
 
 Shared defaults come from `ops/codex/config.defaults.toml`. Repo configs only need to add overrides when a repo truly needs different runtime behavior.
 
-## Playbook example
+## Repo adapter examples
 
 Playbook is the first extracted adapter:
 
@@ -81,6 +81,20 @@ This preserves the pilot behavior while moving the engine into `_stack`:
 - repo-local inbox/archive/log/worktree/export paths remain under Playbook `.codex/`
 - Playbook verification bootstrap and docs audit stay Playbook-specific
 - mutation scope stays limited to Playbook docs, `.codex/`, `README.md`, and `scripts/codex-*.ps1`
+- push remains manual-only
+- auto-commit remains enabled by default for successful mutating tasks
+
+Atlas is the first non-Playbook extracted adapter:
+
+- config: `ops/codex/repos/atlas/config.toml`
+- adapter: `ops/codex/repos/atlas/adapter.json`
+
+Atlas stays intentionally thin:
+
+- repo-local inbox/archive/log/worktree/export paths remain under Atlas `.codex/`
+- verification stays docs-first and lightweight with no package bootstrap
+- mutation scope stays limited to Atlas docs, `.codex/`, and `README.md`
+- docs rules keep architecture and boundary docs aligned without importing `_stack` command logic
 - push remains manual-only
 - auto-commit remains enabled by default for successful mutating tasks
 
@@ -101,6 +115,24 @@ The runner records the resolved policy and adapter data in each repo-local `run.
 Shared defaults use `workspace-write`. The documented Windows fallback remains `danger-full-access`, but only as an operator override or per-repo documented fallback. It is not the shared default.
 
 ## Example commands
+
+Run the Atlas watcher:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\atlas\config.toml
+```
+
+Run Atlas inbox processing once:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\atlas\config.toml -RunOnce
+```
+
+Run one Atlas prompt directly:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\atlas\config.toml -PromptPath C:\path\to\prompt.md
+```
 
 Run the Playbook watcher:
 

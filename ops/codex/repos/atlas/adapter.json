@@ -1,0 +1,60 @@
+{
+  "$schema": "../../adapter.schema.json",
+  "schemaVersion": "1.0",
+  "kind": "stack-codex-repo-adapter",
+  "repoId": "atlas",
+  "description": "Atlas adapter for the shared _stack Codex inbox/worktree runner.",
+  "verify": {
+    "bootstrapCommands": [],
+    "defaultCommands": [
+      "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$required = @('README.md','docs/STACK_OVERVIEW.md','docs/SYSTEM_REGISTRY.md','docs/OWNERSHIP_BOUNDARIES.md','docs/CONTRACT_MAP.md','docs/LOCAL_FIRST_WORKFLOW.md','docs/PLAYBOOK_PROMOTION_MODEL.md'); $missing = @($required | Where-Object { -not (Test-Path $_) }); if ($missing.Count -gt 0) { Write-Error ('Missing required Atlas docs: ' + ($missing -join ', ')); exit 1 }\"",
+      "git diff --check"
+    ],
+    "notes": [
+      "Atlas is docs-first in this phase, so verification stays lightweight and architecture-repo appropriate.",
+      "Do not add package bootstrap or build requirements unless Atlas itself later introduces them.",
+      "Prefer updating architecture and contract-planning docs over importing workflow or implementation detail from sibling repos."
+    ]
+  },
+  "allowedMutationSurfaces": [
+    ".codex/**",
+    "README.md",
+    "docs/**"
+  ],
+  "docsUpdateRules": [
+    "If Atlas architecture shape or stack role changes, keep README.md, docs/STACK_OVERVIEW.md, docs/SYSTEM_REGISTRY.md, docs/OWNERSHIP_BOUNDARIES.md, and docs/LOCAL_FIRST_WORKFLOW.md aligned in the same change or immediately after.",
+    "Keep Atlas docs-first and repo-local in this phase; do not implement workflow commands, runtime logic, or governance enforcement here.",
+    "Prefer cross-links into _stack and Playbook over copying operator-command detail or implemented governance detail into Atlas."
+  ],
+  "artifacts": {
+    "inboxDir": ".codex/inbox",
+    "archiveDir": ".codex/archive",
+    "logsDir": ".codex/logs",
+    "worktreeRoot": ".codex/worktrees",
+    "exportsDir": ".codex/exports"
+  },
+  "exports": {
+    "patch": true,
+    "bundle": false,
+    "formatPatchBaseRef": "origin/main"
+  },
+  "pushPolicy": {
+    "mode": "manual-only",
+    "skipPush": true,
+    "allowAutoPush": false
+  },
+  "autoCommitPolicy": {
+    "enabled": true,
+    "mode": "on-successful-mutation",
+    "skipEmptyCommit": true,
+    "requireVerificationPass": true
+  },
+  "execution": {
+    "baseRef": "origin/main",
+    "branchPrefix": "codex/",
+    "defaultSandbox": "workspace-write",
+    "documentedWindowsFallback": "danger-full-access",
+    "cleanupWorktreeOnSuccess": false,
+    "fetchOrigin": false
+  }
+}

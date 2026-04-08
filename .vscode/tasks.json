@@ -2,6 +2,34 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Codex: Atlas Inbox",
+      "type": "shell",
+      "command": "pnpm run codex:atlas:inbox",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Codex: Atlas Inbox (Once)",
+      "type": "shell",
+      "command": "pnpm run codex:atlas:inbox:once",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
       "label": "Codex: Playbook Inbox",
       "type": "shell",
       "command": "pnpm run codex:playbook:inbox",
