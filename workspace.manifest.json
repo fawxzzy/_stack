@@ -1,5 +1,10 @@
 {
   "repos": {
+    "stack": {
+      "path": ".",
+      "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-StackOperatorSurface.ps1 && git diff --check",
+      "deployModel": "operator-layer"
+    },
     "fitness": {
       "path": "../fawxzzy-fitness",
       "verify": "pnpm verify:strict",

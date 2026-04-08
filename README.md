@@ -24,13 +24,18 @@
 - `pnpm run codex:playbook:inbox`
 - `pnpm run codex:playbook:inbox:once`
 - `pnpm run codex:playbook:task -- -PromptPath C:\path\to\prompt.md`
+- `pnpm run codex:stack:inbox`
+- `pnpm run codex:stack:inbox:once`
+- `pnpm run codex:stack:task -- -PromptPath C:\path\to\prompt.md`
 - Shared engine scripts live in `C:\Users\zjhre\dev\_stack\ops\codex`.
 - Playbook remains the first adapter example through `C:\Users\zjhre\dev\_stack\ops\codex\repos\playbook`.
 - Atlas is the first non-Playbook thin adapter through `C:\Users\zjhre\dev\_stack\ops\codex\repos\atlas`.
 - Lifeline is the next thin non-Vercel adapter through `C:\Users\zjhre\dev\_stack\ops\codex\repos\lifeline`.
+- `_stack` is now also a first-class thin adapter through `C:\Users\zjhre\dev\_stack\ops\codex\repos\stack`.
 - `_stack` owns the runner; repo-local `.codex/` folders still own inbox, archive, logs, worktrees, and exports.
 - Atlas stays docs-first and repo-local; push remains manual-only and successful mutating tasks still auto-commit by default.
 - Lifeline stays repo-local and self-hosted; push remains manual-only and successful mutating tasks still auto-commit by default.
+- `_stack` self-manages through the same runner path with repo-local `_stack\.codex\` artifacts, manual-only push, and the same validated commit metadata contract used by the other adapters.
 - Shared auto-commit now uses a validated commit metadata contract via a temporary `.codex/commit-meta.json` artifact, with deterministic fallback messages when Codex output is missing or too generic.
 
 ## Fitness operator commands
@@ -71,10 +76,10 @@
 
 ## Scope boundaries
 - `_stack` owns workflow commands, editor tasks, receipts scaffolding, and operator docs.
-- `_stack` now also owns the shared Codex inbox/worktree orchestration engine, but not repo implementation policy.
+- `_stack` now also owns the shared Codex inbox/worktree orchestration engine and can self-manage those same operator surfaces through its own thin adapter, but not repo implementation policy.
 - Fitness and Mazer currently use Vercel from the local CLI path.
 - Playbook, Lifeline, and Atlas are currently non-Vercel and self-hosted.
-- Atlas and Lifeline are wired as thin shared-runner adapters only; `_stack` still does not add dispatcher-level multi-repo Codex orchestration in this pass.
+- Playbook, Atlas, Lifeline, and `_stack` are wired as thin shared-runner adapters only; `_stack` still does not add dispatcher-level multi-repo Codex orchestration in this pass.
 - Keep commands manual and explicit; no automatic commit-triggered receipts yet.
 
 ## Vercel notes

@@ -100,6 +100,48 @@
       }
     },
     {
+      "label": "Codex: Stack Inbox",
+      "type": "shell",
+      "command": "pnpm run codex:stack:inbox",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Codex: Stack Inbox (Once)",
+      "type": "shell",
+      "command": "pnpm run codex:stack:inbox:once",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Codex: Stack Task",
+      "type": "shell",
+      "command": "pnpm run codex:stack:task -- -PromptPath ${input:codexStackPromptPath}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
       "label": "Fitness: Doctor",
       "type": "shell",
       "command": "pnpm run fitness:doctor",
@@ -297,6 +339,11 @@
     }
   ],
   "inputs": [
+    {
+      "id": "codexStackPromptPath",
+      "type": "promptString",
+      "description": "Absolute prompt path for the _stack Codex task"
+    },
     {
       "id": "codexLifelinePromptPath",
       "type": "promptString",

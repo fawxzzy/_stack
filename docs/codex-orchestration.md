@@ -112,6 +112,20 @@ Lifeline stays intentionally repo-local:
 - push remains manual-only
 - auto-commit remains enabled by default for successful mutating tasks using the shared commit metadata artifact contract
 
+`_stack` is now also a first-class self-managed adapter:
+
+- config: `ops/codex/repos/stack/config.toml`
+- adapter: `ops/codex/repos/stack/adapter.json`
+
+`_stack` stays intentionally operator-only while using the same runner path it hosts:
+
+- repo-local inbox/archive/log/worktree/export paths resolve under `_stack/.codex/`
+- verification stays lightweight and checks required operator files, `_stack` Codex scripts/tasks, and whitespace safety with `git diff --check`
+- mutation scope stays limited to `_stack` operator surfaces such as `ops/**`, `docs/**`, `.vscode/**`, templates, queue, receipts scaffolding, and repo metadata
+- docs rules keep README, orchestration docs, dispatcher docs, workspace manifest, and handoff templates aligned when `_stack` runner behavior or workflow boundaries change
+- push remains manual-only
+- auto-commit remains enabled by default for successful mutating tasks using the same commit metadata artifact contract
+
 ## Auto-commit and push policy
 
 Default behavior is explicit and fail-closed:
@@ -220,6 +234,24 @@ Use a sandbox override only when the shared default fails in an already sandboxe
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\playbook\config.toml -RunOnce -SandboxMode danger-full-access
+```
+
+Run the `_stack` watcher:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\stack\config.toml
+```
+
+Run `_stack` inbox processing once:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\stack\config.toml -RunOnce
+```
+
+Run one `_stack` prompt directly:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\stack\config.toml -PromptPath C:\path\to\prompt.md
 ```
 
 ## Non-goals for this pass

@@ -1,0 +1,86 @@
+{
+  "$schema": "../../adapter.schema.json",
+  "schemaVersion": "1.1",
+  "kind": "stack-codex-repo-adapter",
+  "repoId": "stack",
+  "description": "_stack adapter for the shared _stack Codex inbox/worktree runner.",
+  "verify": {
+    "bootstrapCommands": [],
+    "defaultCommands": [
+      "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-StackOperatorSurface.ps1",
+      "git diff --check"
+    ],
+    "notes": [
+      "_stack stays operator-only in this phase, so verification is centered on shared runner surfaces, docs, command entrypoints, and workspace metadata rather than app build tooling.",
+      "_stack is self-managed through the same runner path, but it must not expand into dev-level multi-repo dispatch or Fitness-specific deploy logic in this pass.",
+      "Do not add automatic commit-triggered receipts; receipts remain lightweight and manual even when successful mutating tasks auto-commit."
+    ]
+  },
+  "allowedMutationSurfaces": [
+    ".codex/**",
+    ".vscode/**",
+    "AGENTS.md",
+    "README.md",
+    "docs/**",
+    "ops/**",
+    "package.json",
+    "queue/**",
+    "receipts/**",
+    "templates/**",
+    "workspace.manifest.json"
+  ],
+  "docsUpdateRules": [
+    "If shared Codex runner behavior, _stack adapter inventory, or operator command surfaces change, keep README.md, docs/codex-orchestration.md, docs/dispatcher-protocol.md, and workspace.manifest.json aligned in the same change or immediately after.",
+    "If dispatcher handoff boundaries or operator workflow expectations change, keep AGENTS.md and templates/child-task-handoff.md aligned with the operator docs in the same change or immediately after.",
+    "Keep _stack focused on workflow commands, editor tasks, receipts scaffolding, queue drops, templates, and cross-repo operator docs; do not add dev-level multi-repo dispatcher logic, Fitness deploy changes, or automatic commit-triggered receipts from this adapter."
+  ],
+  "artifacts": {
+    "inboxDir": ".codex/inbox",
+    "archiveDir": ".codex/archive",
+    "logsDir": ".codex/logs",
+    "worktreeRoot": ".codex/worktrees",
+    "exportsDir": ".codex/exports"
+  },
+  "exports": {
+    "patch": true,
+    "bundle": false,
+    "formatPatchBaseRef": "origin/main"
+  },
+  "pushPolicy": {
+    "mode": "manual-only",
+    "skipPush": true,
+    "allowAutoPush": false
+  },
+  "autoCommitPolicy": {
+    "enabled": true,
+    "mode": "on-successful-mutation",
+    "skipEmptyCommit": true,
+    "requireVerificationPass": true,
+    "commitMetadata": {
+      "artifactPath": ".codex/commit-meta.json",
+      "allowedTypes": [
+        "feat",
+        "fix",
+        "docs",
+        "refactor",
+        "test",
+        "chore"
+      ],
+      "rejectedSummaries": [
+        "update",
+        "done",
+        "fixes",
+        "misc changes"
+      ],
+      "fallbackScope": "stack"
+    }
+  },
+  "execution": {
+    "baseRef": "origin/main",
+    "branchPrefix": "codex/",
+    "defaultSandbox": "workspace-write",
+    "documentedWindowsFallback": "danger-full-access",
+    "cleanupWorktreeOnSuccess": false,
+    "fetchOrigin": false
+  }
+}
