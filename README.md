@@ -10,7 +10,7 @@
 ## Dispatcher protocol
 - The workspace-root dispatcher protocol lives at `C:\Users\zjhre\dev\_stack\docs\dispatcher-protocol.md`.
 - Child-task handoff templates live at `C:\Users\zjhre\dev\_stack\templates\child-task-handoff.md`.
-- Lightweight future automation task drops live at `C:\Users\zjhre\dev\_stack\queue`.
+- Future automation task drops live at `C:\Users\zjhre\dev\_stack\queue`.
 - Fitness local verify guidance lives at `C:\Users\zjhre\dev\_stack\docs\fitness-local-verify.md`.
 - Shared Codex runner guidance lives at `C:\Users\zjhre\dev\_stack\docs\codex-orchestration.md`.
 
