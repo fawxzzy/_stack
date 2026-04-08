@@ -51,7 +51,7 @@ The adapter contract is JSON and intentionally thin:
 - `artifacts`: repo-local inbox/archive/log/worktree/export paths
 - `exports`: patch and bundle policy plus patch base ref
 - `pushPolicy`: must stay manual-only unless a repo explicitly opts out later
-- `autoCommitPolicy`: explicit commit behavior for successful mutating runs
+- `autoCommitPolicy`: explicit commit behavior for successful mutating runs, including the commit metadata contract
 - `execution`: base ref, branch prefix, sandbox default, documented Windows fallback, and worktree cleanup/fetch toggles
 
 Schema file:
@@ -108,7 +108,39 @@ Default behavior is explicit and fail-closed:
 - mutation-scope failure blocks commit
 - push stays manual-only and skipped by default
 
-The runner records the resolved policy and adapter data in each repo-local `run.json` manifest.
+The runner records the resolved policy, commit metadata decision, final commit message, and adapter data in each repo-local `run.json` manifest.
+
+## Commit metadata contract
+
+The shared runner now asks Codex for structured commit metadata in a temporary repo-local artifact:
+
+- default artifact path: `.codex/commit-meta.json`
+- JSON shape: `{"type":"<type>","scope":"<scope>","summary":"<summary>"}`
+- minimum allowed types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
+- scope must be a short lowercase slug
+- summary must be specific and non-generic
+
+The runner validates `type`, `scope`, and `summary` before commit. Generic summaries like `update`, `done`, `fixes`, and `misc changes` are rejected and replaced through deterministic fallback generation.
+
+The artifact is temporary:
+
+- Codex writes it inside the repo worktree
+- the runner reads it after Codex exits
+- the runner removes it before staging so the artifact itself does not become the change
+
+If Codex does not provide valid metadata, the runner falls back deterministically:
+
+- scope falls back to the adapter repo id unless the adapter overrides it
+- type falls back from changed-file surfaces, with docs-only changes resolving to `docs`, test-only changes resolving to `test`, config-only changes resolving to `chore`, and other mixed/code changes resolving to `feat` unless prompt intent clearly indicates `fix` or `refactor`
+- summary falls back first to the prompt title when it validates, otherwise to a surface-derived phrase such as `update architecture planning docs` or `add shared codex runner support`
+
+The runner writes commit trace artifacts into the run log directory:
+
+- `commit-meta.raw.json` when Codex provided the artifact
+- `commit-meta.resolved.json` with the validated or fallback metadata
+- `commit-message.txt` with the final message used for commit
+
+Push remains manual-only. This pass does not add any auto-push or multi-repo dispatch behavior.
 
 ## Windows sandbox posture
 

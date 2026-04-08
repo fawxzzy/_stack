@@ -145,7 +145,8 @@
         "enabled",
         "mode",
         "skipEmptyCommit",
-        "requireVerificationPass"
+        "requireVerificationPass",
+        "commitMetadata"
       ],
       "properties": {
         "enabled": {
@@ -159,6 +160,35 @@
         },
         "requireVerificationPass": {
           "type": "boolean"
+        },
+        "commitMetadata": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifactPath",
+            "allowedTypes",
+            "rejectedSummaries"
+          ],
+          "properties": {
+            "artifactPath": {
+              "type": "string"
+            },
+            "allowedTypes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "rejectedSummaries": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "fallbackScope": {
+              "type": "string"
+            }
+          }
         }
       }
     },

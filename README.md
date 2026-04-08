@@ -26,6 +26,7 @@
 - Atlas is the first non-Playbook thin adapter through `C:\Users\zjhre\dev\_stack\ops\codex\repos\atlas`.
 - `_stack` owns the runner; repo-local `.codex/` folders still own inbox, archive, logs, worktrees, and exports.
 - Atlas stays docs-first and repo-local; push remains manual-only and successful mutating tasks still auto-commit by default.
+- Shared auto-commit now uses a validated commit metadata contract via a temporary `.codex/commit-meta.json` artifact, with deterministic fallback messages when Codex output is missing or too generic.
 
 ## Fitness operator commands
 - `pnpm run fitness:doctor`

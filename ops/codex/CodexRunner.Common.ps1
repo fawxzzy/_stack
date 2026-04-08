@@ -120,6 +120,33 @@ function Get-ConfigValue {
     return $current
 }
 
+function Get-ObjectPropertyValue {
+    param(
+        $Object,
+        [string]$Name,
+        $DefaultValue = $null
+    )
+
+    if ($null -eq $Object) {
+        return $DefaultValue
+    }
+
+    if ($Object -is [hashtable]) {
+        if ($Object.ContainsKey($Name)) {
+            return $Object[$Name]
+        }
+
+        return $DefaultValue
+    }
+
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) {
+        return $DefaultValue
+    }
+
+    return $property.Value
+}
+
 function Resolve-PathFromBase {
     param(
         [string]$BasePath,
@@ -416,6 +443,488 @@ function Parse-PromptFile {
     }
 }
 
+function Get-CommitMetadataPolicy {
+    param(
+        $AutoCommitPolicy,
+        [string]$RepoId
+    )
+
+    $commitMetadata = if ($null -ne $AutoCommitPolicy -and $null -ne $AutoCommitPolicy.commitMetadata) {
+        $AutoCommitPolicy.commitMetadata
+    }
+    else {
+        [pscustomobject]@{}
+    }
+
+    $artifactPath = [string](Get-ObjectPropertyValue -Object $commitMetadata -Name "artifactPath" -DefaultValue "")
+    if ([string]::IsNullOrWhiteSpace($artifactPath)) {
+        $artifactPath = ".codex/commit-meta.json"
+    }
+
+    $allowedTypes = @(ConvertTo-StringArray -Value (Get-ObjectPropertyValue -Object $commitMetadata -Name "allowedTypes"))
+    if ($allowedTypes.Count -eq 0) {
+        $allowedTypes = @("feat", "fix", "docs", "refactor", "test", "chore")
+    }
+    $allowedTypes = @(
+        $allowedTypes |
+        ForEach-Object { ([string]$_).Trim().ToLowerInvariant() } |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Select-Object -Unique
+    )
+
+    $rejectedSummaries = @(ConvertTo-StringArray -Value (Get-ObjectPropertyValue -Object $commitMetadata -Name "rejectedSummaries"))
+    if ($rejectedSummaries.Count -eq 0) {
+        $rejectedSummaries = @("update", "done", "fixes", "misc changes")
+    }
+    $rejectedSummaries = @(
+        $rejectedSummaries |
+        ForEach-Object { Normalize-CommitSummaryToken -Value ([string]$_) } |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Select-Object -Unique
+    )
+
+    $fallbackScope = Normalize-CommitScope -Value ([string](Get-ObjectPropertyValue -Object $commitMetadata -Name "fallbackScope" -DefaultValue ""))
+    if ([string]::IsNullOrWhiteSpace($fallbackScope)) {
+        $fallbackScope = Normalize-CommitScope -Value $RepoId
+    }
+    if ([string]::IsNullOrWhiteSpace($fallbackScope)) {
+        $fallbackScope = "codex"
+    }
+
+    return [pscustomobject]@{
+        artifactPath = $artifactPath
+        allowedTypes = @($allowedTypes)
+        rejectedSummaries = @($rejectedSummaries)
+        fallbackScope = $fallbackScope
+    }
+}
+
+function Normalize-CommitScope {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+
+    $text = $Value.Trim().ToLowerInvariant()
+    $text = $text.Replace("_", "-").Replace("/", "-")
+    $text = [regex]::Replace($text, "[^a-z0-9-]+", "-")
+    $text = [regex]::Replace($text, "-{2,}", "-")
+    $text = $text.Trim("-")
+    return $text
+}
+
+function Normalize-CommitSummaryText {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+
+    $text = [regex]::Replace($Value.Trim(), "\s+", " ")
+    $text = $text.Trim(" ", ".", ";", ":", "-", "_")
+    if ($text.Length -eq 0) {
+        return $null
+    }
+
+    if ($text.Length -gt 1) {
+        $text = [char]::ToLowerInvariant($text[0]) + $text.Substring(1)
+    }
+    else {
+        $text = $text.ToLowerInvariant()
+    }
+
+    return $text
+}
+
+function Normalize-CommitSummaryToken {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+
+    $token = $Value.Trim().ToLowerInvariant()
+    $token = [regex]::Replace($token, "[^a-z0-9]+", " ")
+    $token = [regex]::Replace($token, "\s+", " ").Trim()
+    return $token
+}
+
+function Parse-CommitMessageText {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+
+    $text = $Value.Trim()
+    if ($text -notmatch '^(?<type>[A-Za-z]+)(\((?<scope>[A-Za-z0-9_./-]+)\))?:\s*(?<summary>.+)$') {
+        return $null
+    }
+
+    return [pscustomobject]@{
+        type = $Matches.type
+        scope = $Matches.scope
+        summary = $Matches.summary
+    }
+}
+
+function Read-CommitMetadataArtifact {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    $rawContent = Get-Content -LiteralPath $Path -Raw
+    $result = [ordered]@{
+        exists = $true
+        path = $Path
+        rawContent = $rawContent
+        parseError = $null
+        type = $null
+        scope = $null
+        summary = $null
+    }
+
+    if ([string]::IsNullOrWhiteSpace($rawContent)) {
+        $result.parseError = "Commit metadata artifact is empty."
+        return [pscustomobject]$result
+    }
+
+    try {
+        $json = $rawContent | ConvertFrom-Json
+        $result.type = [string](Get-ObjectPropertyValue -Object $json -Name "type" -DefaultValue $null)
+        $result.scope = [string](Get-ObjectPropertyValue -Object $json -Name "scope" -DefaultValue $null)
+        $result.summary = [string](Get-ObjectPropertyValue -Object $json -Name "summary" -DefaultValue $null)
+    }
+    catch {
+        $result.parseError = $_.Exception.Message
+    }
+
+    return [pscustomobject]$result
+}
+
+function Test-CommitMetadataCandidate {
+    param(
+        $Candidate,
+        [string[]]$AllowedTypes,
+        [string[]]$RejectedSummaries
+    )
+
+    $errors = New-Object System.Collections.Generic.List[string]
+    $normalizedType = if ($null -ne $Candidate -and $null -ne $Candidate.type) {
+        ([string]$Candidate.type).Trim().ToLowerInvariant()
+    }
+    else {
+        ""
+    }
+    $normalizedScope = if ($null -ne $Candidate -and $null -ne $Candidate.scope) {
+        Normalize-CommitScope -Value ([string]$Candidate.scope)
+    }
+    else {
+        $null
+    }
+    $normalizedSummary = if ($null -ne $Candidate -and $null -ne $Candidate.summary) {
+        Normalize-CommitSummaryText -Value ([string]$Candidate.summary)
+    }
+    else {
+        $null
+    }
+    $summaryToken = Normalize-CommitSummaryToken -Value $normalizedSummary
+
+    if ([string]::IsNullOrWhiteSpace($normalizedType)) {
+        [void]$errors.Add("Commit type is required.")
+    }
+    elseif ($AllowedTypes -notcontains $normalizedType) {
+        [void]$errors.Add(("Commit type '{0}' is not allowed." -f $normalizedType))
+    }
+
+    if ([string]::IsNullOrWhiteSpace($normalizedScope)) {
+        [void]$errors.Add("Commit scope is required.")
+    }
+    elseif ($normalizedScope -notmatch '^[a-z0-9]+(?:-[a-z0-9]+)*$') {
+        [void]$errors.Add(("Commit scope '{0}' is invalid." -f $normalizedScope))
+    }
+
+    if ([string]::IsNullOrWhiteSpace($normalizedSummary)) {
+        [void]$errors.Add("Commit summary is required.")
+    }
+    else {
+        $wordCount = @($summaryToken -split " " | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
+        if ($normalizedSummary.Length -lt 12) {
+            [void]$errors.Add("Commit summary must be at least 12 characters.")
+        }
+        if ($wordCount -lt 2) {
+            [void]$errors.Add("Commit summary must contain at least two words.")
+        }
+        if ($RejectedSummaries -contains $summaryToken) {
+            [void]$errors.Add(("Commit summary '{0}' is too generic." -f $normalizedSummary))
+        }
+    }
+
+    return [pscustomobject]@{
+        isValid = $errors.Count -eq 0
+        type = $normalizedType
+        scope = $normalizedScope
+        summary = $normalizedSummary
+        message = if ($errors.Count -eq 0) { "{0}({1}): {2}" -f $normalizedType, $normalizedScope, $normalizedSummary } else { $null }
+        errors = @($errors.ToArray())
+    }
+}
+
+function Test-DocumentationLikePath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
+    $normalized = $Path.Replace("\", "/")
+    return (
+        $normalized -like "docs/*" -or
+        $normalized -eq "README.md" -or
+        $normalized -match '\.(md|mdx|txt|rst)$'
+    )
+}
+
+function Test-TestLikePath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
+    $normalized = $Path.Replace("\", "/").ToLowerInvariant()
+    return (
+        $normalized -match '(^|/)(__tests__|tests?|specs?)(/|$)' -or
+        $normalized -match '(\.|-)(test|spec)\.' -or
+        $normalized -like "*.snap"
+    )
+}
+
+function Test-ConfigLikePath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
+    $normalized = $Path.Replace("\", "/").ToLowerInvariant()
+    return (
+        $normalized -like ".codex/*" -or
+        $normalized -like ".github/*" -or
+        $normalized -like ".vscode/*" -or
+        $normalized -match '(^|/)(package(-lock)?\.json|pnpm-lock\.yaml|tsconfig(\..+)?\.json|.+\.(json|toml|ya?ml|ini))$'
+    )
+}
+
+function Get-FallbackCommitType {
+    param(
+        [string[]]$ChangedPaths,
+        $PromptRecord
+    )
+
+    if ($ChangedPaths.Count -eq 0) {
+        return "chore"
+    }
+
+    $docCount = @($ChangedPaths | Where-Object { Test-DocumentationLikePath -Path $_ }).Count
+    $testCount = @($ChangedPaths | Where-Object { Test-TestLikePath -Path $_ }).Count
+    $configCount = @($ChangedPaths | Where-Object { Test-ConfigLikePath -Path $_ }).Count
+
+    if ($docCount -eq $ChangedPaths.Count) {
+        return "docs"
+    }
+    if ($testCount -eq $ChangedPaths.Count) {
+        return "test"
+    }
+    if ($configCount -eq $ChangedPaths.Count) {
+        return "chore"
+    }
+
+    $promptText = @(
+        if ($null -ne $PromptRecord) { $PromptRecord.Title }
+        if ($null -ne $PromptRecord) { $PromptRecord.Body }
+    ) -join " "
+    $promptText = $promptText.ToLowerInvariant()
+
+    if ($promptText -match '\brefactor(?:ing|ed)?\b') {
+        return "refactor"
+    }
+    if ($promptText -match '\bfix(?:es|ed|ing)?\b|\bbug\b|\brepair(?:ed|ing)?\b') {
+        return "fix"
+    }
+    if ($promptText -match '\btest(?:s|ing)?\b|\bcoverage\b' -and $testCount -gt 0) {
+        return "test"
+    }
+
+    return "feat"
+}
+
+function Get-FallbackCommitArea {
+    param(
+        [string[]]$ChangedPaths,
+        [string]$RepoId
+    )
+
+    if ($ChangedPaths.Count -eq 0) {
+        return "{0} workflow" -f $RepoId
+    }
+
+    $normalizedPaths = @($ChangedPaths | ForEach-Object { $_.Replace("\", "/") })
+    $joined = ($normalizedPaths -join " ").ToLowerInvariant()
+
+    if (@($normalizedPaths | Where-Object { $_ -like "ops/codex/*" }).Count -gt 0) {
+        return "shared codex runner"
+    }
+    if (@($normalizedPaths | Where-Object { $_ -like "ops/*" -or $_ -like "scripts/*" }).Count -gt 0) {
+        return "workflow scripts"
+    }
+    if (@($normalizedPaths | Where-Object { Test-DocumentationLikePath -Path $_ }).Count -eq $normalizedPaths.Count) {
+        if ($joined -match 'architecture|stack_overview|system_registry|ownership_boundaries|contract_map|workflow|promotion') {
+            return "architecture planning docs"
+        }
+        if ($joined -match 'codex|orchestration|dispatcher|adapter') {
+            return "shared runner docs"
+        }
+        return "operator docs"
+    }
+    if (@($normalizedPaths | Where-Object { $_ -like ".codex/*" }).Count -eq $normalizedPaths.Count) {
+        return "codex runner artifacts"
+    }
+    if (@($normalizedPaths | Where-Object { Test-ConfigLikePath -Path $_ }).Count -eq $normalizedPaths.Count) {
+        return "operator configuration"
+    }
+
+    return "{0} workflow" -f $RepoId
+}
+
+function New-FallbackCommitMetadata {
+    param(
+        [string[]]$ChangedPaths,
+        $PromptRecord,
+        $CommitPolicy,
+        [string]$RepoId
+    )
+
+    $fallbackType = Get-FallbackCommitType -ChangedPaths $ChangedPaths -PromptRecord $PromptRecord
+    $fallbackArea = Get-FallbackCommitArea -ChangedPaths $ChangedPaths -RepoId $RepoId
+    $summaryCandidates = New-Object System.Collections.Generic.List[string]
+
+    if ($null -ne $PromptRecord -and -not [string]::IsNullOrWhiteSpace($PromptRecord.Title)) {
+        [void]$summaryCandidates.Add((Normalize-CommitSummaryText -Value $PromptRecord.Title))
+    }
+
+    switch ($fallbackType) {
+        "docs" { [void]$summaryCandidates.Add(("update {0}" -f $fallbackArea)) }
+        "test" { [void]$summaryCandidates.Add(("expand {0} coverage" -f $fallbackArea)) }
+        "refactor" { [void]$summaryCandidates.Add(("refactor {0}" -f $fallbackArea)) }
+        "fix" { [void]$summaryCandidates.Add(("fix {0} behavior" -f $fallbackArea)) }
+        "chore" { [void]$summaryCandidates.Add(("update {0}" -f $fallbackArea)) }
+        default { [void]$summaryCandidates.Add(("add {0} support" -f $fallbackArea)) }
+    }
+
+    [void]$summaryCandidates.Add(("update {0} workflow details" -f $CommitPolicy.fallbackScope))
+
+    foreach ($summaryCandidate in $summaryCandidates) {
+        if ([string]::IsNullOrWhiteSpace($summaryCandidate)) {
+            continue
+        }
+
+        $candidate = [pscustomobject]@{
+            type = $fallbackType
+            scope = $CommitPolicy.fallbackScope
+            summary = $summaryCandidate
+        }
+        $validation = Test-CommitMetadataCandidate -Candidate $candidate -AllowedTypes $CommitPolicy.allowedTypes -RejectedSummaries $CommitPolicy.rejectedSummaries
+        if ($validation.isValid) {
+            return [pscustomobject]@{
+                source = "fallback"
+                type = $validation.type
+                scope = $validation.scope
+                summary = $validation.summary
+                message = $validation.message
+                errors = @()
+                fallbackType = $fallbackType
+                fallbackArea = $fallbackArea
+            }
+        }
+    }
+
+    throw "Failed to generate fallback commit metadata."
+}
+
+function Resolve-CommitMetadata {
+    param(
+        $PromptRecord,
+        $ArtifactRecord,
+        $CommitPolicy,
+        [string[]]$ChangedPaths,
+        [string]$RepoId
+    )
+
+    $candidateErrors = New-Object System.Collections.Generic.List[object]
+
+    if ($null -ne $ArtifactRecord) {
+        if ([string]::IsNullOrWhiteSpace($ArtifactRecord.parseError)) {
+            $artifactCandidate = [pscustomobject]@{
+                type = $ArtifactRecord.type
+                scope = $ArtifactRecord.scope
+                summary = $ArtifactRecord.summary
+            }
+            $artifactValidation = Test-CommitMetadataCandidate -Candidate $artifactCandidate -AllowedTypes $CommitPolicy.allowedTypes -RejectedSummaries $CommitPolicy.rejectedSummaries
+            if ($artifactValidation.isValid) {
+                return [pscustomobject]@{
+                    source = "artifact"
+                    type = $artifactValidation.type
+                    scope = $artifactValidation.scope
+                    summary = $artifactValidation.summary
+                    message = $artifactValidation.message
+                    errors = @()
+                    candidateErrors = @()
+                }
+            }
+
+            [void]$candidateErrors.Add([pscustomobject]@{
+                source = "artifact"
+                errors = @($artifactValidation.errors)
+            })
+        }
+        else {
+            [void]$candidateErrors.Add([pscustomobject]@{
+                source = "artifact"
+                errors = @($ArtifactRecord.parseError)
+            })
+        }
+    }
+
+    $legacyCandidate = if ($null -ne $PromptRecord) { Parse-CommitMessageText -Value $PromptRecord.CommitMessage } else { $null }
+    if ($null -ne $legacyCandidate) {
+        $legacyValidation = Test-CommitMetadataCandidate -Candidate $legacyCandidate -AllowedTypes $CommitPolicy.allowedTypes -RejectedSummaries $CommitPolicy.rejectedSummaries
+        if ($legacyValidation.isValid) {
+            return [pscustomobject]@{
+                source = "prompt"
+                type = $legacyValidation.type
+                scope = $legacyValidation.scope
+                summary = $legacyValidation.summary
+                message = $legacyValidation.message
+                errors = @()
+                candidateErrors = @($candidateErrors.ToArray())
+            }
+        }
+
+        [void]$candidateErrors.Add([pscustomobject]@{
+            source = "prompt"
+            errors = @($legacyValidation.errors)
+        })
+    }
+
+    $fallback = New-FallbackCommitMetadata -ChangedPaths $ChangedPaths -PromptRecord $PromptRecord -CommitPolicy $CommitPolicy -RepoId $RepoId
+    $fallback | Add-Member -NotePropertyName candidateErrors -NotePropertyValue @($candidateErrors.ToArray())
+    return $fallback
+}
+
 function Quote-Argument {
     param([string]$Argument)
 
@@ -531,6 +1040,16 @@ function Test-GitRefExists {
     )
 
     $result = Invoke-Git -Arguments @("rev-parse", "--verify", "--quiet", $RefName) -WorkingDirectory $WorkingDirectory
+    return $result.ExitCode -eq 0
+}
+
+function Test-GitPathTracked {
+    param(
+        [string]$Path,
+        [string]$WorkingDirectory
+    )
+
+    $result = Invoke-Git -Arguments @("ls-files", "--error-unmatch", "--", $Path) -WorkingDirectory $WorkingDirectory
     return $result.ExitCode -eq 0
 }
 

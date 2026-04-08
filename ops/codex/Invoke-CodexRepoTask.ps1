@@ -50,6 +50,16 @@ $autoCommitPolicy = $null
 $exportsDirectory = $null
 $repoRoot = $null
 $resolvedConfig = $null
+$commitMetadataPolicy = $null
+$commitMetadataArtifactPath = $null
+$commitMetadataArtifactRecord = $null
+$commitMetadataArtifactTracked = $false
+$commitMetadataArtifactRemoved = $false
+$commitMetadataRawPath = $null
+$commitMetadataResolvedPath = $null
+$commitMessagePath = $null
+$resolvedCommit = $null
+$commitMessage = $null
 
 try {
     $PromptPath = (Resolve-Path -LiteralPath $PromptPath).Path
@@ -79,6 +89,10 @@ try {
     $autoCommitPolicy = if ($null -ne $adapterContract.autoCommitPolicy) { $adapterContract.autoCommitPolicy } else { [pscustomobject]@{} }
     $pushPolicy = if ($null -ne $adapterContract.pushPolicy) { $adapterContract.pushPolicy } else { [pscustomobject]@{} }
     $autoCommitEnabled = -not $NoCommit.IsPresent -and (ConvertTo-RunnerBoolean -Value $autoCommitPolicy.enabled -DefaultValue $true)
+    $commitMetadataPolicy = Get-CommitMetadataPolicy -AutoCommitPolicy $autoCommitPolicy -RepoId ([string]$adapterContract.repoId)
+    if ([System.IO.Path]::IsPathRooted([string]$commitMetadataPolicy.artifactPath)) {
+        throw "autoCommitPolicy.commitMetadata.artifactPath must be repo-relative."
+    }
 
     $inboxDirectory = Resolve-RepoPath -Root $repoRoot -Value ([string]$adapterContract.artifacts.inboxDir)
     $archiveDirectory = Resolve-RepoPath -Root $repoRoot -Value ([string]$adapterContract.artifacts.archiveDir)
@@ -99,7 +113,7 @@ try {
     $promptRecord = Parse-PromptFile -Path $PromptPath
     $effectiveVerifyCommands = @($promptRecord.Verify)
     if ($effectiveVerifyCommands.Count -eq 0 -and $null -ne $adapterContract.verify) {
-        $effectiveVerifyCommands = ConvertTo-StringArray -Value $adapterContract.verify.defaultCommands
+        $effectiveVerifyCommands = @(ConvertTo-StringArray -Value $adapterContract.verify.defaultCommands)
         if ($effectiveVerifyCommands.Count -gt 0) {
             $verificationSource = "adapter-default"
         }
@@ -159,6 +173,7 @@ try {
     Write-RunnerMessage -Message ("Creating worktree {0} on branch {1} from {2}" -f $worktreePath, $branchName, $baseRef)
     $worktreeResult = Invoke-Git -Arguments @("worktree", "add", "-b", $branchName, $worktreePath, $baseRef) -WorkingDirectory $repoRoot
     Assert-CommandSucceeded -Result $worktreeResult -Description "git worktree add"
+    $commitMetadataArtifactPath = Resolve-PathFromBase -BasePath $worktreePath -Value ([string]$commitMetadataPolicy.artifactPath)
 
     $summaryPath = Join-Path -Path $logDirectory -ChildPath "final-summary.md"
     $codexStdOutPath = Join-Path -Path $logDirectory -ChildPath "codex.stdout.log"
@@ -167,6 +182,18 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($promptRecord.DocsUpdateNote)) {
         $effectivePrompt = $effectivePrompt + "`r`n`r`nDocs update note: " + $promptRecord.DocsUpdateNote.Trim()
     }
+    $commitContractInstructions = @(
+        "Commit metadata contract:",
+        ("- If you make repository changes that should be committed, write UTF-8 JSON to `{0}`." -f $commitMetadataPolicy.artifactPath),
+        ('- Use exactly this shape: {"type":"<type>","scope":"<scope>","summary":"<summary>"}'),
+        ("- Allowed commit types: {0}." -f (($commitMetadataPolicy.allowedTypes -join ", "))),
+        "- Scope must be a short lowercase slug using letters, digits, and hyphens.",
+        "- Summary must be specific, contain at least two words, and must not be generic like update, done, fixes, or misc changes.",
+        "- If you make no repository changes, do not create the commit metadata artifact.",
+        "- The runner will consume and remove the artifact before staging.",
+        "- Do not push. Push remains manual-only."
+    ) -join "`r`n"
+    $effectivePrompt = $effectivePrompt + "`r`n`r`n" + $commitContractInstructions
     Write-TextFile -Path (Join-Path -Path $logDirectory -ChildPath "effective.prompt.md") -Content $effectivePrompt
 
     $codexArgs = New-Object System.Collections.Generic.List[string]
@@ -223,6 +250,21 @@ try {
     if ($codexResult.ExitCode -ne 0) {
         $status = "codex_failed"
         throw ("Codex exec failed with exit code {0}." -f $codexResult.ExitCode)
+    }
+
+    $commitMetadataArtifactRecord = Read-CommitMetadataArtifact -Path $commitMetadataArtifactPath
+    if ($null -ne $commitMetadataArtifactRecord) {
+        $commitMetadataRawPath = Join-Path -Path $logDirectory -ChildPath "commit-meta.raw.json"
+        Write-TextFile -Path $commitMetadataRawPath -Content $commitMetadataArtifactRecord.rawContent
+
+        $commitMetadataArtifactTracked = Test-GitPathTracked -Path ([string]$commitMetadataPolicy.artifactPath) -WorkingDirectory $worktreePath
+        if (-not $commitMetadataArtifactTracked) {
+            Remove-Item -LiteralPath $commitMetadataArtifactPath -Force
+            $commitMetadataArtifactRemoved = $true
+        }
+        else {
+            Write-RunnerMessage -Message ("Commit metadata artifact path is tracked and could not be treated as temporary: {0}" -f $commitMetadataPolicy.artifactPath) -Level "WARN"
+        }
     }
 
     $verificationDirectory = Join-Path -Path $logDirectory -ChildPath "verification"
@@ -287,7 +329,7 @@ try {
     }
 
     $changedPaths = @(Get-ChangedPaths -WorkingDirectory $worktreePath)
-    $allowedMutationSurfaces = ConvertTo-StringArray -Value $adapterContract.allowedMutationSurfaces
+    $allowedMutationSurfaces = @(ConvertTo-StringArray -Value $adapterContract.allowedMutationSurfaces)
     if ($allowedMutationSurfaces.Count -gt 0) {
         $mutationScopeViolations = @(
             $changedPaths |
@@ -299,15 +341,26 @@ try {
         }
     }
 
+    $resolvedCommit = Resolve-CommitMetadata -PromptRecord $promptRecord -ArtifactRecord $commitMetadataArtifactRecord -CommitPolicy $commitMetadataPolicy -ChangedPaths $changedPaths -RepoId ([string]$adapterContract.repoId)
+    $commitMessage = $resolvedCommit.message
+    $commitMetadataResolvedPath = Join-Path -Path $logDirectory -ChildPath "commit-meta.resolved.json"
+    $commitMessagePath = Join-Path -Path $logDirectory -ChildPath "commit-message.txt"
+    Write-TextFile -Path $commitMetadataResolvedPath -Content (([ordered]@{
+        source = $resolvedCommit.source
+        type = $resolvedCommit.type
+        scope = $resolvedCommit.scope
+        summary = $resolvedCommit.summary
+        message = $resolvedCommit.message
+        fallbackType = if ($resolvedCommit.PSObject.Properties.Name -contains "fallbackType") { $resolvedCommit.fallbackType } else { $null }
+        fallbackArea = if ($resolvedCommit.PSObject.Properties.Name -contains "fallbackArea") { $resolvedCommit.fallbackArea } else { $null }
+        candidateErrors = if ($resolvedCommit.PSObject.Properties.Name -contains "candidateErrors") { @($resolvedCommit.candidateErrors) } else { @() }
+    } | ConvertTo-Json -Depth 6) + "`r`n")
+    Write-TextFile -Path $commitMessagePath -Content ($commitMessage + "`r`n")
+
     if ($autoCommitEnabled) {
         Write-RunnerMessage -Message "Staging and committing task changes"
         $addResult = Invoke-Git -Arguments @("add", "-A") -WorkingDirectory $worktreePath
         Assert-CommandSucceeded -Result $addResult -Description "git add -A"
-
-        $commitMessage = $promptRecord.CommitMessage
-        if ([string]::IsNullOrWhiteSpace($commitMessage)) {
-            $commitMessage = "chore: codex inbox task {0}" -f $taskName.Slug
-        }
 
         $gitEnvironment = @{}
         $authorName = [string](Get-ConfigValue -Config $config -Path @("git", "author_name") -DefaultValue "")
@@ -382,6 +435,9 @@ try {
 }
 catch {
     Write-RunnerMessage -Message $_.Exception.Message -Level "ERROR"
+    if (-not [string]::IsNullOrWhiteSpace($_.ScriptStackTrace)) {
+        Write-RunnerMessage -Message $_.ScriptStackTrace.Trim() -Level "ERROR"
+    }
 }
 finally {
     if ($null -ne $promptRecord) {
@@ -411,6 +467,20 @@ finally {
             baseRef = $baseRef
             worktreePath = $worktreePath
             commitSha = $commitSha
+            commit = [ordered]@{
+                enabled = $autoCommitEnabled
+                message = $commitMessage
+                messagePath = $commitMessagePath
+                metadataPath = $commitMetadataResolvedPath
+                source = if ($null -ne $resolvedCommit) { $resolvedCommit.source } else { $null }
+                artifactPath = if ($null -ne $commitMetadataPolicy) { $commitMetadataPolicy.artifactPath } else { $null }
+                artifactLogPath = $commitMetadataRawPath
+                artifactProvided = $null -ne $commitMetadataArtifactRecord
+                artifactParseError = if ($null -ne $commitMetadataArtifactRecord) { $commitMetadataArtifactRecord.parseError } else { $null }
+                artifactTracked = $commitMetadataArtifactTracked
+                artifactRemoved = $commitMetadataArtifactRemoved
+                validationFailures = if ($null -ne $resolvedCommit -and $resolvedCommit.PSObject.Properties.Name -contains "candidateErrors") { @($resolvedCommit.candidateErrors) } else { @() }
+            }
             sandboxMode = $effectiveSandboxMode
             logs = [ordered]@{
                 directory = $logDirectory
