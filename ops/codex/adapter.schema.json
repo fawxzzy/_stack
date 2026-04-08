@@ -15,6 +15,7 @@
     "exports",
     "pushPolicy",
     "autoCommitPolicy",
+    "localLandingPolicy",
     "execution"
   ],
   "properties": {
@@ -192,6 +193,25 @@
               "type": "string"
             }
           }
+        }
+      }
+    },
+    "localLandingPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "disabled",
+            "ff-only"
+          ]
+        },
+        "targetBranch": {
+          "type": "string"
         }
       }
     },

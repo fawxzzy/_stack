@@ -1,6 +1,6 @@
 {
   "$schema": "../../adapter.schema.json",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "kind": "stack-codex-repo-adapter",
   "repoId": "atlas",
   "description": "Atlas adapter for the shared _stack Codex inbox/worktree runner.",
@@ -65,6 +65,10 @@
         "misc changes"
       ]
     }
+  },
+  "localLandingPolicy": {
+    "mode": "disabled",
+    "targetBranch": "main"
   },
   "execution": {
     "baseRef": "origin/main",

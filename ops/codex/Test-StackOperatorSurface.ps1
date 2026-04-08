@@ -57,4 +57,24 @@ if ($missingTaskLabels.Count -gt 0) {
     throw ("Missing required _stack VS Code tasks: {0}" -f ($missingTaskLabels -join ", "))
 }
 
+$stackAdapter = Get-Content -LiteralPath "ops/codex/repos/stack/adapter.json" -Raw | ConvertFrom-Json
+if ($stackAdapter.pushPolicy.mode -ne "manual-only" -or -not $stackAdapter.pushPolicy.skipPush -or $stackAdapter.pushPolicy.allowAutoPush) {
+    throw "_stack adapter pushPolicy must stay manual-only with auto-push disabled."
+}
+if ($stackAdapter.localLandingPolicy.mode -ne "ff-only" -or $stackAdapter.localLandingPolicy.targetBranch -ne "main") {
+    throw "_stack adapter localLandingPolicy must be ff-only on local main."
+}
+
+$disabledLandingAdapters = @(
+    "ops/codex/repos/atlas/adapter.json",
+    "ops/codex/repos/playbook/adapter.json",
+    "ops/codex/repos/lifeline/adapter.json"
+)
+foreach ($adapterPath in $disabledLandingAdapters) {
+    $adapter = Get-Content -LiteralPath $adapterPath -Raw | ConvertFrom-Json
+    if ($adapter.localLandingPolicy.mode -ne "disabled") {
+        throw ("Adapter must keep local landing disabled by default in this rollout: {0}" -f $adapterPath)
+    }
+}
+
 Write-Host "Validated _stack operator surface and Codex entrypoints."

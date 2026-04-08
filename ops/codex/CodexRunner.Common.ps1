@@ -499,6 +499,32 @@ function Get-CommitMetadataPolicy {
     }
 }
 
+function Get-LocalLandingPolicy {
+    param($Policy)
+
+    $mode = [string](Get-ObjectPropertyValue -Object $Policy -Name "mode" -DefaultValue "disabled")
+    if ([string]::IsNullOrWhiteSpace($mode)) {
+        $mode = "disabled"
+    }
+    $mode = $mode.Trim().ToLowerInvariant()
+
+    switch ($mode) {
+        "disabled" { }
+        "ff-only" { }
+        default { throw ("Unsupported local landing mode: {0}" -f $mode) }
+    }
+
+    $targetBranch = [string](Get-ObjectPropertyValue -Object $Policy -Name "targetBranch" -DefaultValue "main")
+    if ([string]::IsNullOrWhiteSpace($targetBranch)) {
+        $targetBranch = "main"
+    }
+
+    return [pscustomobject]@{
+        mode = $mode
+        targetBranch = $targetBranch.Trim()
+    }
+}
+
 function Normalize-CommitScope {
     param([string]$Value)
 
@@ -1007,6 +1033,112 @@ function Invoke-Git {
     )
 
     return Invoke-ProcessCapture -FilePath "git" -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory -Environment $Environment
+}
+
+function Get-GitCurrentBranch {
+    param([string]$WorkingDirectory)
+
+    $result = Invoke-Git -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD") -WorkingDirectory $WorkingDirectory
+    if ($result.ExitCode -ne 0) {
+        return $null
+    }
+
+    return $result.StdOut.Trim()
+}
+
+function Test-GitWorkingTreeClean {
+    param([string]$WorkingDirectory)
+
+    $result = Invoke-Git -Arguments @("status", "--porcelain") -WorkingDirectory $WorkingDirectory
+    Assert-CommandSucceeded -Result $result -Description "git status --porcelain"
+    return [string]::IsNullOrWhiteSpace($result.StdOut)
+}
+
+function Test-GitAncestor {
+    param(
+        [string]$AncestorRef,
+        [string]$DescendantRef,
+        [string]$WorkingDirectory
+    )
+
+    $result = Invoke-Git -Arguments @("merge-base", "--is-ancestor", $AncestorRef, $DescendantRef) -WorkingDirectory $WorkingDirectory
+    if ($result.ExitCode -eq 0) {
+        return $true
+    }
+    if ($result.ExitCode -eq 1) {
+        return $false
+    }
+
+    Assert-CommandSucceeded -Result $result -Description "git merge-base --is-ancestor"
+    return $false
+}
+
+function Invoke-LocalBranchLanding {
+    param(
+        [string]$WorkingDirectory,
+        [string]$TargetBranch,
+        [string]$CommitSha,
+        [string]$TaskBranch,
+        [string]$Mode
+    )
+
+    $result = [ordered]@{
+        mode = $Mode
+        targetBranch = $TargetBranch
+        taskBranch = $TaskBranch
+        commitSha = $CommitSha
+        landed_to_main = $false
+        failureReason = $null
+    }
+
+    if ($Mode -eq "disabled") {
+        $result.failureReason = "disabled_by_policy"
+        return [pscustomobject]$result
+    }
+
+    $currentBranch = Get-GitCurrentBranch -WorkingDirectory $WorkingDirectory
+    if ([string]::IsNullOrWhiteSpace($currentBranch) -or $currentBranch -ne $TargetBranch) {
+        $result.failureReason = "repo_root_not_on_target_branch"
+        return [pscustomobject]$result
+    }
+
+    if (-not (Test-GitWorkingTreeClean -WorkingDirectory $WorkingDirectory)) {
+        $result.failureReason = "repo_root_dirty"
+        return [pscustomobject]$result
+    }
+
+    $headResult = Invoke-Git -Arguments @("rev-parse", "HEAD") -WorkingDirectory $WorkingDirectory
+    Assert-CommandSucceeded -Result $headResult -Description "git rev-parse HEAD"
+    $headSha = $headResult.StdOut.Trim()
+
+    if ($headSha -eq $CommitSha) {
+        $result.landed_to_main = $true
+        return [pscustomobject]$result
+    }
+
+    if (-not (Test-GitAncestor -AncestorRef $headSha -DescendantRef $CommitSha -WorkingDirectory $WorkingDirectory)) {
+        $result.failureReason = "fast_forward_not_possible"
+        return [pscustomobject]$result
+    }
+
+    $mergeResult = Invoke-Git -Arguments @("merge", "--ff-only", $CommitSha) -WorkingDirectory $WorkingDirectory
+    if ($mergeResult.ExitCode -ne 0) {
+        $mergeError = $mergeResult.StdErr.Trim()
+        if ([string]::IsNullOrWhiteSpace($mergeError)) {
+            $mergeError = $mergeResult.StdOut.Trim()
+        }
+
+        $result.failureReason = if ([string]::IsNullOrWhiteSpace($mergeError)) {
+            "fast_forward_merge_failed"
+        }
+        else {
+            "fast_forward_merge_failed: {0}" -f $mergeError
+        }
+        return [pscustomobject]$result
+    }
+
+    $result.landed_to_main = $true
+    return [pscustomobject]$result
 }
 
 function Invoke-ShellCommand {

@@ -47,6 +47,7 @@ $adapterContractPath = $null
 $autoCommitEnabled = $true
 $pushPolicy = $null
 $autoCommitPolicy = $null
+$localLandingPolicy = $null
 $exportsDirectory = $null
 $repoRoot = $null
 $resolvedConfig = $null
@@ -60,6 +61,10 @@ $commitMetadataResolvedPath = $null
 $commitMessagePath = $null
 $resolvedCommit = $null
 $commitMessage = $null
+$localLandingMode = "disabled"
+$localLandingTargetBranch = "main"
+$landedToMain = $false
+$landingFailureReason = "disabled_by_policy"
 
 try {
     $PromptPath = (Resolve-Path -LiteralPath $PromptPath).Path
@@ -88,7 +93,20 @@ try {
 
     $autoCommitPolicy = if ($null -ne $adapterContract.autoCommitPolicy) { $adapterContract.autoCommitPolicy } else { [pscustomobject]@{} }
     $pushPolicy = if ($null -ne $adapterContract.pushPolicy) { $adapterContract.pushPolicy } else { [pscustomobject]@{} }
+    $localLandingPolicy = if ($null -ne $adapterContract.localLandingPolicy) { $adapterContract.localLandingPolicy } else { [pscustomobject]@{} }
     $autoCommitEnabled = -not $NoCommit.IsPresent -and (ConvertTo-RunnerBoolean -Value $autoCommitPolicy.enabled -DefaultValue $true)
+    $resolvedLandingPolicy = Get-LocalLandingPolicy -Policy $localLandingPolicy
+    $localLandingMode = [string]$resolvedLandingPolicy.mode
+    $localLandingTargetBranch = [string]$resolvedLandingPolicy.targetBranch
+    if ($localLandingMode -eq "disabled") {
+        $landingFailureReason = "disabled_by_policy"
+    }
+    elseif (-not $autoCommitEnabled) {
+        $landingFailureReason = "auto_commit_disabled"
+    }
+    else {
+        $landingFailureReason = "commit_not_created"
+    }
     $commitMetadataPolicy = Get-CommitMetadataPolicy -AutoCommitPolicy $autoCommitPolicy -RepoId ([string]$adapterContract.repoId)
     if ([System.IO.Path]::IsPathRooted([string]$commitMetadataPolicy.artifactPath)) {
         throw "autoCommitPolicy.commitMetadata.artifactPath must be repo-relative."
@@ -383,6 +401,20 @@ try {
         $shaResult = Invoke-Git -Arguments @("rev-parse", "HEAD") -WorkingDirectory $worktreePath
         Assert-CommandSucceeded -Result $shaResult -Description "git rev-parse HEAD"
         $commitSha = $shaResult.StdOut.Trim()
+
+        if ($localLandingMode -ne "disabled") {
+            Write-RunnerMessage -Message ("Attempting local landing to {0} in {1} mode" -f $localLandingTargetBranch, $localLandingMode)
+            $landingResult = Invoke-LocalBranchLanding -WorkingDirectory $repoRoot -TargetBranch $localLandingTargetBranch -CommitSha $commitSha -TaskBranch $branchName -Mode $localLandingMode
+            $landedToMain = [bool]$landingResult.landed_to_main
+            $landingFailureReason = $landingResult.failureReason
+
+            if ($landedToMain) {
+                Write-RunnerMessage -Message ("Landed {0} to local {1}" -f $commitSha, $localLandingTargetBranch)
+            }
+            else {
+                Write-RunnerMessage -Message ("Skipped local landing to {0}: {1}" -f $localLandingTargetBranch, $landingFailureReason) -Level "WARN"
+            }
+        }
     }
 
     $exportPatch = ConvertTo-RunnerBoolean -Value (Get-ConfigValue -Config $config -Path @("exports", "patch") -DefaultValue $true) -DefaultValue $true
@@ -509,6 +541,7 @@ finally {
                 artifacts = $adapterContract.artifacts
                 pushPolicy = $pushPolicy
                 autoCommitPolicy = $autoCommitPolicy
+                localLandingPolicy = $localLandingPolicy
                 exports = $adapterContract.exports
                 execution = $adapterContract.execution
             }
@@ -516,6 +549,16 @@ finally {
                 autoCommitEnabled = $autoCommitEnabled
                 pushMode = if ($null -ne $pushPolicy) { $pushPolicy.mode } else { $null }
                 skipPush = if ($null -ne $pushPolicy) { $pushPolicy.skipPush } else { $null }
+                localLandingMode = $localLandingMode
+                localLandingTargetBranch = $localLandingTargetBranch
+            }
+            localLanding = [ordered]@{
+                mode = $localLandingMode
+                targetBranch = $localLandingTargetBranch
+                taskBranch = $branchName
+                commitSha = $commitSha
+                landed_to_main = $landedToMain
+                failureReason = if ($landedToMain) { $null } else { $landingFailureReason }
             }
         }
 

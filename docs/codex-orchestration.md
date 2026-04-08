@@ -52,6 +52,7 @@ The adapter contract is JSON and intentionally thin:
 - `exports`: patch and bundle policy plus patch base ref
 - `pushPolicy`: must stay manual-only unless a repo explicitly opts out later
 - `autoCommitPolicy`: explicit commit behavior for successful mutating runs, including the commit metadata contract
+- `localLandingPolicy`: optional local post-commit landing policy for bringing a successful task commit back onto local `main` without pushing
 - `execution`: base ref, branch prefix, sandbox default, documented Windows fallback, and worktree cleanup/fetch toggles
 
 Schema file:
@@ -124,9 +125,10 @@ Lifeline stays intentionally repo-local:
 - mutation scope stays limited to `_stack` operator surfaces such as `ops/**`, `docs/**`, `.vscode/**`, templates, queue, receipts scaffolding, and repo metadata
 - docs rules keep README, orchestration docs, dispatcher docs, workspace manifest, and handoff templates aligned when `_stack` runner behavior or workflow boundaries change
 - push remains manual-only
+- local landing is enabled only for `_stack`, using `ff-only` to bring a successful task commit back onto local `main` when the repo-root worktree is safe to advance
 - auto-commit remains enabled by default for successful mutating tasks using the same commit metadata artifact contract
 
-## Auto-commit and push policy
+## Auto-commit, landing, and push policy
 
 Default behavior is explicit and fail-closed:
 
@@ -134,9 +136,13 @@ Default behavior is explicit and fail-closed:
 - no-change tasks do not create empty commits
 - verification failure blocks commit
 - mutation-scope failure blocks commit
+- local landing is adapter-controlled and defaults to disabled
+- `_stack` currently opts into `ff-only` landing to local `main`
+- `ff-only` landing requires the repo-root worktree to already be on local `main`, to be clean, and to be able to fast-forward to the task commit
+- if landing is unsafe or fast-forward is not possible, the runner leaves the commit on the task branch and records the reason in the run log
 - push stays manual-only and skipped by default
 
-The runner records the resolved policy, commit metadata decision, final commit message, and adapter data in each repo-local `run.json` manifest.
+The runner records the resolved policy, commit metadata decision, final commit message, adapter data, task branch, commit sha, landing mode, `landed_to_main`, and any landing failure reason in each repo-local `run.json` manifest.
 
 ## Commit metadata contract
 
@@ -169,6 +175,29 @@ The runner writes commit trace artifacts into the run log directory:
 - `commit-message.txt` with the final message used for commit
 
 Push remains manual-only. This pass does not add any auto-push or multi-repo dispatch behavior.
+
+## Local landing policy
+
+The shared runner supports these adapter-controlled local landing modes:
+
+- `disabled`: leave successful auto-commit output on the task branch only
+- `ff-only`: after a successful auto-commit, try to fast-forward the repo-root local `main` worktree to the task commit without pushing
+
+`ff-only` is intentionally strict:
+
+- the repo root must already be checked out on the landing target branch, which defaults to `main`
+- the repo-root worktree must be clean before landing
+- the task commit must be a fast-forward from the current local branch tip
+- landing uses local `git merge --ff-only <commitSha>` semantics only; if that is not safe, nothing is landed
+
+The run manifest writes the landing record under `localLanding`:
+
+- `mode`
+- `targetBranch`
+- `taskBranch`
+- `commitSha`
+- `landed_to_main`
+- `failureReason`
 
 ## Windows sandbox posture
 

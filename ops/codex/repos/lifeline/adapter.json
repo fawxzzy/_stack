@@ -1,6 +1,6 @@
 {
   "$schema": "../../adapter.schema.json",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "kind": "stack-codex-repo-adapter",
   "repoId": "lifeline",
   "description": "Lifeline adapter for the shared _stack Codex inbox/worktree runner.",
@@ -88,6 +88,10 @@
       ],
       "fallbackScope": "lifeline"
     }
+  },
+  "localLandingPolicy": {
+    "mode": "disabled",
+    "targetBranch": "main"
   },
   "execution": {
     "baseRef": "origin/main",

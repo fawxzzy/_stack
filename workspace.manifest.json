@@ -3,7 +3,8 @@
     "stack": {
       "path": ".",
       "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-StackOperatorSurface.ps1 && git diff --check",
-      "deployModel": "operator-layer"
+      "deployModel": "operator-layer",
+      "codexLocalLanding": "ff-only-local-main"
     },
     "fitness": {
       "path": "../fawxzzy-fitness",
