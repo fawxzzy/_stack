@@ -102,6 +102,7 @@ Keep structured prompts working.
 "@
             ExpectedTitle = "Lifeline smoke title"
             ExpectedVerify = @("pnpm ci:verify:esbuild")
+            ExpectedBranchSlug = $null
         },
         @{
             Name = "heading only"
@@ -113,6 +114,7 @@ Body text for the heading-only prompt.
 "@
             ExpectedTitle = "Lifeline heading fallback"
             ExpectedVerify = @()
+            ExpectedBranchSlug = $null
         },
         @{
             Name = "objective only"
@@ -126,6 +128,24 @@ Context:
 "@
             ExpectedTitle = "Support Lifeline smoke prompts without a structured title."
             ExpectedVerify = @()
+            ExpectedBranchSlug = $null
+        },
+        @{
+            Name = "metadata without title"
+            FileName = "metadata-without-title.md"
+            Content = @"
+Verify: pnpm ci:verify:esbuild
+Branch: lifeline-title-fallback
+
+Objective:
+Support Lifeline inbox prompts without a Title field.
+
+Context:
+- Keep metadata parsing intact while deriving a safe title fallback.
+"@
+            ExpectedTitle = "Support Lifeline inbox prompts without a Title field."
+            ExpectedVerify = @("pnpm ci:verify:esbuild")
+            ExpectedBranchSlug = "lifeline-title-fallback"
         },
         @{
             Name = "filename fallback"
@@ -135,6 +155,7 @@ Plain markdown prompt body with no structured metadata.
 "@
             ExpectedTitle = "lifeline-smoke-filename-fallback"
             ExpectedVerify = @()
+            ExpectedBranchSlug = $null
         }
     )
 
@@ -150,6 +171,11 @@ Plain markdown prompt body with no structured metadata.
 
         if ($parsedPrompt.Title -ne $promptCase.ExpectedTitle) {
             throw ("Parse-PromptFile resolved the wrong title for the {0} case. Expected '{1}', got '{2}'." -f $promptCase.Name, $promptCase.ExpectedTitle, $parsedPrompt.Title)
+        }
+
+        $expectedBranchSlug = $promptCase.ExpectedBranchSlug
+        if ($parsedPrompt.BranchSlug -ne $expectedBranchSlug) {
+            throw ("Parse-PromptFile resolved the wrong branch slug for the {0} case. Expected '{1}', got '{2}'." -f $promptCase.Name, $expectedBranchSlug, $parsedPrompt.BranchSlug)
         }
 
         $actualVerify = @($parsedPrompt.Verify)
