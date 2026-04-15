@@ -184,6 +184,9 @@ The pause, merge, and resume artifacts preserve the same governed surface identi
 | `_stack` | `paused` | `worker.status.paused.<merge_request_id>.json` |
 | `_stack` | `merger_assigned` | `worker.assignment.merge.json` |
 | `_stack` | `resume_ready` | `resume-context.<worker_id>.json` or merge completion when no per-worker resume context exists |
+| ATLAS root | `resume_requested` | `runtime/atlas/sessions/<session_id>/artifacts/resume.request.json` |
+| ATLAS root | `resume_dispatched` | `runtime/atlas/sessions/<session_id>/artifacts/resume.dispatch.json` |
+| ATLAS root | `resume_completed` / `resume_failed` | resumed completed status or resumed run manifest |
 
 Every emitted governed observation must carry:
 
@@ -194,18 +197,21 @@ Every emitted governed observation must carry:
 - `tool_id`
 - `extension_id` when applicable
 - `registry_digest`
+- `automation_level`
 - `source_artifact_refs`
 
 Owner boundary:
 
 - `_stack` emits orchestration facts.
 - Lifeline emits execution facts.
+- ATLAS root emits resume transition facts.
 - root Cortex consumes those facts and builds current state in the world model.
 
 No-dark-state rule:
 
 - completed governed flows must have the full required observation set
 - merge and resume flows must emit their pause / merge / resume observations before the flow can be considered closed
+- root-owned resume must reuse the existing `_stack` flow rather than minting a second worker orchestration path
 - root validation and Playbook verify fail when required observations or closure evidence are missing
 
 ## Touched Range Semantics
