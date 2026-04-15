@@ -25,6 +25,8 @@ The shared runner operates inside repo-local worktrees. It does not move repo ar
 - `ops/codex/Start-CodexInboxRunner.ps1`: watches a repo-local inbox and dispatches one prompt per worktree
 - `ops/codex/Invoke-CodexRepoTask.ps1`: executes one prompt end to end
 - `ops/codex/CodexRunner.Common.ps1`: common parsing, git, process, prompt, archive, and logging helpers
+- `ops/stack/StackWorkerArtifacts.ps1`: worker assignment/status/merge-request helpers that stamp the root stack lock digest
+- `ops/stack/Test-StackWorkerArtifacts.ps1`: verification for the worker artifact contract and touched-range parsing
 - `ops/codex/config.defaults.toml`: shared runtime defaults
 - `ops/codex/adapter.schema.json`: thin repo adapter contract
 
@@ -36,9 +38,10 @@ The shared runner operates inside repo-local worktrees. It does not move repo ar
 4. Each prompt gets a fresh repo-local worktree and `codex/<slug>` task branch from the adapter `execution.baseRef`, resolved locally by preferring `origin/main` and falling back to local `main` when the remote-tracking ref is unavailable.
 5. Codex runs non-interactively inside that worktree.
 6. Verification bootstrap commands run first, then the effective verify list from prompt metadata or adapter defaults.
-7. The runner blocks commit if verification fails or if changed files exceed `allowedMutationSurfaces`.
-8. Successful mutating tasks auto-commit by default, skip push, export patch and optional bundle artifacts, and archive the prompt.
-9. Failed runs still archive the prompt and keep worktree/log state for inspection.
+7. The runner writes `worker.assignment.json` and a running status artifact before execution, then records completion status with touched ranges when the run ends.
+8. The runner blocks commit if verification fails or if changed files exceed `allowedMutationSurfaces`.
+9. Successful mutating tasks auto-commit by default, skip push, export patch and optional bundle artifacts, and archive the prompt.
+10. Failed runs still archive the prompt and keep worktree/log state for inspection.
 
 ## Adapter contract
 
@@ -53,6 +56,7 @@ The adapter contract is JSON and intentionally thin:
 - `pushPolicy`: must stay manual-only unless a repo explicitly opts out later
 - `autoCommitPolicy`: explicit commit behavior for successful mutating runs, including the commit metadata contract
 - `localLandingPolicy`: optional local post-commit landing policy for bringing a successful task commit back onto local `main` without pushing
+- `stack worker artifacts`: `_stack` jobs emit assignment, running status, merge-request, and completion status artifacts, all stamped with the root `stack_lock_digest`
 - `execution`: base ref, branch prefix, sandbox default, documented Windows fallback, and worktree cleanup/fetch toggles
 
 Schema file:
@@ -174,6 +178,7 @@ The runner writes commit trace artifacts into the run log directory:
 - `commit-meta.raw.json` when Codex provided the artifact
 - `commit-meta.resolved.json` with the validated or fallback metadata
 - `commit-message.txt` with the final message used for commit
+- `worker.assignment.json`, `worker.status.running.json`, and `worker.status.completed.json` for worker lifecycle tracking
 
 Push remains manual-only. This pass does not add any auto-push or multi-repo dispatch behavior.
 

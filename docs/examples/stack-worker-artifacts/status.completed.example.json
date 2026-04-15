@@ -1,0 +1,24 @@
+{
+  "contract_version": "atlas.worker.status.v1",
+  "worker_id": "worker-stack-20260413-001",
+  "assignment_id": "assignment-stack-20260413-001",
+  "state": "completed",
+  "heartbeat_at": "2026-04-13T20:32:00Z",
+  "touched_ranges": [
+    {
+      "repo_path": ".",
+      "repo_commit": "stack@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "file_digest_before": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "path": "docs/codex-orchestration.md",
+      "start_line": 1,
+      "end_line": 12,
+      "op": "modify"
+    }
+  ],
+  "output_refs": [
+    "logs/run.json",
+    "logs/final-summary.md"
+  ],
+  "blocked_reason": null,
+  "merge_request_ref": null
+}

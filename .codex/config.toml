@@ -1,0 +1,29 @@
+# Repo-local defaults for the _stack operator layer.
+
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+personality = "pragmatic"
+
+[windows]
+codex_command = "codex.exe"
+sandbox = "workspace-write"
+approval_policy = "never"
+
+[runner]
+base_ref = "origin/main"
+branch_prefix = "codex/"
+inbox_dir = ".codex/inbox"
+archive_dir = ".codex/archive"
+logs_dir = ".codex/logs"
+worktree_root = ".codex/worktrees"
+exports_dir = ".codex/exports"
+poll_interval_seconds = 5
+settle_seconds = 2
+auto_commit = false
+skip_push = true
+cleanup_worktree_on_success = false
+fetch_origin = false
+
+[exports]
+patch = true
+bundle = false

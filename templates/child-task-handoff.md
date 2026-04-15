@@ -10,6 +10,11 @@ Target: <_stack | fitness | playbook | lifeline | atlas>
 Working Directory: <absolute path>
 Allowed Edit Surface:
 - <absolute path or glob>
+Stack Lock Digest: <sha256 digest from stack.lock.yaml>
+Worker Assignment Id: <assignment id>
+Worker Id: <worker id>
+Input Handoff Refs:
+- <handoff ref>
 
 Objective:
 <single concrete outcome>
@@ -26,6 +31,9 @@ Constraints:
 
 Verification:
 - <command to run, or "report no repo-local verify command exists for this task">
+Pause / Resume / Merge:
+- If the worker is resuming or merging, include the paused handoff refs and any merge-request ref in the prompt metadata.
+- Use touched ranges from status artifacts, not transcripts, as the collision observation surface.
 
 Deliver Back:
 - Summary of changes
@@ -47,6 +55,7 @@ Allowed Edit Surface:
 
 Context:
 - `_stack` is the operator layer for workflow commands, receipts, tasks, queue drops, and shared runbooks.
+- `_stack` worker prompts should carry the current stack lock digest so assignments remain pinned to one working set.
 ```
 
 ### Fitness

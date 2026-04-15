@@ -16,9 +16,10 @@ Run shared workflow commands from `_stack`:
 cd C:\Users\zjhre\dev\_stack
 pnpm run fitness:doctor
 pnpm run fitness:verify
+pnpm run fitness:verify:clean
 ```
 
-`fitness:verify` is the workflow entrypoint and currently delegates to the Fitness repo's strict verify command.
+`fitness:verify` is the standard workflow entrypoint and currently delegates to the Fitness repo's strict verify command. Use `fitness:verify:clean` when you need a fresh `.next` state before verifying or deploying.
 
 Run code/test/build checks from the Fitness repo root:
 
@@ -62,4 +63,5 @@ npm run test:mobile-regression-fixtures
 ## Decision rule
 
 - If you are validating workflow entrypoints, stay in `_stack`.
+- If a failure looks like stale local Next build state, use `pnpm run fitness:verify:clean` from `_stack` before chasing application code.
 - If you are validating Fitness behavior, contract usage, lint, tests, or build output, run from `C:\Users\zjhre\dev\fawxzzy-fitness`.

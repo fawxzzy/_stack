@@ -467,6 +467,11 @@ function Parse-PromptFile {
     $lines = @(Get-Content -LiteralPath $Path)
     $metadata = @{
         Verify = New-Object System.Collections.Generic.List[string]
+        HandoffRefs = New-Object System.Collections.Generic.List[string]
+        PausedHandoffRefs = New-Object System.Collections.Generic.List[string]
+        MergeRequestRefs = New-Object System.Collections.Generic.List[string]
+        QueryTerms = New-Object System.Collections.Generic.List[string]
+        TaskTags = New-Object System.Collections.Generic.List[string]
     }
 
     $bodyStartIndex = 0
@@ -499,6 +504,81 @@ function Parse-PromptFile {
                     [void]$metadata.Verify.Add($value)
                 }
             }
+            "handoffref" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    [void]$metadata.HandoffRefs.Add($value)
+                }
+            }
+            "handoffrefs" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    foreach ($entry in ($value -split ',')) {
+                        $trimmedEntry = $entry.Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($trimmedEntry)) {
+                            [void]$metadata.HandoffRefs.Add($trimmedEntry)
+                        }
+                    }
+                }
+            }
+            "pausedhandoffref" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    [void]$metadata.PausedHandoffRefs.Add($value)
+                }
+            }
+            "pausedhandoffrefs" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    foreach ($entry in ($value -split ',')) {
+                        $trimmedEntry = $entry.Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($trimmedEntry)) {
+                            [void]$metadata.PausedHandoffRefs.Add($trimmedEntry)
+                        }
+                    }
+                }
+            }
+            "mergerequestref" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    [void]$metadata.MergeRequestRefs.Add($value)
+                }
+            }
+            "mergerequestrefs" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    foreach ($entry in ($value -split ',')) {
+                        $trimmedEntry = $entry.Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($trimmedEntry)) {
+                            [void]$metadata.MergeRequestRefs.Add($trimmedEntry)
+                        }
+                    }
+                }
+            }
+            "queryterm" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    [void]$metadata.QueryTerms.Add($value)
+                }
+            }
+            "queryterms" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    foreach ($entry in ($value -split ',')) {
+                        $trimmedEntry = $entry.Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($trimmedEntry)) {
+                            [void]$metadata.QueryTerms.Add($trimmedEntry)
+                        }
+                    }
+                }
+            }
+            "tasktag" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    [void]$metadata.TaskTags.Add($value)
+                }
+            }
+            "tasktags" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    foreach ($entry in ($value -split ',')) {
+                        $trimmedEntry = $entry.Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($trimmedEntry)) {
+                            [void]$metadata.TaskTags.Add($trimmedEntry)
+                        }
+                    }
+                }
+            }
             "docsupdatenote" { $metadata.DocsUpdateNote = $value }
             "exportpatch" { $metadata.ExportPatch = $value }
             "exportbundle" { $metadata.ExportBundle = $value }
@@ -529,6 +609,11 @@ function Parse-PromptFile {
         BranchSlug = $branchSlug
         CommitMessage = $commitMessage
         Verify = @($metadata.Verify.ToArray())
+        HandoffRefs = @($metadata.HandoffRefs.ToArray())
+        PausedHandoffRefs = @($metadata.PausedHandoffRefs.ToArray())
+        MergeRequestRefs = @($metadata.MergeRequestRefs.ToArray())
+        QueryTerms = @($metadata.QueryTerms.ToArray())
+        TaskTags = @($metadata.TaskTags.ToArray())
         DocsUpdateNote = $docsUpdateNote
         ExportPatch = $exportPatch
         ExportBundle = $exportBundle

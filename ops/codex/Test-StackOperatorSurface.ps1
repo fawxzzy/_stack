@@ -15,8 +15,16 @@ $requiredFiles = @(
     "ops/codex/adapter.schema.json",
     "ops/codex/repos/stack/adapter.json",
     "ops/codex/repos/stack/config.toml",
+    "ops/stack/StackWorkerArtifacts.ps1",
+    "ops/stack/Test-StackWorkerArtifacts.ps1",
     "package.json",
     ".vscode/tasks.json",
+    "docs/runbooks/STACK-WORKER-FLOW.md",
+    "docs/examples/stack-worker-artifacts/assignment.example.json",
+    "docs/examples/stack-worker-artifacts/status.running.example.json",
+    "docs/examples/stack-worker-artifacts/status.completed.example.json",
+    "docs/examples/stack-worker-artifacts/completion.example.json",
+    "docs/examples/stack-worker-artifacts/merge-request.example.json",
     "templates/child-task-handoff.md",
     "workspace.manifest.json"
 )
@@ -34,7 +42,8 @@ $packageScripts = @($package.scripts.PSObject.Properties.Name)
 $requiredScripts = @(
     "codex:stack:inbox",
     "codex:stack:inbox:once",
-    "codex:stack:task"
+    "codex:stack:task",
+    "codex:stack:verify"
 )
 $missingScripts = @(
     $requiredScripts |
@@ -49,7 +58,8 @@ $taskLabels = @($tasks.tasks | ForEach-Object { $_.label })
 $requiredTaskLabels = @(
     "Codex: Stack Inbox",
     "Codex: Stack Inbox (Once)",
-    "Codex: Stack Task"
+    "Codex: Stack Task",
+    "Codex: Stack Verify"
 )
 $missingTaskLabels = @(
     $requiredTaskLabels |

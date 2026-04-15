@@ -27,12 +27,14 @@
 - `pnpm run codex:stack:inbox`
 - `pnpm run codex:stack:inbox:once`
 - `pnpm run codex:stack:task -- -PromptPath C:\path\to\prompt.md`
+- `pnpm run codex:stack:verify`
 - Shared engine scripts live in `C:\Users\zjhre\dev\_stack\ops\codex`.
 - Playbook remains the first adapter example through `C:\Users\zjhre\dev\_stack\ops\codex\repos\playbook`.
 - Atlas is the first non-Playbook thin adapter through `C:\Users\zjhre\dev\_stack\ops\codex\repos\atlas`.
 - Lifeline is the next thin non-Vercel adapter through `C:\Users\zjhre\dev\_stack\ops\codex\repos\lifeline`.
 - `_stack` is now also a first-class thin adapter through `C:\Users\zjhre\dev\_stack\ops\codex\repos\stack`.
 - `_stack` owns the runner; repo-local `.codex/` folders still own inbox, archive, logs, worktrees, and exports.
+- `_stack` worker runs stamp `stack_lock_digest` from the root `stack.lock.yaml` and write assignment, status, merge-request, and completion status artifacts alongside the run logs.
 - Atlas stays docs-first and repo-local; push remains manual-only and successful mutating tasks still auto-commit by default.
 - Lifeline stays repo-local and self-hosted; push remains manual-only and successful mutating tasks still auto-commit by default.
 - `_stack` self-manages through the same runner path with repo-local `_stack\.codex\` artifacts, manual-only push, the same validated commit metadata contract used by the other adapters, and optional local auto-land to local `main` in `ff-only` mode.
@@ -43,6 +45,7 @@
 ## Fitness operator commands
 - `pnpm run fitness:doctor`
 - `pnpm run fitness:verify`
+- `pnpm run fitness:verify:clean`
 - `pnpm run fitness:build:vercel`
 - `pnpm run fitness:deploy:preview`
 - `pnpm run fitness:deploy:preview:logs`
@@ -91,7 +94,7 @@
 
 ## Fitness deploy model
 1. Run `pnpm run fitness:doctor` from `_stack`.
-2. Run `pnpm run fitness:verify` from `_stack`.
+2. Run `pnpm run fitness:verify:clean` from `_stack` when you need a fresh-state deploy preflight; the deploy/build wrappers now use this path automatically.
 3. Use `pnpm run fitness:deploy:preview` for the standard preview path.
 4. If preview deploy debugging is needed, use `pnpm run fitness:build:vercel` and then `pnpm run fitness:deploy:prebuilt`.
 5. Do not run production deploys unless you explicitly intend to promote the current state.
@@ -122,6 +125,7 @@
 ## Receipts
 - Operator receipts live in `C:\Users\zjhre\dev\_stack\receipts`.
 - Receipts are for verify, deploy, and operator events only for now.
+- Worker lifecycle artifacts live in repo-local `.codex/logs/` for each run, not in receipts.
 
 ## Troubleshooting
 - If `_stack` scripts are missing, confirm the file is really `package.json`, not `package.json.txt`.

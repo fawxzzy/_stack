@@ -1,0 +1,43 @@
+{
+  "contract_version": "atlas.worker.merge-request.v1",
+  "merge_request_id": "merge-request-stack-20260413-001",
+  "stack_lock_digest": "sha256:b578a219aea96c20c17c59186c0984c6b7029a0eca94b05ec30a79b5a3535964",
+  "conflicting_workers": [
+    "worker-stack-a",
+    "worker-stack-b"
+  ],
+  "overlaps": [
+    {
+      "repo_path": ".",
+      "path": "docs/codex-orchestration.md",
+      "overlap_type": "line_overlap",
+      "file_digest_before": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "conflicting_ranges": [
+        {
+          "worker_id": "worker-stack-a",
+          "start_line": 1,
+          "end_line": 12,
+          "op": "modify"
+        },
+        {
+          "worker_id": "worker-stack-b",
+          "start_line": 8,
+          "end_line": 18,
+          "op": "modify"
+        }
+      ],
+      "reason": "Same file, overlapping ranges, same file digest before edit."
+    }
+  ],
+  "paused_handoff_refs": [
+    "handoff://paused/worker-stack-a",
+    "handoff://paused/worker-stack-b"
+  ],
+  "merge_worker_handoff": {
+    "worker_id": "merge-worker-stack-1",
+    "assignment_id": "assignment-stack-merge-001",
+    "task_id": "stack-worker-merge",
+    "handoff_ref": "handoff://merge/worker-stack-a-worker-stack-b"
+  },
+  "notes": "Merge requests are emitted from the paused handoff path, not raw transcripts."
+}

@@ -18,6 +18,7 @@ if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction Sile
 }
 
 . (Join-Path -Path $PSScriptRoot -ChildPath "CodexRunner.Common.ps1")
+. (Join-Path -Path $PSScriptRoot -ChildPath "..\stack\StackWorkerArtifacts.ps1")
 
 $status = "setup_failed"
 $archivePath = $null
@@ -42,6 +43,24 @@ $archiveDirectory = $null
 $effectiveVerifyCommands = @()
 $verificationSource = "prompt"
 $effectiveSandboxMode = $null
+$stackLockContext = $null
+$workerAssignmentPath = $null
+$workerRunningStatusPath = $null
+$workerCompletedStatusPath = $null
+$workerMergeRequestPath = $null
+$workerAssignmentRecord = $null
+$workerRunningStatusRecord = $null
+$workerCompletedStatusRecord = $null
+$workerMergeRequestRecord = $null
+$workerContextRecord = $null
+$workerContextPath = $null
+$workerContextRef = $null
+$governedFlowContext = $null
+$governedSessionId = $null
+$supervisorReportRecord = $null
+$supervisorReportPath = $null
+$supervisorConsumerRecord = $null
+$supervisorConsumerPath = $null
 $changedPaths = @()
 $mutationScopeViolations = @()
 $verifyBootstrapRecords = @()
@@ -80,6 +99,7 @@ try {
     $resolvedConfig = Import-StackCodexConfiguration -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath -RepoRoot $RepoRoot -AdapterPath $AdapterPath
     $config = $resolvedConfig.Config
     $repoRoot = $resolvedConfig.RepoRoot
+    $stackLockContext = Get-StackLockContext -RepoRoot $repoRoot
     $adapterContractPath = $resolvedConfig.AdapterPath
     $adapterContract = Read-JsonFile -Path $adapterContractPath
 
@@ -217,6 +237,46 @@ try {
     $summaryPath = Join-Path -Path $logDirectory -ChildPath "final-summary.md"
     $codexStdOutPath = Join-Path -Path $logDirectory -ChildPath "codex.stdout.log"
     $codexStdErrPath = Join-Path -Path $logDirectory -ChildPath "codex.stderr.log"
+    $workerAssignmentPath = Join-Path -Path $logDirectory -ChildPath "worker.assignment.json"
+    $workerRunningStatusPath = Join-Path -Path $logDirectory -ChildPath "worker.status.running.json"
+    $workerCompletedStatusPath = Join-Path -Path $logDirectory -ChildPath "worker.status.completed.json"
+    $workerMergeRequestPath = Join-Path -Path $logDirectory -ChildPath "worker.merge-request.json"
+    $workerAssignmentId = "assignment-{0}" -f $runId
+    $workerId = "worker-{0}" -f $runId
+    $contextQueryTerms = @()
+    if ($null -ne $promptRecord -and $promptRecord.PSObject.Properties.Name -contains "QueryTerms") {
+        $contextQueryTerms = @($promptRecord.QueryTerms)
+    }
+    if ($contextQueryTerms.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($promptRecord.Title)) {
+        $contextQueryTerms = @($promptRecord.Title)
+    }
+    if ($contextQueryTerms.Count -eq 0) {
+        $contextQueryTerms = @($taskName.Slug.Replace("-", " "))
+    }
+
+    $contextTaskTags = @()
+    if ($null -ne $promptRecord -and $promptRecord.PSObject.Properties.Name -contains "TaskTags") {
+        $contextTaskTags = @($promptRecord.TaskTags)
+    }
+    $contextTaskTags += @("worker", [string]$adapterContract.repoId)
+    $contextTaskTags = @(
+        $contextTaskTags |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { [string]$_ } |
+        Select-Object -Unique
+    )
+
+    $workerContextRecord = Invoke-StackWorkerContextBuild `
+        -RepoRoot $repoRoot `
+        -AssignmentId $workerAssignmentId `
+        -WorkerId $workerId `
+        -TaskId $taskName.Slug `
+        -StackLockDigest $stackLockContext.stackLockDigest `
+        -QueryTerms $contextQueryTerms `
+        -TaskTags $contextTaskTags
+    $workerContextPath = $workerContextRecord.outputPath
+    $workerContextRef = $workerContextRecord.relativePath
+
     $effectivePrompt = $promptRecord.Body.Trim()
     if (-not [string]::IsNullOrWhiteSpace($promptRecord.DocsUpdateNote)) {
         $effectivePrompt = $effectivePrompt + "`r`n`r`nDocs update note: " + $promptRecord.DocsUpdateNote.Trim()
@@ -232,8 +292,140 @@ try {
         "- The runner will consume and remove the artifact before staging.",
         "- Do not push. Push remains manual-only."
     ) -join "`r`n"
-    $effectivePrompt = $effectivePrompt + "`r`n`r`n" + $commitContractInstructions
+    $workerContextInstructions = @(
+        "Worker context contract:",
+        ("- Deterministic worker context artifact: `{0}`." -f $workerContextRef),
+        "- Use the worker context artifact, paused handoff refs, and merge request refs as the governed context surfaces.",
+        "- Do not rely on raw hidden transcript history or ad hoc pasted summaries."
+    ) -join "`r`n"
+    $effectivePrompt = $effectivePrompt + "`r`n`r`n" + $workerContextInstructions + "`r`n`r`n" + $commitContractInstructions
     Write-TextFile -Path (Join-Path -Path $logDirectory -ChildPath "effective.prompt.md") -Content $effectivePrompt
+
+    $inputHandoffRefs = @()
+    if ($null -ne $promptRecord -and $promptRecord.PSObject.Properties.Name -contains "HandoffRefs") {
+        $inputHandoffRefs = @($promptRecord.HandoffRefs | ForEach-Object { Normalize-StackHandoffRef -RepoRoot $repoRoot -Reference ([string]$_) })
+    }
+    if ($inputHandoffRefs.Count -eq 0 -and $null -ne $promptRecord -and $promptRecord.PSObject.Properties.Name -contains "PausedHandoffRefs") {
+        $inputHandoffRefs = @($promptRecord.PausedHandoffRefs | ForEach-Object { Normalize-StackHandoffRef -RepoRoot $repoRoot -Reference ([string]$_) })
+    }
+    if ($inputHandoffRefs.Count -eq 0) {
+        $inputHandoffRefs = @((Normalize-StackHandoffRef -RepoRoot $repoRoot -Reference $PromptPath))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($workerContextRef)) {
+        $inputHandoffRefs += $workerContextRef
+    }
+    $inputHandoffRefs = @($inputHandoffRefs | Select-Object -Unique)
+    $governedContextRefs = New-Object System.Collections.Generic.List[string]
+    foreach ($reference in $inputHandoffRefs) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$reference)) {
+            [void]$governedContextRefs.Add([string]$reference)
+        }
+    }
+    if ($null -ne $promptRecord -and $promptRecord.PSObject.Properties.Name -contains "MergeRequestRefs") {
+        foreach ($reference in @($promptRecord.MergeRequestRefs)) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$reference)) {
+                [void]$governedContextRefs.Add((Normalize-StackHandoffRef -RepoRoot $repoRoot -Reference ([string]$reference)))
+            }
+        }
+    }
+    $governedFlowContext = Resolve-AtlasGovernedFlowContext -RepoRoot $repoRoot -References @($governedContextRefs.ToArray())
+    $governedSessionId = if ($null -ne $governedFlowContext) { [string]$governedFlowContext.session_id } else { $runId }
+    $governedToolId = if ($null -ne $governedFlowContext) { [string]$governedFlowContext.tool_id } else { "" }
+    $governedExtensionId = if ($null -ne $governedFlowContext) { [string]$governedFlowContext.extension_id } else { $null }
+    $governedRegistryDigest = if ($null -ne $governedFlowContext) { [string]$governedFlowContext.registry_digest } else { "" }
+    $governedSourceRefs = if ($null -ne $governedFlowContext) { @($governedFlowContext.source_artifact_refs) } else { @() }
+
+    $allowedGlobs = @($adapterContract.allowedMutationSurfaces)
+    $forbiddenGlobs = @(
+        "secrets/**",
+        "runtime/**",
+        "repos/Verta-Core/**"
+    )
+    $expectedOutputs = @(
+        "logs/run.json",
+        "logs/effective.prompt.md",
+        "logs/final-summary.md",
+        "logs/worker.status.completed.json"
+    )
+
+    $workerAssignmentRecord = New-StackWorkerAssignment `
+        -AssignmentId $workerAssignmentId `
+        -WorkerId $workerId `
+        -TaskId $taskName.Slug `
+        -StackLockDigest $stackLockContext.stackLockDigest `
+        -AllowedGlobs $allowedGlobs `
+        -ForbiddenGlobs $forbiddenGlobs `
+        -InputHandoffRefs $inputHandoffRefs `
+        -ExpectedOutputs $expectedOutputs `
+        -ToolId $governedToolId `
+        -ExtensionId $governedExtensionId `
+        -RegistryDigest $governedRegistryDigest `
+        -Notes ("Stack worker assignment stamped from {0}." -f $stackLockContext.stackLockPath)
+    [void](Write-StackWorkerArtifact -Artifact $workerAssignmentRecord -Path $workerAssignmentPath)
+    $workerAssignmentRef = Get-StackRelativePath -RepoRoot $repoRoot -Path $workerAssignmentPath
+    if (
+        -not [string]::IsNullOrWhiteSpace([string]$workerAssignmentRecord.tool_id) -and
+        -not [string]::IsNullOrWhiteSpace([string]$workerAssignmentRecord.registry_digest)
+    ) {
+        $assignmentObservationRefs = @($governedSourceRefs + @($workerAssignmentRef) | Select-Object -Unique)
+        [void](Publish-AtlasObservation `
+            -RepoRoot $repoRoot `
+            -Owner "_stack" `
+            -ObservationType "assignment_created" `
+            -SourceKind "worker_assignment" `
+            -Status "emitted" `
+            -SourceRef $workerAssignmentRef `
+            -ObservedAt ((Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")) `
+            -ScopeRef $governedSessionId `
+            -Details (New-AtlasGovernedObservationDetails `
+                -SessionId $governedSessionId `
+                -WorkerId ([string]$workerAssignmentRecord.worker_id) `
+                -AssignmentId ([string]$workerAssignmentRecord.assignment_id) `
+                -StackLockDigest ([string]$workerAssignmentRecord.stack_lock_digest) `
+                -ToolId ([string]$workerAssignmentRecord.tool_id) `
+                -ExtensionId ([string]$workerAssignmentRecord.extension_id) `
+                -RegistryDigest ([string]$workerAssignmentRecord.registry_digest) `
+                -SourceArtifactRefs $assignmentObservationRefs))
+    }
+
+    $workerRunningStatusRecord = New-StackWorkerStatus `
+        -WorkerId $workerAssignmentRecord.worker_id `
+        -AssignmentId $workerAssignmentRecord.assignment_id `
+        -State "running" `
+        -HeartbeatAt ((Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")) `
+        -TouchedRanges @() `
+        -OutputRefs @() `
+        -BlockedReason $null `
+        -MergeRequestRef $null `
+        -ToolId ([string]$workerAssignmentRecord.tool_id) `
+        -ExtensionId ([string]$workerAssignmentRecord.extension_id) `
+        -RegistryDigest ([string]$workerAssignmentRecord.registry_digest)
+    [void](Write-StackWorkerArtifact -Artifact $workerRunningStatusRecord -Path $workerRunningStatusPath)
+    $workerRunningStatusRef = Get-StackRelativePath -RepoRoot $repoRoot -Path $workerRunningStatusPath
+    if (
+        -not [string]::IsNullOrWhiteSpace([string]$workerRunningStatusRecord.tool_id) -and
+        -not [string]::IsNullOrWhiteSpace([string]$workerRunningStatusRecord.registry_digest)
+    ) {
+        $runningObservationRefs = @($governedSourceRefs + @($workerAssignmentRef, $workerRunningStatusRef) | Select-Object -Unique)
+        [void](Publish-AtlasObservation `
+            -RepoRoot $repoRoot `
+            -Owner "_stack" `
+            -ObservationType "heartbeat" `
+            -SourceKind "worker_status" `
+            -Status "running" `
+            -SourceRef $workerRunningStatusRef `
+            -ObservedAt ([string]$workerRunningStatusRecord.heartbeat_at) `
+            -ScopeRef $governedSessionId `
+            -Details (New-AtlasGovernedObservationDetails `
+                -SessionId $governedSessionId `
+                -WorkerId ([string]$workerRunningStatusRecord.worker_id) `
+                -AssignmentId ([string]$workerRunningStatusRecord.assignment_id) `
+                -StackLockDigest ([string]$workerAssignmentRecord.stack_lock_digest) `
+                -ToolId ([string]$workerRunningStatusRecord.tool_id) `
+                -ExtensionId ([string]$workerRunningStatusRecord.extension_id) `
+                -RegistryDigest ([string]$workerRunningStatusRecord.registry_digest) `
+                -SourceArtifactRefs $runningObservationRefs))
+    }
 
     $codexArgs = New-Object System.Collections.Generic.List[string]
     $approvalPolicy = [string](Get-ConfigValue -Config $config -Path @("windows", "approval_policy") -DefaultValue "never")
@@ -524,6 +716,120 @@ finally {
     }
 
     if ($null -ne $logDirectory) {
+        $workerAssignmentId = if ($null -ne $workerAssignmentRecord) { $workerAssignmentRecord.assignment_id } else { $null }
+        $workerAssignmentWorkerId = if ($null -ne $workerAssignmentRecord) { $workerAssignmentRecord.worker_id } else { $null }
+        if ($null -ne $workerAssignmentRecord) {
+            $touchedRanges = @()
+            if (-not [string]::IsNullOrWhiteSpace($commitSha) -and ($null -ne $changedPaths) -and $changedPaths.Count -gt 0) {
+                $touchedRanges = @(Get-StackTouchedRanges -WorkingDirectory $repoRoot -CommitSha $commitSha -ChangedPaths $changedPaths)
+            }
+
+            $workerState = switch ($status) {
+                "success" { "completed" }
+                "verification_failed" { "blocked" }
+                "mutation_scope_failed" { "blocked" }
+                "no_changes" { "blocked" }
+                "codex_failed" { "failed" }
+                "commit_failed" { "failed" }
+                "archive_failed" { "failed" }
+                default { "failed" }
+            }
+
+            $workerBlockedReason = if ($workerState -eq "completed") { $null } else { $status }
+            $workerOutputRefs = @(
+                (Get-StackRelativePath -RepoRoot $repoRoot -Path $manifestPath),
+                (Get-StackRelativePath -RepoRoot $repoRoot -Path $summaryPath)
+            )
+            if (-not [string]::IsNullOrWhiteSpace($workerContextRef)) {
+                $workerOutputRefs += $workerContextRef
+            }
+            $workerCompletedStatusRecord = New-StackWorkerStatus `
+                -WorkerId $workerAssignmentWorkerId `
+                -AssignmentId $workerAssignmentId `
+                -State $workerState `
+                -HeartbeatAt ((Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")) `
+                -TouchedRanges $touchedRanges `
+                -OutputRefs $workerOutputRefs `
+                -BlockedReason $workerBlockedReason `
+                -MergeRequestRef $null `
+                -ToolId ([string]$workerAssignmentRecord.tool_id) `
+                -ExtensionId ([string]$workerAssignmentRecord.extension_id) `
+                -RegistryDigest ([string]$workerAssignmentRecord.registry_digest)
+            [void](Write-StackWorkerArtifact -Artifact $workerCompletedStatusRecord -Path $workerCompletedStatusPath)
+            $workerCompletedStatusRef = Get-StackRelativePath -RepoRoot $repoRoot -Path $workerCompletedStatusPath
+            if (
+                $workerState -eq "completed" -and
+                -not [string]::IsNullOrWhiteSpace([string]$workerCompletedStatusRecord.tool_id) -and
+                -not [string]::IsNullOrWhiteSpace([string]$workerCompletedStatusRecord.registry_digest)
+            ) {
+                $completedObservationRefs = @($governedSourceRefs + @($workerAssignmentRef, $workerCompletedStatusRef) | Select-Object -Unique)
+                [void](Publish-AtlasObservation `
+                    -RepoRoot $repoRoot `
+                    -Owner "_stack" `
+                    -ObservationType "completed" `
+                    -SourceKind "worker_status" `
+                    -Status "completed" `
+                    -SourceRef $workerCompletedStatusRef `
+                    -ObservedAt ([string]$workerCompletedStatusRecord.heartbeat_at) `
+                    -ScopeRef $governedSessionId `
+                    -Details (New-AtlasGovernedObservationDetails `
+                        -SessionId $governedSessionId `
+                        -WorkerId ([string]$workerCompletedStatusRecord.worker_id) `
+                        -AssignmentId ([string]$workerCompletedStatusRecord.assignment_id) `
+                        -StackLockDigest ([string]$workerAssignmentRecord.stack_lock_digest) `
+                        -ToolId ([string]$workerCompletedStatusRecord.tool_id) `
+                        -ExtensionId ([string]$workerCompletedStatusRecord.extension_id) `
+                        -RegistryDigest ([string]$workerCompletedStatusRecord.registry_digest) `
+                        -SourceArtifactRefs $completedObservationRefs))
+            }
+
+            try {
+                $supervisorScriptPath = Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "ops\cortex\supervise_workers.py"
+                $supervisorOutputRoot = Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "runtime\cortex\supervisor"
+                $supervisorStdOutPath = Join-Path -Path $logDirectory -ChildPath "supervisor.stdout.log"
+                $supervisorStdErrPath = Join-Path -Path $logDirectory -ChildPath "supervisor.stderr.log"
+                $supervisorResult = Invoke-ProcessCapture `
+                    -FilePath "python" `
+                    -ArgumentList @($supervisorScriptPath, "--artifact-path", $logsDirectory, "--output-dir", $supervisorOutputRoot) `
+                    -WorkingDirectory $stackLockContext.workspaceRoot
+                Write-TextFile -Path $supervisorStdOutPath -Content $supervisorResult.StdOut
+                Write-TextFile -Path $supervisorStdErrPath -Content $supervisorResult.StdErr
+
+                if ($supervisorResult.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($supervisorResult.StdOut)) {
+                    $supervisorReportRecord = $supervisorResult.StdOut | ConvertFrom-Json
+                    $supervisorReportPath = Join-Path -Path $logDirectory -ChildPath "supervisor.report.json"
+                    Write-TextFile -Path $supervisorReportPath -Content (($supervisorReportRecord | ConvertTo-Json -Depth 32) + "`r`n")
+
+                    $supervisorConsumerRecord = Invoke-StackSupervisorConsumer `
+                        -RepoRoot $repoRoot `
+                        -ArtifactSearchRoot $logsDirectory `
+                        -SupervisorOutputRoot $supervisorOutputRoot `
+                        -TargetWorkerId $workerAssignmentWorkerId
+                    $supervisorConsumerPath = Join-Path -Path $logDirectory -ChildPath "supervisor.consumer.json"
+                    Write-TextFile -Path $supervisorConsumerPath -Content (($supervisorConsumerRecord | ConvertTo-Json -Depth 32) + "`r`n")
+
+                    if ($supervisorConsumerRecord.processed_count -gt 0) {
+                        $firstProcessedMerge = @($supervisorConsumerRecord.merge_requests | Where-Object { -not $_.already_processed } | Select-Object -First 1)[0]
+                        if ($null -ne $firstProcessedMerge) {
+                            $firstMergeRequestRef = [string]$firstProcessedMerge.merge_request_ref
+                            if (-not [string]::IsNullOrWhiteSpace($firstMergeRequestRef)) {
+                                $workerMergeRequestPath = Join-Path -Path $stackLockContext.workspaceRoot -ChildPath $firstMergeRequestRef
+                                if (Test-Path -LiteralPath $workerMergeRequestPath) {
+                                    $workerMergeRequestRecord = Read-StackJsonArtifact -Path $workerMergeRequestPath
+                                }
+                            }
+                        }
+                    }
+                }
+                else {
+                    Write-RunnerMessage -Message "Supervisor scan did not complete successfully; merge consumption was skipped." -Level "WARN"
+                }
+            }
+            catch {
+                Write-RunnerMessage -Message ("Supervisor consumption failed: {0}" -f $_.Exception.Message) -Level "WARN"
+            }
+        }
+
         $manifest = [ordered]@{
             runId = $runId
             status = $status
@@ -539,6 +845,12 @@ finally {
             baseRefCandidates = @($baseRefCandidates)
             worktreePath = $worktreePath
             commitSha = $commitSha
+            stackLock = [ordered]@{
+                path = $stackLockContext.stackLockPath
+                digest = $stackLockContext.stackLockDigest
+                fileDigest = $stackLockContext.stackLockFileDigest
+                workspaceRoot = $stackLockContext.workspaceRoot
+            }
             commit = [ordered]@{
                 enabled = $autoCommitEnabled
                 message = $commitMessage
@@ -565,6 +877,18 @@ finally {
             verificationBootstrap = @($verifyBootstrapRecords)
             verificationSource = $verificationSource
             changedPaths = @($changedPaths)
+            workerArtifacts = [ordered]@{
+                assignment = if ($null -ne $workerAssignmentRecord) { $workerAssignmentPath } else { $null }
+                runningStatus = if ($null -ne $workerAssignmentRecord) { $workerRunningStatusPath } else { $null }
+                completedStatus = if ($null -ne $workerAssignmentRecord) { $workerCompletedStatusPath } else { $null }
+                context = $workerContextRef
+                mergeRequest = if (Test-Path -LiteralPath $workerMergeRequestPath) { $workerMergeRequestPath } else { $null }
+            }
+            supervisorLoop = [ordered]@{
+                reportPath = $supervisorReportPath
+                consumerPath = $supervisorConsumerPath
+                processedMergeRequests = if ($null -ne $supervisorConsumerRecord) { @($supervisorConsumerRecord.merge_requests) } else { @() }
+            }
             mutationScopeViolations = @($mutationScopeViolations)
             exportErrors = @($exportErrors)
             exports = [ordered]@{

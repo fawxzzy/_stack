@@ -1,0 +1,25 @@
+{
+  "contract_version": "atlas.worker.assignment.v1",
+  "assignment_id": "assignment-stack-20260413-001",
+  "worker_id": "worker-stack-20260413-001",
+  "task_id": "stack-worker-flow-docs",
+  "stack_lock_digest": "sha256:b578a219aea96c20c17c59186c0984c6b7029a0eca94b05ec30a79b5a3535964",
+  "allowed_globs": [
+    "docs/**",
+    "ops/**",
+    "templates/**"
+  ],
+  "forbidden_globs": [
+    "secrets/**",
+    "runtime/**",
+    "repos/Verta-Core/**"
+  ],
+  "input_handoff_refs": [
+    "handoff://root/stack-worker-flow"
+  ],
+  "expected_outputs": [
+    "logs/run.json",
+    "logs/worker.status.completed.json"
+  ],
+  "notes": "Assignment for the first executor of the stack worker contract flow."
+}

@@ -1,0 +1,11 @@
+{
+  "contract_version": "atlas.worker.status.v1",
+  "worker_id": "worker-stack-20260413-001",
+  "assignment_id": "assignment-stack-20260413-001",
+  "state": "running",
+  "heartbeat_at": "2026-04-13T20:30:00Z",
+  "touched_ranges": [],
+  "output_refs": [],
+  "blocked_reason": null,
+  "merge_request_ref": null
+}

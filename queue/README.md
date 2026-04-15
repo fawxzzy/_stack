@@ -34,5 +34,7 @@ Then include:
 - constraints
 - verification
 - deliver-back expectations
+- stack lock digest
+- worker assignment/status or merge-request refs when the task is a pause, resume, or merge step
 
 The payload should stay self-contained so later automation can ingest it without reading unrelated workspace files.

@@ -142,6 +142,20 @@
       }
     },
     {
+      "label": "Codex: Stack Verify",
+      "type": "shell",
+      "command": "pnpm run codex:stack:verify",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
       "label": "Fitness: Doctor",
       "type": "shell",
       "command": "pnpm run fitness:doctor",

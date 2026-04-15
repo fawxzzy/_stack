@@ -11,3 +11,4 @@ Not in scope yet:
 - automatic commit-triggered receipts
 - general app/runtime logging
 - repo implementation artifacts
+- worker lifecycle artifacts; those stay in repo-local `.codex/logs/` and queue drops

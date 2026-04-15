@@ -99,6 +99,8 @@ The parent runner should include:
 - target repo or `_stack`
 - absolute working directory
 - allowed edit surface
+- stack lock digest
+- worker assignment/status or merge-request refs when the handoff is a resume or merge step
 - objective
 - constraints
 - verification command or explicit verification expectation
@@ -116,3 +118,4 @@ Use `C:\Users\zjhre\dev\_stack\queue` as a lightweight future automation boundar
   - completed task records or archived drops
 
 Task drops should be small, explicit, and easy for a wrapper script or automation to pick up later. Prefer one file per task and keep the payload self-contained.
+When the task drop is for `_stack`, include the current `stack_lock_digest` and any paused handoff refs so the worker artifacts stay tied to the same pinned working set.
