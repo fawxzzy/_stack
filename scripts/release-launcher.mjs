@@ -3,10 +3,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { getTargetTopologyMetadata, loadAtlasTopologyManifest } from "./atlas-topology.mjs";
+import { buildPnpmScriptExecution, formatExecutionSpec, spawnWithSpec } from "./command-runner.mjs";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const STACK_ROOT = path.resolve(SCRIPT_DIRECTORY, "..");
@@ -357,22 +357,17 @@ function printTargetSummary(target, packageScripts) {
   }
 }
 
-function spawnPnpmScript(scriptName) {
-  const executable = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  return spawn(executable, ["run", scriptName], {
-    cwd: STACK_ROOT,
-    stdio: "inherit",
-    env: process.env
-  });
-}
-
 function runScript(scriptName, phaseLabel) {
   return new Promise((resolve, reject) => {
     console.log("");
     console.log(colorize(`${phaseLabel}: pnpm run ${scriptName}`, ANSI.cyan));
 
-    const child = spawnPnpmScript(scriptName);
-    child.on("error", reject);
+    const execution = buildPnpmScriptExecution(scriptName, { cwd: STACK_ROOT });
+    const child = spawnWithSpec(execution);
+    child.on("error", (error) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      reject(new Error(`${phaseLabel} failed to launch.\n${detail}\n${formatExecutionSpec(execution)}`));
+    });
     child.on("exit", (code, signal) => {
       if (signal) {
         reject(new Error(`${phaseLabel} was terminated by signal ${signal}.`));
@@ -419,6 +414,7 @@ async function executeTarget(interfaceHandle, target, packageScripts, options) {
   if (!confirmed) {
     return 1;
   }
+  interfaceHandle.close();
 
   for (const preflightScript of target.preflightScripts) {
     const preflightExitCode = await runScript(preflightScript, "Preflight");

@@ -23,6 +23,8 @@ $requiredFiles = @(
     "ops/stack/Test-StackWorkerArtifacts.ps1",
     "ops/bin/release-launcher.cmd",
     "package.json",
+    "scripts/command-runner.mjs",
+    "scripts/command-runner.test.mjs",
     "scripts/release-launcher.mjs",
     "scripts/atlas-topology.mjs",
     ".vscode/tasks.json",
@@ -82,6 +84,11 @@ if ($missingTaskLabels.Count -gt 0) {
 & node ".\scripts\release-launcher.mjs" --list | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw "_stack release launcher config validation failed."
+}
+
+& node --test ".\scripts\command-runner.test.mjs" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack command runner regression coverage failed."
 }
 
 $launcherListOutput = & node ".\scripts\release-launcher.mjs" --list

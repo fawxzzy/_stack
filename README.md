@@ -62,6 +62,7 @@
 - `Maintenance / Advanced` is where prebuilt deploy variants, log-attached preview flows, and lower-frequency operator commands live.
 - The launcher only exposes explicit targets from config; it does not enumerate every `package.json` script.
 - Each approved target resolves to an existing `_stack` package script, so the launcher stays a thin control surface instead of becoming a second deploy implementation.
+- Launcher execution now flows through a platform-aware command runner: Windows `pnpm` and other `.cmd` / `.bat` wrappers run with shell handling, `powershell` normalizes to `powershell.exe`, and launch failures print resolved `executable`, `args`, `cwd`, and `shell` details.
 - Production and destructive maintenance targets can require typed confirmation through config.
 - Use `node .\scripts\release-launcher.mjs --list` to print the currently approved target IDs.
 - Use `node .\scripts\release-launcher.mjs --target <target-id> --dry-run` to inspect a target without executing it.
