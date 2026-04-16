@@ -315,6 +315,70 @@ function titleCase(value) {
     .join(" ");
 }
 
+function stripAnsi(value) {
+  return value.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
+function normalizeUrlCandidate(value) {
+  return value.replace(/[)\],.;:]+$/u, "");
+}
+
+function isDeploymentUrl(value) {
+  try {
+    const parsedUrl = new URL(value);
+    return parsedUrl.protocol === "https:" && (
+      parsedUrl.hostname.endsWith(".vercel.app") ||
+      parsedUrl.hostname.endsWith(".vercel.link")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function extractVercelDeploymentUrl(output) {
+  const normalizedOutput = stripAnsi(typeof output === "string" ? output : "");
+  const labeledPreviewMatches = [...normalizedOutput.matchAll(/\bPreview:\s+(https:\/\/\S+)/giu)];
+  if (labeledPreviewMatches.length > 0) {
+    return normalizeUrlCandidate(labeledPreviewMatches.at(-1)[1]);
+  }
+
+  const labeledProductionMatches = [...normalizedOutput.matchAll(/\bProduction:\s+(https:\/\/\S+)/giu)];
+  if (labeledProductionMatches.length > 0) {
+    return normalizeUrlCandidate(labeledProductionMatches.at(-1)[1]);
+  }
+
+  const deploymentUrlMatches = [...normalizedOutput.matchAll(/https:\/\/\S+/giu)]
+    .map((match) => normalizeUrlCandidate(match[0]))
+    .filter((candidate) => isDeploymentUrl(candidate));
+
+  return deploymentUrlMatches.length > 0 ? deploymentUrlMatches.at(-1) : null;
+}
+
+export function findCounterpartTarget(targets, target, actionId) {
+  const matchingTargets = targets.filter(
+    (candidate) => candidate.app === target.app && candidate.action.id === actionId
+  );
+
+  if (matchingTargets.length === 0) {
+    return null;
+  }
+
+  return matchingTargets.find((candidate) => !candidate.advanced) ?? matchingTargets[0];
+}
+
+function printPreviewDeploymentSummary(target, configuration, executionResult) {
+  const deployedPreviewUrl = extractVercelDeploymentUrl(executionResult.combinedOutput);
+  const prodCounterpart = findCounterpartTarget(configuration.targets, target, "deploy-prod");
+
+  console.log("");
+  console.log(colorize("Preview Deploy Summary", ANSI.green));
+  console.log(`  app:                 ${titleCase(target.app)}`);
+  console.log(`  environment:         ${target.displayEnvironment}`);
+  console.log(`  hostname:            ${target.hostnameHint ?? "not declared"}`);
+  console.log(`  deployed preview URL:${deployedPreviewUrl ? ` ${deployedPreviewUrl}` : " not detected from deploy output"}`);
+  console.log(`  prod counterpart:    ${prodCounterpart ? `pnpm run ${prodCounterpart.script}` : "not configured"}`);
+}
+
 function printTargetSummary(target, packageScripts) {
   console.log("");
   console.log(colorize(target.label, ANSI.green));
@@ -362,8 +426,26 @@ function runScript(scriptName, phaseLabel) {
     console.log("");
     console.log(colorize(`${phaseLabel}: pnpm run ${scriptName}`, ANSI.cyan));
 
-    const execution = buildPnpmScriptExecution(scriptName, { cwd: STACK_ROOT });
+    const execution = buildPnpmScriptExecution(scriptName, { cwd: STACK_ROOT, stdio: "pipe" });
     const child = spawnWithSpec(execution);
+    let stdout = "";
+    let stderr = "";
+    let combinedOutput = "";
+
+    child.stdout?.on("data", (chunk) => {
+      const text = chunk.toString();
+      stdout += text;
+      combinedOutput += text;
+      process.stdout.write(chunk);
+    });
+
+    child.stderr?.on("data", (chunk) => {
+      const text = chunk.toString();
+      stderr += text;
+      combinedOutput += text;
+      process.stderr.write(chunk);
+    });
+
     child.on("error", (error) => {
       const detail = error instanceof Error ? error.message : String(error);
       reject(new Error(`${phaseLabel} failed to launch.\n${detail}\n${formatExecutionSpec(execution)}`));
@@ -373,7 +455,12 @@ function runScript(scriptName, phaseLabel) {
         reject(new Error(`${phaseLabel} was terminated by signal ${signal}.`));
         return;
       }
-      resolve(code ?? 1);
+      resolve({
+        exitCode: code ?? 1,
+        stdout,
+        stderr,
+        combinedOutput
+      });
     });
   });
 }
@@ -401,7 +488,7 @@ async function confirmExecution(interfaceHandle, target) {
   return true;
 }
 
-async function executeTarget(interfaceHandle, target, packageScripts, options) {
+async function executeTarget(interfaceHandle, target, packageScripts, configuration, options) {
   printTargetSummary(target, packageScripts);
 
   if (options.dryRun) {
@@ -417,21 +504,24 @@ async function executeTarget(interfaceHandle, target, packageScripts, options) {
   interfaceHandle.close();
 
   for (const preflightScript of target.preflightScripts) {
-    const preflightExitCode = await runScript(preflightScript, "Preflight");
-    if (preflightExitCode !== 0) {
-      console.log(colorize(`Preflight failed with exit code ${preflightExitCode}.`, ANSI.red));
-      return preflightExitCode;
+    const preflightResult = await runScript(preflightScript, "Preflight");
+    if (preflightResult.exitCode !== 0) {
+      console.log(colorize(`Preflight failed with exit code ${preflightResult.exitCode}.`, ANSI.red));
+      return preflightResult.exitCode;
     }
   }
 
-  const executionExitCode = await runScript(target.script, "Execute");
-  if (executionExitCode !== 0) {
-    console.log(colorize(`Target failed with exit code ${executionExitCode}.`, ANSI.red));
-    return executionExitCode;
+  const executionResult = await runScript(target.script, "Execute");
+  if (executionResult.exitCode !== 0) {
+    console.log(colorize(`Target failed with exit code ${executionResult.exitCode}.`, ANSI.red));
+    return executionResult.exitCode;
   }
 
   console.log("");
   console.log(colorize(`Completed ${target.label}.`, ANSI.green));
+  if (target.action.id === "preview" && target.canonicalEnvironment === "preview") {
+    printPreviewDeploymentSummary(target, configuration, executionResult);
+  }
   return 0;
 }
 
@@ -574,16 +664,20 @@ async function main() {
       return;
     }
 
-    const exitCode = await executeTarget(interfaceHandle, selectedTarget, packageScripts, options);
+    const exitCode = await executeTarget(interfaceHandle, selectedTarget, packageScripts, configuration, options);
     process.exitCode = exitCode;
   } finally {
     interfaceHandle.close();
   }
 }
 
-main().catch((error) => {
-  console.error("");
-  console.error(colorize("Launcher failed.", ANSI.red));
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+const currentScriptPath = process.argv[1] ? path.resolve(process.argv[1]) : null;
+
+if (currentScriptPath === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error("");
+    console.error(colorize("Launcher failed.", ANSI.red));
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

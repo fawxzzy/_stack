@@ -63,6 +63,7 @@
 - The launcher only exposes explicit targets from config; it does not enumerate every `package.json` script.
 - Each approved target resolves to an existing `_stack` package script, so the launcher stays a thin control surface instead of becoming a second deploy implementation.
 - Launcher execution now flows through a platform-aware command runner: Windows `pnpm` and other `.cmd` / `.bat` wrappers run with shell handling, `powershell` normalizes to `powershell.exe`, and launch failures print resolved `executable`, `args`, `cwd`, and `shell` details.
+- Successful preview deploys now end with a compact summary that restates app, environment, hostname hint, detected preview URL, and the standard production counterpart command.
 - Production and destructive maintenance targets can require typed confirmation through config.
 - Use `node .\scripts\release-launcher.mjs --list` to print the currently approved target IDs.
 - Use `node .\scripts\release-launcher.mjs --target <target-id> --dry-run` to inspect a target without executing it.
