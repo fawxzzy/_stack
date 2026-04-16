@@ -15,6 +15,7 @@
 - Shared Codex runner guidance lives at `C:\Users\zjhre\dev\_stack\docs\codex-orchestration.md`.
 
 ## Shared Codex operator commands
+- `pnpm run release:launcher`
 - `pnpm run codex:atlas:inbox`
 - `pnpm run codex:atlas:inbox:once`
 - `pnpm run codex:atlas:task -- -PromptPath C:\path\to\prompt.md`
@@ -32,7 +33,7 @@
 - Playbook remains the first adapter example through `C:\Users\zjhre\dev\_stack\ops\codex\repos\playbook`.
 - Atlas is the first non-Playbook thin adapter through `C:\Users\zjhre\dev\_stack\ops\codex\repos\atlas`.
 - Lifeline is the next thin non-Vercel adapter through `C:\Users\zjhre\dev\_stack\ops\codex\repos\lifeline`.
-- `_stack` is now also a first-class thin adapter through `C:\Users\zjhre\dev\_stack\ops\codex\repos\stack`.
+- `_stack` is now also a first-class thin adapter through `ops/codex/repos/stack`.
 - `_stack` owns the runner; repo-local `.codex/` folders still own inbox, archive, logs, worktrees, and exports.
 - `_stack` worker runs stamp `stack_lock_digest` from the root `stack.lock.yaml` and write assignment, status, merge-request, and completion status artifacts alongside the run logs.
 - Atlas stays docs-first and repo-local; push remains manual-only and successful mutating tasks still auto-commit by default.
@@ -41,6 +42,31 @@
 - Shared base-ref selection is local-first: prefer `origin/main` when it exists locally, otherwise fall back to local `main`, and record the resolved ref in each run manifest.
 - Shared auto-commit now uses a validated commit metadata contract via a temporary `.codex/commit-meta.json` artifact, with deterministic fallback messages when Codex output is missing or too generic.
 - Shared local landing is adapter-controlled through `localLandingPolicy`; `_stack` is the only repo currently opted into `ff-only`, while Atlas, Playbook, and Lifeline stay disabled by default.
+
+## Release launcher
+- `pnpm run release:launcher` starts the config-driven operator launcher in the current terminal.
+- `pnpm run atlas:brand:build` regenerates the canonical ATLAS sigil derivatives under `C:\ATLAS\branding\generated`.
+- `pnpm run atlas:brand:sync` syncs the generated sigil outputs into `_stack` and any other declared consumers.
+- `pnpm run atlas:brand:verify` fails when a declared consumer copy is stale or missing.
+- `pnpm run ops:install-shortcut` creates a Desktop shortcut that wraps `ops/Open-ReleaseLauncher.ps1` through `powershell.exe`.
+- Use `pnpm run ops:install-shortcut -- -StartMenu` to install the same shortcut into the Start Menu Programs folder instead of the Desktop.
+- Use `pnpm run ops:install-shortcut:start-menu` for the pin-to-taskbar path without having to pass flags manually.
+- Use `pnpm run ops:install-shortcut:start-menu:terminal` for the same Start Menu shortcut in Windows Terminal mode.
+- Use `pnpm run ops:install-shortcut -- -UseWindowsTerminal` to target Windows Terminal when `wt.exe` is available. If it is not available, the installer falls back to `powershell.exe`.
+- If `ops/assets/release-launcher.ico` exists, the shortcut installer uses it automatically. Override it with `pnpm run ops:install-shortcut -- -IconPath .\path\to\icon.ico`.
+- Approved launcher targets live in `config/release-targets.json`.
+- The launcher reads `..\fawxzzy-atlas\docs\LIFELINE_TOPOLOGY_MANIFEST.json` as a read-only contract for Atlas-managed public environments and hostname hints.
+- The top-level launcher intentionally exposes operator intents instead of raw scripts: `Preview`, `Deploy Prod`, `Verify`, and `Maintenance / Advanced`.
+- `Preview` means the approved preview release target for that app in this repo. It does not mean a local dev server.
+- For Atlas-managed apps, the launcher treats the manifest as canonical for public identity. It normalizes service keys to `app/environment`, surfaces hostname hints such as `pr-{number}.fitness.fawxzzy.com`, and fails fast when config contradicts the manifest.
+- `Maintenance / Advanced` is where prebuilt deploy variants, log-attached preview flows, and lower-frequency operator commands live.
+- The launcher only exposes explicit targets from config; it does not enumerate every `package.json` script.
+- Each approved target resolves to an existing `_stack` package script, so the launcher stays a thin control surface instead of becoming a second deploy implementation.
+- Production and destructive maintenance targets can require typed confirmation through config.
+- Use `node .\scripts\release-launcher.mjs --list` to print the currently approved target IDs.
+- Use `node .\scripts\release-launcher.mjs --target <target-id> --dry-run` to inspect a target without executing it.
+- Add new launcher entries by extending `config/release-targets.json` with a new approved target that references an existing `_stack` package script and maps it to the correct operator action.
+- Atlas-managed apps must not restate incompatible preview/prod availability in `_stack`; non-Atlas-managed apps continue to use `_stack` config as the fallback source of truth until they are brought under the manifest.
 
 ## Fitness operator commands
 - `pnpm run fitness:doctor`
@@ -76,19 +102,45 @@
 
 ### Mazer deploy author preflight
 - Mazer deploy wrappers now stop before Vercel if the repo Git identity does not match the required owner identity for private Hobby-team deploys.
-- The preflight checks `git config user.name`, `git config user.email`, and the latest commit author on `C:\Users\zjhre\dev\fawxzzy-mazer`.
+- The preflight checks `git config user.name`, `git config user.email`, and the latest commit author on `..\fawxzzy-mazer`.
 - This exists because private Hobby-team deploys can fail at Vercel when the latest commit author is not the owner identity. Catching that locally avoids running a deploy that will be rejected upstream.
 - Required owner identity: `Zachariah Redfield <zjhredfield@icloud.com>`.
 - Fix commands from `_stack`:
-  - `git -C "C:\Users\zjhre\dev\fawxzzy-mazer" config user.name "Zachariah Redfield"`
-  - `git -C "C:\Users\zjhre\dev\fawxzzy-mazer" config user.email "zjhredfield@icloud.com"`
-  - `git -C "C:\Users\zjhre\dev\fawxzzy-mazer" commit --amend --reset-author --no-edit`
+  - `git -C "..\fawxzzy-mazer" config user.name "Zachariah Redfield"`
+  - `git -C "..\fawxzzy-mazer" config user.email "zjhredfield@icloud.com"`
+  - `git -C "..\fawxzzy-mazer" commit --amend --reset-author --no-edit`
 
-### Windows launchers to pin
-- `C:\Users\zjhre\dev\_stack\ops\bin\mazer-dev.cmd`
-- `C:\Users\zjhre\dev\_stack\ops\bin\mazer-preview.cmd`
-- `C:\Users\zjhre\dev\_stack\ops\bin\mazer-deploy-preview.cmd`
-- `C:\Users\zjhre\dev\_stack\ops\bin\mazer-deploy-prod.cmd`
+### Desktop shortcut / taskbar pin
+- Run `pnpm run ops:install-shortcut` from `_stack` to create `Stack Release Launcher.lnk` on the Desktop.
+- Run `pnpm run ops:install-shortcut:start-menu` if you want the shortcut created in Start Menu Programs instead.
+- Run `pnpm run ops:install-shortcut -- -UseWindowsTerminal` if you want the shortcut to open inside Windows Terminal when it is installed.
+- For the most reliable Windows taskbar pin path, install the Start Menu shortcut and pin that entry from Start.
+- The desktop shortcut still works, but the Start Menu shortcut is the preferred pin target.
+- This shortcut flow is the supported Windows path for a launcher like this. The installer targets `powershell.exe` and passes the real entrypoint script as arguments instead of creating a second execution path.
+- The launcher icon is now a synced consumer copy from the ATLAS branding lane. Do not hand-edit `ops/assets/release-launcher.ico`.
+- If the pinned taskbar icon stays stale after reinstalling the shortcut, unpin the old taskbar entry and pin the refreshed Start Menu shortcut again.
+- `ops/bin/release-launcher.cmd` remains the direct wrapper for launching the release launcher without installing a shortcut.
+
+### Branding the launcher
+- The canonical sigil lives at `C:\ATLAS\branding\source\atlas-sigil-master.png`.
+- Generated brand derivatives live at `C:\ATLAS\branding\generated\`.
+- `_stack` consumes the generated `core` launcher icon so the shortcut stays aligned with the canonical sigil rather than a console-specific variant.
+- The current generated source for that consumer is `C:\ATLAS\branding\generated\ico\atlas-sigil-core-launcher.ico`.
+- The synced repo-local consumer copy still lives at `ops/assets/release-launcher.ico`.
+- Rebuild with `pnpm run atlas:brand:build` and sync with `pnpm run atlas:brand:sync`.
+- After a sync, rerun `pnpm run ops:install-shortcut:start-menu` so Windows writes the current icon path into the shortcut.
+- If the taskbar keeps the old cached icon after reinstalling, unpin the old shortcut and pin the refreshed shortcut again.
+
+### Windows Terminal mode
+- Use `pnpm run ops:install-shortcut -- -UseWindowsTerminal` for a Windows Terminal shortcut.
+- You can combine modes, for example `pnpm run ops:install-shortcut -- -StartMenu -UseWindowsTerminal`.
+- If `wt.exe` is unavailable, the installer warns and falls back to `powershell.exe` without changing the launcher entrypoint.
+
+### Other Windows launchers
+- `ops/bin/mazer-dev.cmd`
+- `ops/bin/mazer-preview.cmd`
+- `ops/bin/mazer-deploy-preview.cmd`
+- `ops/bin/mazer-deploy-prod.cmd`
 - `mazer-dev.cmd` opens the dev server in a durable PowerShell window and then opens the browser at `http://127.0.0.1:5173`.
 - The other launchers open separate durable PowerShell windows rooted in `_stack`, so the command keeps running and the window stays available for logs or restart.
 
@@ -100,9 +152,9 @@
 5. Do not run production deploys unless you explicitly intend to promote the current state.
 
 ## Fitness local verify split
-- Run `_stack` workflow entrypoints from `C:\Users\zjhre\dev\_stack`.
-- Run Fitness lint, test, build, and UI-contract validation from `C:\Users\zjhre\dev\fawxzzy-fitness`.
-- Use `C:\Users\zjhre\dev\_stack\docs\fitness-local-verify.md` for the bottom-action intent consistency checklist.
+- Run `_stack` workflow entrypoints from this repo root.
+- Run Fitness lint, test, build, and UI-contract validation from `..\fawxzzy-fitness`.
+- Use `docs/fitness-local-verify.md` for the bottom-action intent consistency checklist.
 
 ## Scope boundaries
 - `_stack` owns workflow commands, editor tasks, receipts scaffolding, and operator docs.
@@ -123,7 +175,7 @@
 - Vercel Git is intentionally disconnected for the current local-first deploy path.
 
 ## Receipts
-- Operator receipts live in `C:\Users\zjhre\dev\_stack\receipts`.
+- Operator receipts live in `receipts/`.
 - Receipts are for verify, deploy, and operator events only for now.
 - Worker lifecycle artifacts live in repo-local `.codex/logs/` for each run, not in receipts.
 

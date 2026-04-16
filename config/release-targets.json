@@ -1,0 +1,307 @@
+{
+  "version": 1,
+  "actions": [
+    {
+      "id": "preview",
+      "label": "Preview",
+      "description": "Deploy the current app to its standard preview target."
+    },
+    {
+      "id": "deploy-prod",
+      "label": "Deploy Prod",
+      "description": "Release the current app to production."
+    },
+    {
+      "id": "verify",
+      "label": "Verify",
+      "description": "Run the release-safety checks before shipping."
+    },
+    {
+      "id": "maintenance",
+      "label": "Maintenance / Advanced",
+      "description": "Open less common deploy variants and maintenance commands."
+    }
+  ],
+  "groups": [
+    {
+      "id": "release",
+      "label": "Release",
+      "description": "Approved preview and production deploy paths."
+    },
+    {
+      "id": "verify",
+      "label": "Verify",
+      "description": "Explicit validation entrypoints before release work."
+    },
+    {
+      "id": "ops",
+      "label": "Ops",
+      "description": "Maintenance and operator-only helper commands."
+    }
+  ],
+  "targets": [
+    {
+      "id": "fitness-preview",
+      "group": "release",
+      "action": "preview",
+      "advanced": false,
+      "app": "fitness",
+      "environment": "preview",
+      "label": "Fitness Preview",
+      "description": "Deploy Fitness to the standard Vercel preview target.",
+      "script": "fitness:deploy:preview",
+      "notes": [
+        "Runs the existing preview deploy wrapper from _stack.",
+        "The approved script already performs fresh-state verification."
+      ],
+      "tags": [
+        "release",
+        "preview",
+        "fitness"
+      ]
+    },
+    {
+      "id": "fitness-preview-logs",
+      "group": "release",
+      "action": "preview",
+      "advanced": true,
+      "app": "fitness",
+      "environment": "preview",
+      "label": "Fitness Preview With Logs",
+      "description": "Deploy Fitness preview and keep Vercel logs attached.",
+      "script": "fitness:deploy:preview:logs",
+      "notes": [
+        "Runs the preview deploy path that keeps Vercel logs attached.",
+        "The approved script already performs fresh-state verification."
+      ],
+      "tags": [
+        "release",
+        "preview",
+        "fitness",
+        "logs"
+      ]
+    },
+    {
+      "id": "fitness-preview-prebuilt",
+      "group": "release",
+      "action": "preview",
+      "advanced": true,
+      "app": "fitness",
+      "environment": "preview",
+      "label": "Fitness Preview Prebuilt",
+      "description": "Deploy a prebuilt Fitness preview for remote-build isolation.",
+      "script": "fitness:deploy:prebuilt",
+      "notes": [
+        "Uses the prebuilt preview path for remote-build isolation.",
+        "The approved script already performs build-time verification."
+      ],
+      "tags": [
+        "release",
+        "preview",
+        "fitness",
+        "prebuilt"
+      ]
+    },
+    {
+      "id": "fitness-prod",
+      "group": "release",
+      "action": "deploy-prod",
+      "advanced": false,
+      "app": "fitness",
+      "environment": "prod",
+      "label": "Fitness Prod",
+      "description": "Release Fitness to production using the standard deploy path.",
+      "script": "fitness:deploy:prod",
+      "requiresTypedConfirmation": true,
+      "confirmText": "release fitness to production",
+      "notes": [
+        "Promotes the current Fitness state to production.",
+        "The approved script already performs fresh-state verification before Vercel."
+      ],
+      "tags": [
+        "release",
+        "prod",
+        "fitness"
+      ]
+    },
+    {
+      "id": "fitness-prod-prebuilt",
+      "group": "release",
+      "action": "deploy-prod",
+      "advanced": true,
+      "app": "fitness",
+      "environment": "prod",
+      "label": "Fitness Prod Prebuilt",
+      "description": "Release a prebuilt Fitness artifact to production.",
+      "script": "fitness:deploy:prebuilt:prod",
+      "requiresTypedConfirmation": true,
+      "confirmText": "release fitness to production",
+      "notes": [
+        "Uses the prebuilt production path for remote-build isolation.",
+        "The approved script already performs build-time verification before Vercel."
+      ],
+      "tags": [
+        "release",
+        "prod",
+        "fitness",
+        "prebuilt"
+      ]
+    },
+    {
+      "id": "mazer-preview",
+      "group": "release",
+      "action": "preview",
+      "advanced": false,
+      "app": "mazer",
+      "environment": "preview",
+      "label": "Mazer Preview",
+      "description": "Deploy Mazer to the standard preview target.",
+      "script": "mazer:deploy:preview",
+      "notes": [
+        "Runs the existing Mazer preview deploy wrapper from _stack.",
+        "The approved script already performs owner-author preflight and local verification."
+      ],
+      "tags": [
+        "release",
+        "preview",
+        "mazer"
+      ]
+    },
+    {
+      "id": "mazer-prod",
+      "group": "release",
+      "action": "deploy-prod",
+      "advanced": false,
+      "app": "mazer",
+      "environment": "prod",
+      "label": "Mazer Prod",
+      "description": "Release Mazer to production using the standard deploy path.",
+      "script": "mazer:deploy:prod",
+      "requiresTypedConfirmation": true,
+      "confirmText": "release mazer to production",
+      "notes": [
+        "Promotes the current Mazer state to production.",
+        "The approved script already performs owner-author preflight and local verification."
+      ],
+      "tags": [
+        "release",
+        "prod",
+        "mazer"
+      ]
+    },
+    {
+      "id": "fitness-verify",
+      "group": "verify",
+      "action": "verify",
+      "advanced": true,
+      "app": "fitness",
+      "environment": "local",
+      "label": "Fitness Verify",
+      "description": "Run the standard Fitness verify entrypoint.",
+      "script": "fitness:verify",
+      "notes": [
+        "Runs the standard Fitness strict verify entrypoint from _stack."
+      ],
+      "tags": [
+        "verify",
+        "fitness"
+      ]
+    },
+    {
+      "id": "fitness-verify-clean",
+      "group": "verify",
+      "action": "verify",
+      "advanced": false,
+      "app": "fitness",
+      "environment": "local",
+      "label": "Fitness Verify Clean",
+      "description": "Run the clean-state Fitness verification used before release work.",
+      "script": "fitness:verify:clean",
+      "notes": [
+        "Runs clean-state verification before deploy-related work."
+      ],
+      "tags": [
+        "verify",
+        "fitness",
+        "clean"
+      ]
+    },
+    {
+      "id": "mazer-verify",
+      "group": "verify",
+      "action": "verify",
+      "advanced": false,
+      "app": "mazer",
+      "environment": "local",
+      "label": "Mazer Verify",
+      "description": "Run Mazer lint, test, and build before release work.",
+      "script": "mazer:verify",
+      "notes": [
+        "Runs the current lint, test, and build preflight for Mazer."
+      ],
+      "tags": [
+        "verify",
+        "mazer"
+      ]
+    },
+    {
+      "id": "fitness-doctor",
+      "group": "ops",
+      "action": "maintenance",
+      "advanced": true,
+      "app": "fitness",
+      "environment": "operator",
+      "label": "Fitness Doctor",
+      "description": "Check Vercel identity and Fitness environment visibility.",
+      "script": "fitness:doctor",
+      "notes": [
+        "Checks current Vercel identity and targeted Fitness environment visibility."
+      ],
+      "tags": [
+        "ops",
+        "fitness",
+        "doctor"
+      ]
+    },
+    {
+      "id": "fitness-git-disconnect",
+      "group": "ops",
+      "action": "maintenance",
+      "advanced": true,
+      "app": "fitness",
+      "environment": "operator",
+      "label": "Fitness Disconnect Vercel Git",
+      "description": "Disconnect the current Fitness Vercel Git integration.",
+      "script": "fitness:git:disconnect",
+      "requiresTypedConfirmation": true,
+      "confirmText": "disconnect fitness git integration",
+      "notes": [
+        "Disconnects the current Fitness Vercel Git integration."
+      ],
+      "tags": [
+        "ops",
+        "fitness",
+        "vercel"
+      ]
+    },
+    {
+      "id": "mazer-deploy-preflight",
+      "group": "ops",
+      "action": "maintenance",
+      "advanced": true,
+      "app": "mazer",
+      "environment": "operator",
+      "label": "Mazer Deploy Preflight",
+      "description": "Check the required owner Git identity before any Mazer deploy.",
+      "script": "mazer:deploy:preflight",
+      "notes": [
+        "Checks the required owner Git identity before any Mazer deploy."
+      ],
+      "tags": [
+        "ops",
+        "mazer",
+        "preflight"
+      ]
+    }
+  ]
+}

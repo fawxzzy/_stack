@@ -503,6 +503,7 @@ try {
                 tool_id = $toolId
                 extension_id = $null
                 registry_digest = $testRegistryDigest
+                automation_level = "request_action"
                 source_refs = @($assignmentRef, $statusRef)
                 action = [ordered]@{
                     summary = ("Execute {0} through Lifeline for {1}." -f $Operation, $Name)
@@ -536,6 +537,7 @@ try {
                 tool_id = $toolId
                 extension_id = $null
                 registry_digest = $testRegistryDigest
+                automation_level = "approved_action"
                 approver = [ordered]@{
                     kind = "system"
                     name = "stack-worker-test"
@@ -571,11 +573,13 @@ try {
             }
         }
 
+        $approvedExpiryAt = "2099-12-31T23:59:59Z"
+
         $lifelineReadOnlyScenario = Invoke-LifelineExecutionScenario `
             -Name "read-only" `
             -Operation "read_only_scan" `
             -ApprovalStatus "approved" `
-            -ExpiryAt "2026-04-15T23:59:59Z" `
+            -ExpiryAt $approvedExpiryAt `
             -Command @("node", "--version") `
             -TargetPaths @("README.md")
         Assert-Condition -Condition ($lifelineReadOnlyScenario.receipt.result -eq "succeeded") -Message "Read-only Lifeline bridge should succeed."
@@ -591,7 +595,7 @@ try {
             -Name "dry-run" `
             -Operation "scoped_write" `
             -ApprovalStatus "approved" `
-            -ExpiryAt "2026-04-15T23:59:59Z" `
+            -ExpiryAt $approvedExpiryAt `
             -Command @("node", "--version") `
             -TargetResources @("node")
         Assert-Condition -Condition ($lifelineDryRunScenario.receipt.result -eq "succeeded") -Message "Dry-run Lifeline bridge should succeed."

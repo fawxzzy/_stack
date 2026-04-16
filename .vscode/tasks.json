@@ -2,6 +2,20 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Release: Launcher",
+      "type": "shell",
+      "command": "pnpm run release:launcher",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
       "label": "Codex: Atlas Inbox",
       "type": "shell",
       "command": "pnpm run codex:atlas:inbox",

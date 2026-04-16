@@ -6,8 +6,12 @@ $ErrorActionPreference = "Stop"
 $requiredFiles = @(
     "AGENTS.md",
     "README.md",
+    "config/release-targets.json",
     "docs/codex-orchestration.md",
     "docs/dispatcher-protocol.md",
+    "ops/assets/release-launcher.ico",
+    "ops/Install-ReleaseLauncherShortcut.ps1",
+    "ops/Open-ReleaseLauncher.ps1",
     "ops/codex/Start-CodexInboxRunner.ps1",
     "ops/codex/Invoke-CodexRepoTask.ps1",
     "ops/codex/CodexRunner.Common.ps1",
@@ -17,7 +21,10 @@ $requiredFiles = @(
     "ops/codex/repos/stack/config.toml",
     "ops/stack/StackWorkerArtifacts.ps1",
     "ops/stack/Test-StackWorkerArtifacts.ps1",
+    "ops/bin/release-launcher.cmd",
     "package.json",
+    "scripts/release-launcher.mjs",
+    "scripts/atlas-topology.mjs",
     ".vscode/tasks.json",
     "docs/runbooks/STACK-WORKER-FLOW.md",
     "docs/examples/stack-worker-artifacts/assignment.example.json",
@@ -40,6 +47,8 @@ if ($missingFiles.Count -gt 0) {
 $package = Get-Content -LiteralPath "package.json" -Raw | ConvertFrom-Json
 $packageScripts = @($package.scripts.PSObject.Properties.Name)
 $requiredScripts = @(
+    "ops:install-shortcut",
+    "release:launcher",
     "codex:stack:inbox",
     "codex:stack:inbox:once",
     "codex:stack:task",
@@ -56,6 +65,7 @@ if ($missingScripts.Count -gt 0) {
 $tasks = Get-Content -LiteralPath ".vscode/tasks.json" -Raw | ConvertFrom-Json
 $taskLabels = @($tasks.tasks | ForEach-Object { $_.label })
 $requiredTaskLabels = @(
+    "Release: Launcher",
     "Codex: Stack Inbox",
     "Codex: Stack Inbox (Once)",
     "Codex: Stack Task",
@@ -67,6 +77,107 @@ $missingTaskLabels = @(
 )
 if ($missingTaskLabels.Count -gt 0) {
     throw ("Missing required _stack VS Code tasks: {0}" -f ($missingTaskLabels -join ", "))
+}
+
+& node ".\scripts\release-launcher.mjs" --list | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack release launcher config validation failed."
+}
+
+$launcherListOutput = & node ".\scripts\release-launcher.mjs" --list
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack release launcher list command failed."
+}
+if (($launcherListOutput -join "`n") -notmatch "\[fitness/prod\]") {
+    throw "_stack release launcher did not expose the canonical Atlas service key for the prod target."
+}
+
+$launcherDryRunOutput = & node ".\scripts\release-launcher.mjs" --target "fitness-preview" --dry-run
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack release launcher dry-run failed for the Fitness preview target."
+}
+if (($launcherDryRunOutput -join "`n") -notmatch "pr preview:\s+pr-\{number\}\.fitness\.fawxzzy\.com") {
+    throw "_stack release launcher did not surface the Atlas PR preview naming hint for Fitness preview."
+}
+
+$topologyFailureRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("stack-topology-{0}" -f ([guid]::NewGuid().ToString("N")))
+New-Item -ItemType Directory -Path $topologyFailureRoot -Force | Out-Null
+
+try {
+    $invalidConfigPath = Join-Path -Path $topologyFailureRoot -ChildPath "invalid-release-targets.json"
+    $invalidConfig = @"
+{
+  "version": 1,
+  "actions": [
+    {
+      "id": "preview",
+      "label": "Preview",
+      "description": "Deploy the current app to its standard preview target."
+    }
+  ],
+  "groups": [
+    {
+      "id": "release",
+      "label": "Release",
+      "description": "Approved preview and prod deploy paths."
+    }
+  ],
+  "targets": [
+    {
+      "id": "lifeline-preview-invalid",
+      "group": "release",
+      "action": "preview",
+      "advanced": false,
+      "app": "lifeline",
+      "environment": "preview",
+      "label": "Lifeline Preview",
+      "description": "Invalid preview target used to prove Atlas topology enforcement.",
+      "script": "fitness:verify",
+      "notes": [
+        "This fixture must fail because Lifeline has no preview environment in Atlas topology."
+      ],
+      "tags": [
+        "test",
+        "lifeline"
+      ]
+    }
+  ]
+}
+"@
+    [System.IO.File]::WriteAllText($invalidConfigPath, $invalidConfig)
+
+    $invalidStdoutPath = Join-Path -Path $topologyFailureRoot -ChildPath "invalid-release-stdout.log"
+    $invalidStderrPath = Join-Path -Path $topologyFailureRoot -ChildPath "invalid-release-stderr.log"
+    $invalidConfigProcess = Start-Process `
+        -FilePath "node" `
+        -ArgumentList @(".\scripts\release-launcher.mjs", "--config", $invalidConfigPath, "--list") `
+        -WorkingDirectory (Get-Location).Path `
+        -Wait `
+        -PassThru `
+        -NoNewWindow `
+        -RedirectStandardOutput $invalidStdoutPath `
+        -RedirectStandardError $invalidStderrPath
+
+    $invalidConfigOutput = @()
+    if (Test-Path -LiteralPath $invalidStdoutPath) {
+        $invalidConfigOutput += Get-Content -LiteralPath $invalidStdoutPath
+    }
+    if (Test-Path -LiteralPath $invalidStderrPath) {
+        $invalidConfigOutput += Get-Content -LiteralPath $invalidStderrPath
+    }
+
+    if ($invalidConfigProcess.ExitCode -eq 0) {
+        throw "_stack release launcher accepted a preview target that Atlas topology forbids."
+    }
+
+    if (($invalidConfigOutput -join "`n") -notmatch "lifeline does not expose a preview environment") {
+        throw "_stack release launcher did not report a clear Atlas topology contradiction for the invalid Lifeline preview target."
+    }
+}
+finally {
+    if (Test-Path -LiteralPath $topologyFailureRoot) {
+        Remove-Item -LiteralPath $topologyFailureRoot -Recurse -Force
+    }
 }
 
 $stackAdapter = Get-Content -LiteralPath "ops/codex/repos/stack/adapter.json" -Raw | ConvertFrom-Json
