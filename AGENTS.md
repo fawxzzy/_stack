@@ -1,8 +1,8 @@
 # _stack Rules
 
 Scope
-- Applies only inside `C:\Users\zjhre\dev\_stack`.
-- Inherit workspace rules from `C:\Users\zjhre\dev\AGENTS.md` unless a rule here is narrower.
+- Applies only inside this repo.
+- Inherit workspace rules from the ATLAS root `AGENTS.md` unless a rule here is narrower.
 
 Purpose
 - `_stack` is the operator layer for the `dev` workspace.
@@ -20,5 +20,5 @@ Editing Boundaries
 - Do not add automatic commit-triggered receipts unless explicitly requested.
 
 Receipts
-- Store verify, deploy, and operator-event receipts in `C:\Users\zjhre\dev\_stack\receipts`.
+- Store verify, deploy, and operator-event receipts in `receipts/`.
 - Keep receipts lightweight and manual for now.

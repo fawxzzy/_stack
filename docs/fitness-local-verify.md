@@ -5,7 +5,7 @@ Use this note when the change touches Fitness UI behavior, especially bottom-act
 ## Ownership
 
 - `_stack` owns workflow entrypoints, operator docs, tasks, and receipts.
-- `C:\Users\zjhre\dev\fawxzzy-fitness` owns Fitness application code, UI contracts, tests, lint, and build verification.
+- `repos/fawxzzy-fitness` owns Fitness application code, UI contracts, tests, lint, and build verification.
 - Do not move Fitness implementation logic into `_stack`. `_stack` should only point to the correct repo-local verify surface.
 
 ## Where to run what
@@ -13,7 +13,7 @@ Use this note when the change touches Fitness UI behavior, especially bottom-act
 Run shared workflow commands from `_stack`:
 
 ```bash
-cd C:\Users\zjhre\dev\_stack
+cd repos/_stack
 pnpm run fitness:doctor
 pnpm run fitness:verify
 pnpm run fitness:verify:clean
@@ -24,14 +24,14 @@ pnpm run fitness:verify:clean
 Run code/test/build checks from the Fitness repo root:
 
 ```bash
-cd C:\Users\zjhre\dev\fawxzzy-fitness
+cd repos/fawxzzy-fitness
 npm run verify:strict
 ```
 
 Use repo-local commands in the Fitness repo when you need to isolate a specific failure or validate an in-progress UI change:
 
 ```bash
-cd C:\Users\zjhre\dev\fawxzzy-fitness
+cd repos/fawxzzy-fitness
 npm run lint
 npm run build
 ```
@@ -39,7 +39,7 @@ npm run build
 Optional focused checks, when the change touches a covered area:
 
 ```bash
-cd C:\Users\zjhre\dev\fawxzzy-fitness
+cd repos/fawxzzy-fitness
 npm run test:session-set-count
 npm run test:mobile-regression-fixtures
 ```
@@ -47,7 +47,7 @@ npm run test:mobile-regression-fixtures
 ## Bottom-action intent checklist
 
 1. Start the shared workflow verify path from `_stack` so operator flow stays consistent.
-2. Switch to `C:\Users\zjhre\dev\fawxzzy-fitness` for repo-local validation and run `npm run verify:strict` or the narrower repo-local checks you need.
+2. Switch to `repos/fawxzzy-fitness` for repo-local validation and run `npm run verify:strict` or the narrower repo-local checks you need.
 3. Confirm the screen uses the shell-owned bottom action surface correctly:
    - only screen shells own `BottomActionsProvider` / `BottomActionsSlot`
    - feature components publish actions instead of mounting their own dock surface
@@ -64,4 +64,4 @@ npm run test:mobile-regression-fixtures
 
 - If you are validating workflow entrypoints, stay in `_stack`.
 - If a failure looks like stale local Next build state, use `pnpm run fitness:verify:clean` from `_stack` before chasing application code.
-- If you are validating Fitness behavior, contract usage, lint, tests, or build output, run from `C:\Users\zjhre\dev\fawxzzy-fitness`.
+- If you are validating Fitness behavior, contract usage, lint, tests, or build output, run from `repos/fawxzzy-fitness`.

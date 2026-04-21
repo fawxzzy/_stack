@@ -434,6 +434,76 @@
         "panel": "shared",
         "clear": true
       }
+    },
+    {
+      "label": "Trove: Verify",
+      "type": "shell",
+      "command": "pnpm run trove:verify",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Trove: Preview Deploy",
+      "type": "shell",
+      "command": "pnpm run trove:deploy:preview",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Trove: Preview Deploy (Prebuilt)",
+      "type": "shell",
+      "command": "pnpm run trove:deploy:prebuilt",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Trove: Prod Deploy",
+      "type": "shell",
+      "command": "pnpm run trove:deploy:prod",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Trove: Prod Deploy (Prebuilt)",
+      "type": "shell",
+      "command": "pnpm run trove:deploy:prebuilt:prod",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
     }
   ],
   "inputs": [

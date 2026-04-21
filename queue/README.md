@@ -1,6 +1,6 @@
 # Queue Pattern
 
-`C:\Users\zjhre\dev\_stack\queue` is a lightweight task-drop area for future automation and wrapper scripts. It is intentionally simple and manual.
+`queue/` is a lightweight task-drop area for future automation and wrapper scripts. It is intentionally simple and manual.
 
 ## Layout
 
@@ -22,9 +22,9 @@ Suggested front matter:
 ```md
 Task Class: repo-local
 Target: fitness
-Working Directory: C:\Users\zjhre\dev\fawxzzy-fitness
+Working Directory: repos/fawxzzy-fitness
 Allowed Edit Surface:
-- C:\Users\zjhre\dev\fawxzzy-fitness\**
+- repos/fawxzzy-fitness/**
 ```
 
 Then include:

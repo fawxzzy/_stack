@@ -25,6 +25,17 @@
       "deployPreview": "pnpm dlx vercel --cwd ../fawxzzy-mazer deploy",
       "deployProd": "pnpm dlx vercel --cwd ../fawxzzy-mazer deploy --prod"
     },
+    "trove": {
+      "path": "../fawxzzy-trove",
+      "verify": "npm run verify",
+      "localDev": "npm run dev",
+      "localPreview": "npm run build && npm run start",
+      "deployModel": "vercel-cli",
+      "deployPreview": "pnpm dlx vercel --cwd ../fawxzzy-trove deploy",
+      "deployPreviewPrebuilt": "pnpm dlx vercel --cwd ../fawxzzy-trove deploy --prebuilt",
+      "deployProd": "pnpm dlx vercel --cwd ../fawxzzy-trove deploy --prod",
+      "deployProdPrebuilt": "pnpm dlx vercel --cwd ../fawxzzy-trove deploy --prebuilt --prod"
+    },
     "playbook": {
       "path": "../fawxzzy-playbook",
       "deployModel": "self-hosted"

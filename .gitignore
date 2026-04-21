@@ -8,3 +8,5 @@
 .codex/inbox/*
 !.codex/inbox/.gitkeep
 !.codex/inbox/README*
+
+.vercel

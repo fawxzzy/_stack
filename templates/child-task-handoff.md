@@ -7,9 +7,9 @@ Use this template when the `dev/` root dispatcher hands work to `_stack` or a re
 ```md
 Task Class: <workspace-orchestration | operator-workflow | repo-local | cross-repo>
 Target: <_stack | fitness | playbook | lifeline | atlas>
-Working Directory: <absolute path>
+Working Directory: <ATLAS-relative or repo-relative path>
 Allowed Edit Surface:
-- <absolute path or glob>
+- <ATLAS-relative or repo-relative path or glob>
 Stack Lock Digest: <sha256 digest from stack.lock.yaml>
 Worker Assignment Id: <assignment id>
 Worker Id: <worker id>
@@ -49,9 +49,9 @@ Deliver Back:
 ```md
 Task Class: operator-workflow
 Target: _stack
-Working Directory: C:\Users\zjhre\dev\_stack
+Working Directory: repos/_stack
 Allowed Edit Surface:
-- C:\Users\zjhre\dev\_stack\**
+- repos/_stack/**
 
 Context:
 - `_stack` is the operator layer for workflow commands, receipts, tasks, queue drops, and shared runbooks.
@@ -63,9 +63,9 @@ Context:
 ```md
 Task Class: repo-local
 Target: fitness
-Working Directory: C:\Users\zjhre\dev\fawxzzy-fitness
+Working Directory: repos/fawxzzy-fitness
 Allowed Edit Surface:
-- C:\Users\zjhre\dev\fawxzzy-fitness\**
+- repos/fawxzzy-fitness/**
 
 Context:
 - Fitness is the only repo currently using Vercel.
@@ -77,9 +77,9 @@ Context:
 ```md
 Task Class: repo-local
 Target: playbook
-Working Directory: C:\Users\zjhre\dev\fawxzzy-playbook
+Working Directory: repos/fawxzzy-playbook
 Allowed Edit Surface:
-- C:\Users\zjhre\dev\fawxzzy-playbook\**
+- repos/fawxzzy-playbook/**
 
 Context:
 - Playbook is currently self-hosted and not using Vercel.
@@ -90,9 +90,9 @@ Context:
 ```md
 Task Class: repo-local
 Target: lifeline
-Working Directory: C:\Users\zjhre\dev\fawxzzy-lifeline
+Working Directory: repos/fawxzzy-lifeline
 Allowed Edit Surface:
-- C:\Users\zjhre\dev\fawxzzy-lifeline\**
+- repos/fawxzzy-lifeline/**
 
 Context:
 - Lifeline is currently self-hosted and not using Vercel.
@@ -103,9 +103,9 @@ Context:
 ```md
 Task Class: repo-local
 Target: atlas
-Working Directory: C:\Users\zjhre\dev\fawxzzy-atlas
+Working Directory: repos/fawxzzy-atlas
 Allowed Edit Surface:
-- C:\Users\zjhre\dev\fawxzzy-atlas\**
+- repos/fawxzzy-atlas/**
 
 Context:
 - Atlas is currently self-hosted and not using Vercel.

@@ -190,6 +190,92 @@
       ]
     },
     {
+      "id": "trove-preview",
+      "group": "release",
+      "action": "preview",
+      "advanced": false,
+      "app": "trove",
+      "environment": "preview",
+      "label": "Trove Preview",
+      "description": "Deploy Trove to the standard preview target.",
+      "script": "trove:deploy:preview",
+      "notes": [
+        "Runs the current Trove preview deploy wrapper from _stack.",
+        "The approved script performs repo-local verification before Vercel."
+      ],
+      "tags": [
+        "release",
+        "preview",
+        "trove"
+      ]
+    },
+    {
+      "id": "trove-preview-prebuilt",
+      "group": "release",
+      "action": "preview",
+      "advanced": true,
+      "app": "trove",
+      "environment": "preview",
+      "label": "Trove Preview Prebuilt",
+      "description": "Deploy a prebuilt Trove preview for remote-build isolation.",
+      "script": "trove:deploy:prebuilt",
+      "notes": [
+        "Uses the prebuilt preview path for remote-build isolation.",
+        "The approved script performs build-time verification before Vercel."
+      ],
+      "tags": [
+        "release",
+        "preview",
+        "trove",
+        "prebuilt"
+      ]
+    },
+    {
+      "id": "trove-prod",
+      "group": "release",
+      "action": "deploy-prod",
+      "advanced": false,
+      "app": "trove",
+      "environment": "prod",
+      "label": "Trove Prod",
+      "description": "Release Trove to production using the standard deploy path.",
+      "script": "trove:deploy:prod",
+      "requiresTypedConfirmation": true,
+      "confirmText": "release trove to production",
+      "notes": [
+        "Promotes the current Trove state to production.",
+        "The approved script performs repo-local verification before Vercel."
+      ],
+      "tags": [
+        "release",
+        "prod",
+        "trove"
+      ]
+    },
+    {
+      "id": "trove-prod-prebuilt",
+      "group": "release",
+      "action": "deploy-prod",
+      "advanced": true,
+      "app": "trove",
+      "environment": "prod",
+      "label": "Trove Prod Prebuilt",
+      "description": "Release a prebuilt Trove artifact to production.",
+      "script": "trove:deploy:prebuilt:prod",
+      "requiresTypedConfirmation": true,
+      "confirmText": "release trove to production",
+      "notes": [
+        "Uses the prebuilt production path for remote-build isolation.",
+        "The approved script performs build-time verification before Vercel."
+      ],
+      "tags": [
+        "release",
+        "prod",
+        "trove",
+        "prebuilt"
+      ]
+    },
+    {
       "id": "fitness-verify",
       "group": "verify",
       "action": "verify",
@@ -242,6 +328,24 @@
       "tags": [
         "verify",
         "mazer"
+      ]
+    },
+    {
+      "id": "trove-verify",
+      "group": "verify",
+      "action": "verify",
+      "advanced": false,
+      "app": "trove",
+      "environment": "local",
+      "label": "Trove Verify",
+      "description": "Run Trove lint and build before release work.",
+      "script": "trove:verify",
+      "notes": [
+        "Runs the standard Trove repo-local verify entrypoint from _stack."
+      ],
+      "tags": [
+        "verify",
+        "trove"
       ]
     },
     {

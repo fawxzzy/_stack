@@ -3,16 +3,17 @@
 `_stack` is the workspace-level operator folder for local-first workflow commands, shared tasks, receipts scaffolding, and cross-repo operator docs. It is not an app.
 
 ## Where to start tasks from
-- Start in `C:\Users\zjhre\dev` for workspace orchestration only.
-- Start in `C:\Users\zjhre\dev\_stack` for workflow and operator commands.
+- Start in the ATLAS root for workspace orchestration only.
+- Start in `repos/_stack` for workflow and operator commands.
 - Start in each repo root for repo-local coding and implementation work.
 
 ## Dispatcher protocol
-- The workspace-root dispatcher protocol lives at `C:\Users\zjhre\dev\_stack\docs\dispatcher-protocol.md`.
-- Child-task handoff templates live at `C:\Users\zjhre\dev\_stack\templates\child-task-handoff.md`.
-- Future automation task drops live at `C:\Users\zjhre\dev\_stack\queue`.
-- Fitness local verify guidance lives at `C:\Users\zjhre\dev\_stack\docs\fitness-local-verify.md`.
-- Shared Codex runner guidance lives at `C:\Users\zjhre\dev\_stack\docs\codex-orchestration.md`.
+- The workspace-root dispatcher protocol lives at `docs/dispatcher-protocol.md`.
+- Child-task handoff templates live at `templates/child-task-handoff.md`.
+- Future automation task drops live at `queue`.
+- Fitness local verify guidance lives at `docs/fitness-local-verify.md`.
+- Workflow-pack and execution owner-boundary adoption lives at `docs/STACK-ORCHESTRATION-ADOPTION.md`.
+- Shared Codex runner guidance lives at `docs/codex-orchestration.md`.
 
 ## Shared Codex operator commands
 - `pnpm run release:launcher`
@@ -29,10 +30,11 @@
 - `pnpm run codex:stack:inbox:once`
 - `pnpm run codex:stack:task -- -PromptPath C:\path\to\prompt.md`
 - `pnpm run codex:stack:verify`
-- Shared engine scripts live in `C:\Users\zjhre\dev\_stack\ops\codex`.
-- Playbook remains the first adapter example through `C:\Users\zjhre\dev\_stack\ops\codex\repos\playbook`.
-- Atlas is the first non-Playbook thin adapter through `C:\Users\zjhre\dev\_stack\ops\codex\repos\atlas`.
-- Lifeline is the next thin non-Vercel adapter through `C:\Users\zjhre\dev\_stack\ops\codex\repos\lifeline`.
+- `codex:stack:verify` now checks operator surfaces, worker artifacts, and the `_stack` owner-contract adoption map.
+- Shared engine scripts live in `ops/codex`.
+- Playbook remains the first adapter example through `ops/codex/repos/playbook`.
+- Atlas is the first non-Playbook thin adapter through `ops/codex/repos/atlas`.
+- Lifeline is the next thin non-Vercel adapter through `ops/codex/repos/lifeline`.
 - `_stack` is now also a first-class thin adapter through `ops/codex/repos/stack`.
 - `_stack` owns the runner; repo-local `.codex/` folders still own inbox, archive, logs, worktrees, and exports.
 - `_stack` worker runs stamp `stack_lock_digest` from the root `stack.lock.yaml` and write assignment, status, merge-request, and completion status artifacts alongside the run logs.
@@ -45,7 +47,7 @@
 
 ## Release launcher
 - `pnpm run release:launcher` starts the config-driven operator launcher in the current terminal.
-- `pnpm run atlas:brand:build` regenerates the canonical ATLAS sigil derivatives under `C:\ATLAS\branding\generated`.
+- `pnpm run atlas:brand:build` regenerates the canonical ATLAS sigil derivatives under `branding/generated`.
 - `pnpm run atlas:brand:sync` syncs the generated sigil outputs into `_stack` and any other declared consumers.
 - `pnpm run atlas:brand:verify` fails when a declared consumer copy is stale or missing.
 - `pnpm run ops:install-shortcut` creates a Desktop shortcut that wraps `ops/Open-ReleaseLauncher.ps1` through `powershell.exe`.
@@ -93,6 +95,14 @@
 - `pnpm run mazer:deploy:prod`
 - `pnpm run mazer:deploy-prod`
 
+## Trove operator commands
+- `pnpm run trove:verify`
+- `pnpm run trove:build:vercel`
+- `pnpm run trove:deploy:preview`
+- `pnpm run trove:deploy:prebuilt`
+- `pnpm run trove:deploy:prod`
+- `pnpm run trove:deploy:prebuilt:prod`
+
 ### Mazer command guide
 - Use `pnpm run mazer:dev` to run the repo dev server in the current terminal.
 - Use `pnpm run mazer:dev:open` to open a durable `_stack` PowerShell window for the dev server and open the browser at `http://127.0.0.1:5173`.
@@ -112,6 +122,12 @@
   - `git -C "..\fawxzzy-mazer" config user.email "zjhredfield@icloud.com"`
   - `git -C "..\fawxzzy-mazer" commit --amend --reset-author --no-edit`
 
+## Trove deploy model
+1. Run `pnpm run trove:verify` from `_stack`.
+2. Use `pnpm run trove:deploy:preview` for the standard preview path.
+3. If preview deploy debugging is needed, use `pnpm run trove:build:vercel` and then `pnpm run trove:deploy:prebuilt`.
+4. Do not run production deploys unless you explicitly intend to promote the current state.
+
 ### Desktop shortcut / taskbar pin
 - Run `pnpm run ops:install-shortcut` from `_stack` to create `Stack Release Launcher.lnk` on the Desktop.
 - Run `pnpm run ops:install-shortcut:start-menu` if you want the shortcut created in Start Menu Programs instead.
@@ -124,10 +140,10 @@
 - `ops/bin/release-launcher.cmd` remains the direct wrapper for launching the release launcher without installing a shortcut.
 
 ### Branding the launcher
-- The canonical sigil lives at `C:\ATLAS\branding\source\atlas-sigil-master.png`.
-- Generated brand derivatives live at `C:\ATLAS\branding\generated\`.
+- The canonical sigil lives at `branding/source/atlas-sigil-master.png`.
+- Generated brand derivatives live at `branding/generated/`.
 - `_stack` consumes the generated `core` launcher icon so the shortcut stays aligned with the canonical sigil rather than a console-specific variant.
-- The current generated source for that consumer is `C:\ATLAS\branding\generated\ico\atlas-sigil-core-launcher.ico`.
+- The current generated source for that consumer is `branding/generated/ico/atlas-sigil-core-launcher.ico`.
 - The synced repo-local consumer copy still lives at `ops/assets/release-launcher.ico`.
 - Rebuild with `pnpm run atlas:brand:build` and sync with `pnpm run atlas:brand:sync`.
 - After a sync, rerun `pnpm run ops:install-shortcut:start-menu` so Windows writes the current icon path into the shortcut.
@@ -161,7 +177,7 @@
 ## Scope boundaries
 - `_stack` owns workflow commands, editor tasks, receipts scaffolding, and operator docs.
 - `_stack` now also owns the shared Codex inbox/worktree orchestration engine and can self-manage those same operator surfaces through its own thin adapter, but not repo implementation policy.
-- Fitness and Mazer currently use Vercel from the local CLI path.
+- Fitness, Mazer, and Trove use Vercel from the local CLI path.
 - Playbook, Lifeline, and Atlas are currently non-Vercel and self-hosted.
 - Playbook, Atlas, Lifeline, and `_stack` are wired as thin shared-runner adapters only; `_stack` still does not add dispatcher-level multi-repo Codex orchestration in this pass.
 - Keep commands manual and explicit; no automatic commit-triggered receipts yet.
@@ -169,8 +185,10 @@
 ## Vercel notes
 - Use `pnpm dlx vercel --cwd ../fawxzzy-fitness ...` for Fitness Vercel operations.
 - Use `pnpm dlx vercel --cwd ../fawxzzy-mazer ...` for Mazer Vercel operations.
+- Use `pnpm dlx vercel --cwd ../fawxzzy-trove ...` for Trove Vercel operations.
 - `fitness:build:vercel` uses `vercel build --yes` so the CLI can pull local project settings on the first local Vercel build.
 - Mazer deploys run the owner-author preflight, verify locally, and then deploy from the local repo path; no GitHub-triggered deploy flow is assumed.
+- Trove deploys currently use repo-local verification and the standard Vercel CLI path, but this pass does not perform live project binding.
 - Do not use untargeted env listing; use explicit targets:
   - `vercel env ls preview`
   - `vercel env ls production`
@@ -185,4 +203,5 @@
 - If `_stack` scripts are missing, confirm the file is really `package.json`, not `package.json.txt`.
 - If a Mazer deploy stops before Vercel, run `pnpm run mazer:deploy:preflight` and apply the printed Git config and amend commands.
 - If preview deploy fails after local verify/build succeeds, use the prebuilt path to isolate whether the failure is in remote build versus upload/deploy.
+- If a Trove deploy needs remote-build isolation, use the prebuilt Trove path after `pnpm run trove:build:vercel`.
 - If preview or prod envs look missing, rerun the targeted doctor command.

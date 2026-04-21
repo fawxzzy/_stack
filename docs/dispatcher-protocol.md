@@ -2,9 +2,9 @@
 
 ## Purpose
 
-`C:\Users\zjhre\dev` is a dispatcher-only orchestration layer for the local-first workspace. It routes work, records operator context, and delegates repo mutations to the correct execution surface. It is not a universal editor.
+The ATLAS root is a dispatcher-only orchestration layer for the local-first workspace. It routes work, records operator context, and delegates repo mutations to the correct execution surface. It is not a universal editor.
 
-`C:\Users\zjhre\dev\_stack` remains the operator layer for shared workflow commands, receipts, queue drops, runbooks, and dispatcher templates.
+`repos/_stack` remains the operator layer for shared workflow commands, receipts, queue drops, runbooks, and dispatcher templates.
 
 ## Task Classes
 
@@ -13,8 +13,8 @@
 Use for workspace-wide routing, operator policy, manifests, dispatcher docs, queue drops, templates, and receipts.
 
 - Allowed edit surface:
-  - `C:\Users\zjhre\dev\AGENTS.md`
-  - `C:\Users\zjhre\dev\_stack\**`
+- `AGENTS.md`
+- `repos/_stack/**`
 - Typical outputs:
   - routing rules
   - manifests
@@ -27,7 +27,7 @@ Use for workspace-wide routing, operator policy, manifests, dispatcher docs, que
 Use for workflow commands and shared operator tooling executed from `_stack`.
 
 - Primary execution surface:
-  - `C:\Users\zjhre\dev\_stack`
+- `repos/_stack`
 - Typical actions:
   - `doctor`
   - `heal`
@@ -47,10 +47,12 @@ Use for application code, tests, config, migrations, content, or repo-specific d
 - Mutation rule:
   - repo code changes must be performed by a repo-local runner inside that repo
 - Current named repos:
-  - `fitness` -> `C:\Users\zjhre\dev\fawxzzy-fitness`
-  - `playbook` -> `C:\Users\zjhre\dev\fawxzzy-playbook`
-  - `lifeline` -> `C:\Users\zjhre\dev\fawxzzy-lifeline`
-  - `atlas` -> `C:\Users\zjhre\dev\fawxzzy-atlas`
+  - `fitness` -> `repos/fawxzzy-fitness`
+  - `mazer` -> `repos/fawxzzy-mazer`
+  - `trove` -> `repos/fawxzzy-trove`
+  - `playbook` -> `repos/fawxzzy-playbook`
+  - `lifeline` -> `repos/fawxzzy-lifeline`
+  - `atlas` -> `repos/fawxzzy-atlas`
 
 ### 4. cross-repo
 
@@ -66,16 +68,16 @@ Use only when the task explicitly spans more than one repo and coordination is r
 
 ## Routing Rules
 
-1. Start at `C:\Users\zjhre\dev` only to classify work, route child tasks, and update dispatcher/operator artifacts.
+1. Start at the ATLAS root only to classify work, route child tasks, and update dispatcher/operator artifacts.
 2. The root runner may edit only:
-   - `C:\Users\zjhre\dev\AGENTS.md`
-   - `C:\Users\zjhre\dev\_stack\**`
+- `AGENTS.md`
+- `repos/_stack/**`
 3. Any app or repo implementation change must be handed off to a repo-local runner in the target repo.
 4. `_stack` is the declared execution surface for shared `doctor`, `heal`, `route`, `verify`, and `deploy` actions.
 5. `_stack` may also self-manage `_stack`-only workflow changes through its thin shared-runner adapter; this does not widen `_stack` into a dev-root multi-repo dispatcher.
 6. `_stack` may optionally fast-forward successful shared-runner task commits back onto local `_stack` `main` when its adapter enables `ff-only`; this remains local-only and does not permit auto-push.
 7. Shared runner base-ref resolution stays local-first: prefer `origin/main` when it exists locally, otherwise use local `main`, and record the resolved ref in the run manifest.
-8. Fitness is the only repo currently using Vercel.
+8. Fitness, Mazer, and Trove currently use Vercel.
 9. Playbook, Lifeline, and Atlas are currently self-hosted and should not be routed through Vercel workflows.
 10. Cross-repo work should produce thin orchestration artifacts in `_stack` and keep repo mutations delegated.
 11. Do not restructure sibling repos from the dispatcher layer.
@@ -91,7 +93,7 @@ Use only when the task explicitly spans more than one repo and coordination is r
 
 ## Child Task Handoff
 
-Use the handoff template at `C:\Users\zjhre\dev\_stack\templates\child-task-handoff.md` when the dispatcher needs to delegate to `_stack`, Fitness, Playbook, Lifeline, or Atlas.
+Use the handoff template at `templates/child-task-handoff.md` when the dispatcher needs to delegate to `_stack`, Fitness, Playbook, Lifeline, or Atlas.
 
 The parent runner should include:
 
@@ -108,7 +110,7 @@ The parent runner should include:
 
 ## Queue / Task Drop Pattern
 
-Use `C:\Users\zjhre\dev\_stack\queue` as a lightweight future automation boundary.
+Use `queue` as a lightweight future automation boundary.
 
 - `pending/`
   - new task drops from the dispatcher

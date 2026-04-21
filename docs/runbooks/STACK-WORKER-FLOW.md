@@ -1,6 +1,10 @@
 # Stack Worker Flow
 
+For owner boundaries and the consumer contract map for Playbook, Lifeline, and Fitness, see [`../STACK-ORCHESTRATION-ADOPTION.md`](../STACK-ORCHESTRATION-ADOPTION.md).
+
 `_stack` is the first executor of the ATLAS worker contracts. Every spawned job stamps the current root `stack.lock.yaml` digest into its worker artifacts, builds a deterministic worker context pack, and keeps the handoff surface explicit.
+
+This runbook is `_stack` owner truth for orchestration mechanics. It consumes the Playbook workflow-pack bundle as a consumer, bridges execution through Lifeline owner contracts, and references the Fitness integration contract when governed execution touches telemetry channels or receipt types.
 
 The closed loop is:
 

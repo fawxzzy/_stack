@@ -588,8 +588,13 @@ try {
         Assert-Condition -Condition ($lifelineReadOnlyScenario.receipt.worker_id -eq $lifelineReadOnlyScenario.bridge.worker_id) -Message "Read-only Lifeline receipt lost the worker id."
         Assert-Condition -Condition ($lifelineReadOnlyScenario.receipt.assignment_id -eq $lifelineReadOnlyScenario.bridge.assignment_id) -Message "Read-only Lifeline receipt lost the assignment id."
         Assert-Condition -Condition ($lifelineReadOnlyScenario.receipt.stack_lock_digest -eq $stackLockContext.stackLockDigest) -Message "Read-only Lifeline receipt lost the stack lock digest."
+        Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.receipt.contract_version -eq "atlas.privileged-action.receipt.v1") -Message "Read-only Lifeline bridge must preserve the Lifeline receipt contract version."
         Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.receipt.tool_id -eq "read_only_scan") -Message "Read-only Lifeline receipt lost the governed tool id."
         Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.receipt.registry_digest -eq $testRegistryDigest) -Message "Read-only Lifeline receipt lost the registry digest."
+        Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.bridgeRecord.schema_version -eq "atlas.stack.lifeline-execution.v1") -Message "Read-only Lifeline bridge record must keep the _stack bridge contract version."
+        Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.bridgeRecord.request_ref -eq [string]$lifelineReadOnlyScenario.bridge.request_ref) -Message "Read-only Lifeline bridge record lost the canonical request ref."
+        Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.bridgeRecord.approval_receipt_ref -eq [string]$lifelineReadOnlyScenario.bridge.approval_receipt_ref) -Message "Read-only Lifeline bridge record lost the canonical approval ref."
+        Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.bridgeRecord.receipt_ref -eq [string]$lifelineReadOnlyScenario.bridge.receipt_ref) -Message "Read-only Lifeline bridge record lost the canonical receipt ref."
 
         $lifelineDryRunScenario = Invoke-LifelineExecutionScenario `
             -Name "dry-run" `
@@ -601,6 +606,7 @@ try {
         Assert-Condition -Condition ($lifelineDryRunScenario.receipt.result -eq "succeeded") -Message "Dry-run Lifeline bridge should succeed."
         Assert-Condition -Condition ($lifelineDryRunScenario.receipt.execution_mode -eq "dry_run_command") -Message "Dry-run Lifeline bridge should use the dry_run_command execution mode."
         Assert-Condition -Condition ($lifelineDryRunScenario.receipt.command_result.command[0] -eq "node") -Message "Dry-run Lifeline bridge did not preserve the requested command."
+        Assert-Condition -Condition ([string]$lifelineDryRunScenario.receipt.contract_version -eq "atlas.privileged-action.receipt.v1") -Message "Dry-run Lifeline bridge must preserve the Lifeline receipt contract version."
         Assert-Condition -Condition ([string]$lifelineDryRunScenario.receipt.tool_id -eq "scoped_write.dry_run") -Message "Dry-run Lifeline receipt lost the governed tool id."
 
         $lifelineRejectedScenario = Invoke-LifelineExecutionScenario `
