@@ -30,6 +30,8 @@ $worktreePath = $null
 $commitSha = $null
 $exportErrors = @()
 $verifyRecords = @()
+$proofGateRecord = $null
+$proofGateFailureReason = $null
 $promptRecord = $null
 $config = @{}
 $baseRef = "origin/main"
@@ -64,6 +66,7 @@ $supervisorConsumerPath = $null
 $changedPaths = @()
 $mutationScopeViolations = @()
 $verifyBootstrapRecords = @()
+$proofGateConfig = $null
 $adapterContract = $null
 $adapterContractPath = $null
 $autoCommitEnabled = $true
@@ -165,6 +168,9 @@ try {
         if ($effectiveVerifyCommands.Count -gt 0) {
             $verificationSource = "adapter-default"
         }
+    }
+    if ($null -ne $adapterContract.verify -and $null -ne $adapterContract.verify.proofGate) {
+        $proofGateConfig = $adapterContract.verify.proofGate
     }
 
     $slugSeed = $promptRecord.BranchSlug
@@ -550,6 +556,72 @@ try {
                 throw ("Verification command failed: {0}" -f $verificationCommand)
             }
         }
+
+        if ($null -ne $proofGateConfig) {
+            $proofGateCommand = [string]$proofGateConfig.command
+            if ([string]::IsNullOrWhiteSpace($proofGateCommand)) {
+                $status = "proof_gate_failed"
+                throw "Proof gate is configured without a command."
+            }
+
+            $proofGateStatusArtifactPath = Resolve-PathFromBase -BasePath $worktreePath -Value ([string]$proofGateConfig.statusArtifactPath)
+            if ([string]::IsNullOrWhiteSpace($proofGateStatusArtifactPath)) {
+                $status = "proof_gate_failed"
+                throw "Proof gate is configured without a status artifact path."
+            }
+
+            Write-RunnerMessage -Message ("Running proof gate: {0}" -f $proofGateCommand)
+            $proofGateResult = Invoke-ShellCommand -Command $proofGateCommand -WorkingDirectory $worktreePath
+            $proofGateStdOutPath = Join-Path -Path $verificationDirectory -ChildPath "proof-gate.stdout.log"
+            $proofGateStdErrPath = Join-Path -Path $verificationDirectory -ChildPath "proof-gate.stderr.log"
+            Write-TextFile -Path $proofGateStdOutPath -Content $proofGateResult.StdOut
+            Write-TextFile -Path $proofGateStdErrPath -Content $proofGateResult.StdErr
+
+            $proofGateRecord = [ordered]@{
+                command = $proofGateCommand
+                exitCode = $proofGateResult.ExitCode
+                stdoutPath = $proofGateStdOutPath
+                stderrPath = $proofGateStdErrPath
+                statusArtifactPath = $proofGateStatusArtifactPath
+                summaryStatus = $null
+                completionReady = $false
+                blockingReasons = @()
+                reportId = $null
+            }
+
+            $proofGateStatus = Read-JsonFile -Path $proofGateStatusArtifactPath
+            if ($null -ne $proofGateStatus) {
+                $proofGateRecord.summaryStatus = if ($null -ne $proofGateStatus.summary) { [string]$proofGateStatus.summary.status } else { $null }
+                $proofGateRecord.completionReady = [bool]$proofGateStatus.completion_ready
+                $proofGateRecord.blockingReasons = @(ConvertTo-StringArray -Value $proofGateStatus.blocking_reasons)
+                $proofGateRecord.reportId = [string]$proofGateStatus.report_id
+            }
+            else {
+                $proofGateRecord.blockingReasons = @("Proof gate status artifact is missing or unreadable.")
+            }
+
+            if ($proofGateResult.ExitCode -ne 0) {
+                if ($proofGateRecord.blockingReasons.Count -gt 0) {
+                    $proofGateFailureReason = [string]$proofGateRecord.blockingReasons[0]
+                }
+                else {
+                    $proofGateFailureReason = "Proof gate command exited non-zero."
+                }
+                $status = "proof_gate_failed"
+                throw ("Proof gate failed: {0}" -f $proofGateFailureReason)
+            }
+
+            if (-not $proofGateRecord.completionReady) {
+                if ($proofGateRecord.blockingReasons.Count -gt 0) {
+                    $proofGateFailureReason = [string]$proofGateRecord.blockingReasons[0]
+                }
+                else {
+                    $proofGateFailureReason = "Proof gate reported completion_ready=false."
+                }
+                $status = "proof_gate_failed"
+                throw ("Proof gate blocked completion: {0}" -f $proofGateFailureReason)
+            }
+        }
     }
 
     $statusResult = Invoke-Git -Arguments @("status", "--porcelain") -WorkingDirectory $worktreePath
@@ -727,6 +799,7 @@ finally {
             $workerState = switch ($status) {
                 "success" { "completed" }
                 "verification_failed" { "blocked" }
+                "proof_gate_failed" { "blocked" }
                 "mutation_scope_failed" { "blocked" }
                 "no_changes" { "blocked" }
                 "codex_failed" { "failed" }
@@ -735,7 +808,15 @@ finally {
                 default { "failed" }
             }
 
-            $workerBlockedReason = if ($workerState -eq "completed") { $null } else { $status }
+            $workerBlockedReason = if ($workerState -eq "completed") {
+                $null
+            }
+            elseif ($status -eq "proof_gate_failed" -and -not [string]::IsNullOrWhiteSpace($proofGateFailureReason)) {
+                "proof_gate_failed: $proofGateFailureReason"
+            }
+            else {
+                $status
+            }
             $workerOutputRefs = @(
                 (Get-StackRelativePath -RepoRoot $repoRoot -Path $manifestPath),
                 (Get-StackRelativePath -RepoRoot $repoRoot -Path $summaryPath)
@@ -875,6 +956,8 @@ finally {
             }
             verification = @($verifyRecords)
             verificationBootstrap = @($verifyBootstrapRecords)
+            proofGate = $proofGateRecord
+            proofGateFailureReason = $proofGateFailureReason
             verificationSource = $verificationSource
             changedPaths = @($changedPaths)
             workerArtifacts = [ordered]@{
@@ -910,6 +993,7 @@ finally {
                 docsUpdateRules = @(ConvertTo-StringArray -Value $adapterContract.docsUpdateRules)
                 bootstrapVerifyCommands = if ($null -ne $adapterContract.verify) { @(ConvertTo-StringArray -Value $adapterContract.verify.bootstrapCommands) } else { @() }
                 defaultVerifyCommands = if ($null -ne $adapterContract.verify) { @(ConvertTo-StringArray -Value $adapterContract.verify.defaultCommands) } else { @() }
+                proofGate = if ($null -ne $adapterContract.verify) { $adapterContract.verify.proofGate } else { $null }
                 artifacts = $adapterContract.artifacts
                 pushPolicy = $pushPolicy
                 autoCommitPolicy = $autoCommitPolicy

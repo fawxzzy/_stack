@@ -13,7 +13,7 @@
       "deployModel": "vercel-cli",
       "deployPreview": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy",
       "deployPreviewPrebuilt": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prebuilt",
-      "deployProd": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prod",
+      "deployProd": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prod --yes",
       "deployProdPrebuilt": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prebuilt --prod"
     },
     "mazer": {
@@ -45,7 +45,7 @@
       "deployModel": "self-hosted"
     },
     "atlas": {
-      "path": "../fawxzzy-atlas",
+      "path": "../..",
       "deployModel": "self-hosted"
     }
   }

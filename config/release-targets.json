@@ -116,7 +116,8 @@
       "confirmText": "release fitness to production",
       "notes": [
         "Promotes the current Fitness state to production.",
-        "The approved script already performs fresh-state verification before Vercel."
+        "The approved script already performs fresh-state verification before Vercel.",
+        "After the launcher's typed confirmation gate, the downstream Vercel deploy runs non-interactively."
       ],
       "tags": [
         "release",

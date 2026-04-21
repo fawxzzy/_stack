@@ -1,2 +1,2 @@
-repo_root = "../../../../../fawxzzy-atlas"
+repo_root = "../../../../../../"
 adapter_path = "./adapter.json"

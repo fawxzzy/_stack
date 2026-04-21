@@ -57,7 +57,7 @@
 - Use `pnpm run ops:install-shortcut -- -UseWindowsTerminal` to target Windows Terminal when `wt.exe` is available. If it is not available, the installer falls back to `powershell.exe`.
 - If `ops/assets/release-launcher.ico` exists, the shortcut installer uses it automatically. Override it with `pnpm run ops:install-shortcut -- -IconPath .\path\to\icon.ico`.
 - Approved launcher targets live in `config/release-targets.json`.
-- The launcher reads `..\fawxzzy-atlas\docs\LIFELINE_TOPOLOGY_MANIFEST.json` as a read-only contract for Atlas-managed public environments and hostname hints.
+- The launcher reads `..\..\docs\LIFELINE_TOPOLOGY_MANIFEST.json` as a read-only contract for Atlas-managed public environments and hostname hints.
 - The top-level launcher intentionally exposes operator intents instead of raw scripts: `Preview`, `Deploy Prod`, `Verify`, and `Maintenance / Advanced`.
 - `Preview` means the approved preview release target for that app in this repo. It does not mean a local dev server.
 - For Atlas-managed apps, the launcher treats the manifest as canonical for public identity. It normalizes service keys to `app/environment`, surfaces hostname hints such as `pr-{number}.fitness.fawxzzy.com`, and fails fast when config contradicts the manifest.

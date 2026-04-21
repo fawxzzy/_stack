@@ -103,9 +103,14 @@ Context:
 ```md
 Task Class: repo-local
 Target: atlas
-Working Directory: repos/fawxzzy-atlas
+Working Directory: .
 Allowed Edit Surface:
-- repos/fawxzzy-atlas/**
+- docs/**
+- ops/**
+- schemas/**
+- tests/**
+- README-STACK.md
+- stack.yaml
 
 Context:
 - Atlas is currently self-hosted and not using Vercel.

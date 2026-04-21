@@ -10,7 +10,7 @@ const STACK_ROOT = path.resolve(SCRIPT_DIRECTORY, "..");
 export const DEFAULT_ATLAS_TOPOLOGY_MANIFEST_PATH = path.resolve(
   STACK_ROOT,
   "..",
-  "fawxzzy-atlas",
+  "..",
   "docs",
   "LIFELINE_TOPOLOGY_MANIFEST.json"
 );

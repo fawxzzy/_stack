@@ -55,6 +55,28 @@
             "type": "string"
           }
         },
+        "proofGate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "command",
+            "statusArtifactPath"
+          ],
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "statusArtifactPath": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "notes": {
           "type": "array",
           "items": {

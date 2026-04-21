@@ -38,10 +38,11 @@ The shared runner operates inside repo-local worktrees. It does not move repo ar
 4. Each prompt gets a fresh repo-local worktree and `codex/<slug>` task branch from the adapter `execution.baseRef`, resolved locally by preferring `origin/main` and falling back to local `main` when the remote-tracking ref is unavailable.
 5. Codex runs non-interactively inside that worktree.
 6. Verification bootstrap commands run first, then the effective verify list from prompt metadata or adapter defaults.
-7. The runner writes `worker.assignment.json` and a running status artifact before execution, then records completion status with touched ranges when the run ends.
-8. The runner blocks commit if verification fails or if changed files exceed `allowedMutationSurfaces`.
-9. Successful mutating tasks auto-commit by default, skip push, export patch and optional bundle artifacts, and archive the prompt.
-10. Failed runs still archive the prompt and keep worktree/log state for inspection.
+7. Adapters may also declare a proof gate that runs after the standard verify commands and fails closed when the declared status artifact is missing, unreadable, or reports `completion_ready=false`.
+8. The runner writes `worker.assignment.json` and a running status artifact before execution, then records completion status with touched ranges when the run ends.
+9. The runner blocks commit if verification fails, proof gating fails, or changed files exceed `allowedMutationSurfaces`.
+10. Successful mutating tasks auto-commit by default, skip push, export patch and optional bundle artifacts, and archive the prompt.
+11. Failed runs still archive the prompt and keep worktree/log state for inspection.
 
 ## Adapter contract
 
@@ -49,6 +50,7 @@ The adapter contract is JSON and intentionally thin:
 
 - `verify.bootstrapCommands`: fresh-worktree bootstrap before verification
 - `verify.defaultCommands`: default verification when the prompt does not supply `Verify:` lines
+- `verify.proofGate`: optional post-verify completion gate that consumes a machine-readable status artifact
 - `allowedMutationSurfaces`: fail-closed mutation boundary
 - `docsUpdateRules`: repo-specific documentation alignment rules
 - `artifacts`: repo-local inbox/archive/log/worktree/export paths
@@ -97,11 +99,18 @@ Atlas is the first non-Playbook extracted adapter:
 Atlas stays intentionally thin:
 
 - repo-local inbox/archive/log/worktree/export paths remain under Atlas `.codex/`
-- verification stays docs-first and lightweight with no package bootstrap
-- mutation scope stays limited to Atlas docs, `.codex/`, and `README.md`
-- docs rules keep architecture and boundary docs aligned without importing `_stack` command logic
+- verification now includes the root-owned UI drift, visual proof, and proof-summary tests plus a proof gate over the derived completion summary
+- mutation scope stays limited to Atlas docs, `.codex/`, root-owned validation/projection tooling under `ops/**`, `schemas/**`, and `tests/**`, plus `README.md`
+- docs rules keep architecture and boundary docs aligned while preserving the rule that Atlas validates and projects rather than owning UI primitive truth
 - push remains manual-only
 - auto-commit remains enabled by default for successful mutating tasks
+
+The Atlas proof gate is intentionally narrow:
+
+- `_stack` runs the normal verification commands first
+- `_stack` then runs `python ops/atlas/ui_proof/fitness.py`
+- completion blocks with `proof_gate_failed` when the derived summary is missing, unreadable, or reports `completion_ready=false`
+- the proof summary is consumer-facing compatibility state, not a replacement for the underlying semantic drift or visual proof reports
 
 Lifeline is the next thin non-Vercel extracted adapter:
 

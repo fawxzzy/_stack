@@ -1,6 +1,6 @@
 {
   "$schema": "../../adapter.schema.json",
-  "schemaVersion": "1.2",
+  "schemaVersion": "1.3",
   "kind": "stack-codex-repo-adapter",
   "repoId": "atlas",
   "description": "Atlas adapter for the shared _stack Codex inbox/worktree runner.",
@@ -8,22 +8,36 @@
     "bootstrapCommands": [],
     "defaultCommands": [
       "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$required = @('README.md','docs/STACK_OVERVIEW.md','docs/SYSTEM_REGISTRY.md','docs/OWNERSHIP_BOUNDARIES.md','docs/CONTRACT_MAP.md','docs/LOCAL_FIRST_WORKFLOW.md','docs/PLAYBOOK_PROMOTION_MODEL.md'); $missing = @($required | Where-Object { -not (Test-Path $_) }); if ($missing.Count -gt 0) { Write-Error ('Missing required Atlas docs: ' + ($missing -join ', ')); exit 1 }\"",
+      "python -m unittest tests.test_atlas_ui_drift tests.test_atlas_ui_visual_proof tests.test_atlas_ui_proof_summary",
+      "python ops/atlas/ui_observe/drift.py",
+      "python ops/atlas/ui_visual_proof/fitness.py",
       "git diff --check"
     ],
+    "proofGate": {
+      "command": "python ops/atlas/ui_proof/fitness.py",
+      "statusArtifactPath": "runtime/atlas/ui-proof/fitness/latest.json",
+      "notes": [
+        "ATLAS completion for the UI-governance lane is blocked unless the derived proof summary reports completion_ready=true.",
+        "The proof summary remains a compatibility projection over root-owned semantic drift and visual proof artifacts."
+      ]
+    },
     "notes": [
-      "Atlas is docs-first in this phase, so verification stays lightweight and architecture-repo appropriate.",
-      "Do not add package bootstrap or build requirements unless Atlas itself later introduces them.",
-      "Prefer updating architecture and contract-planning docs over importing workflow or implementation detail from sibling repos."
+      "Atlas root may own validation and projection tooling under ops, tests, and schemas, but it must not become a second owner-truth UI store.",
+      "Proof enforcement in _stack stays consumer-side: root emits the derived proof signal, and the runner blocks completion when that signal is red or missing.",
+      "Prefer cross-links into _stack and Playbook over copying operator-command detail or implemented governance detail into Atlas."
     ]
   },
   "allowedMutationSurfaces": [
     ".codex/**",
     "README.md",
-    "docs/**"
+    "docs/**",
+    "ops/**",
+    "schemas/**",
+    "tests/**"
   ],
   "docsUpdateRules": [
-    "If Atlas architecture shape or stack role changes, keep README.md, docs/STACK_OVERVIEW.md, docs/SYSTEM_REGISTRY.md, docs/OWNERSHIP_BOUNDARIES.md, and docs/LOCAL_FIRST_WORKFLOW.md aligned in the same change or immediately after.",
-    "Keep Atlas docs-first and repo-local in this phase; do not implement workflow commands, runtime logic, or governance enforcement here.",
+    "If Atlas architecture shape, proof-gate behavior, or stack role changes, keep README.md, docs/STACK_OVERVIEW.md, docs/SYSTEM_REGISTRY.md, docs/OWNERSHIP_BOUNDARIES.md, and docs/LOCAL_FIRST_WORKFLOW.md aligned in the same change or immediately after.",
+    "Atlas may implement root-owned validation, projection, and read-only ops tooling under ops/tests/schemas, but it must not copy owner-repo primitive truth into root.",
     "Prefer cross-links into _stack and Playbook over copying operator-command detail or implemented governance detail into Atlas."
   ],
   "artifacts": {

@@ -28,7 +28,7 @@
     "fitness:git:disconnect": "pnpm dlx vercel --cwd ../fawxzzy-fitness git disconnect --yes",
     "fitness:build:vercel": "pnpm run fitness:verify:clean && pnpm dlx vercel --cwd ../fawxzzy-fitness build --yes",
     "fitness:deploy:preview": "pnpm run fitness:verify:clean && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy",
-    "fitness:deploy:prod": "pnpm run fitness:verify:clean && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prod",
+    "fitness:deploy:prod": "pnpm run fitness:verify:clean && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prod --yes",
     "fitness:deploy:prebuilt": "pnpm run fitness:build:vercel && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prebuilt",
     "fitness:deploy:prebuilt:prod": "pnpm run fitness:build:vercel && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prebuilt --prod",
     "fitness:deploy:preview:logs": "pnpm run fitness:verify:clean && pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --logs",

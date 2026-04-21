@@ -52,7 +52,7 @@ Use for application code, tests, config, migrations, content, or repo-specific d
   - `trove` -> `repos/fawxzzy-trove`
   - `playbook` -> `repos/fawxzzy-playbook`
   - `lifeline` -> `repos/fawxzzy-lifeline`
-  - `atlas` -> `repos/fawxzzy-atlas`
+- `atlas` -> `.` (ATLAS root coordination layer)
 
 ### 4. cross-repo
 
