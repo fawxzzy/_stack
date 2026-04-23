@@ -69,6 +69,53 @@ function Resolve-ExpectedValue {
   throw ("Fitness deploy identity is missing the expected {0}. Set {1} or update {2}." -f $Label, $EnvironmentName, $ResolvedConfigPath)
 }
 
+function Get-PnpmCommand {
+  $pnpmCommand = (Get-Command 'pnpm.cmd' -ErrorAction SilentlyContinue).Source
+  if ([string]::IsNullOrWhiteSpace($pnpmCommand)) {
+    $pnpmCommand = (Get-Command 'pnpm' -ErrorAction Stop).Source
+  }
+
+  return $pnpmCommand
+}
+
+function Invoke-PnpmCapture {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$FilePath,
+
+    [Parameter(Mandatory = $true)]
+    [string[]]$ArgumentList
+  )
+
+  $stdoutPath = [System.IO.Path]::GetTempFileName()
+  $stderrPath = [System.IO.Path]::GetTempFileName()
+
+  try {
+    $process = Start-Process `
+      -FilePath $FilePath `
+      -ArgumentList $ArgumentList `
+      -Wait `
+      -NoNewWindow `
+      -PassThru `
+      -RedirectStandardOutput $stdoutPath `
+      -RedirectStandardError $stderrPath
+
+    $stdoutText = if (Test-Path -LiteralPath $stdoutPath) { (Get-Content -LiteralPath $stdoutPath -Raw) } else { '' }
+    $stderrText = if (Test-Path -LiteralPath $stderrPath) { (Get-Content -LiteralPath $stderrPath -Raw) } else { '' }
+    $combinedText = ($stdoutText, $stderrText | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join [Environment]::NewLine
+
+    return [pscustomobject]@{
+      ExitCode = [int]$process.ExitCode
+      StdOut   = $stdoutText
+      StdErr   = $stderrText
+      Combined = $combinedText.Trim()
+    }
+  }
+  finally {
+    Remove-Item -LiteralPath $stdoutPath, $stderrPath -ErrorAction SilentlyContinue
+  }
+}
+
 $stackRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 
 if ([string]::IsNullOrWhiteSpace($RepoPath)) {
@@ -92,6 +139,15 @@ $configTeamId = if ($null -ne $deployIdentityConfig.vercel) { [string]$deployIde
 $configScope = if ($null -ne $deployIdentityConfig.vercel) { [string]$deployIdentityConfig.vercel.scope } else { [string]$deployIdentityConfig.scope }
 $configProjectId = if ($null -ne $deployIdentityConfig.vercel) { [string]$deployIdentityConfig.vercel.projectId } else { [string]$deployIdentityConfig.projectId }
 $configProject = if ($null -ne $deployIdentityConfig.vercel) { [string]$deployIdentityConfig.vercel.project } else { [string]$deployIdentityConfig.project }
+$configCreateDeployments = if ($null -ne $deployIdentityConfig.vercel -and $null -ne $deployIdentityConfig.vercel.gitProviderOptions) {
+  [string]$deployIdentityConfig.vercel.gitProviderOptions.createDeployments
+}
+elseif ($null -ne $deployIdentityConfig.gitProviderOptions) {
+  [string]$deployIdentityConfig.gitProviderOptions.createDeployments
+}
+else {
+  $null
+}
 
 $expectedTeamIdInfo = Resolve-ExpectedValue `
   -EnvironmentName 'VERCEL_EXPECTED_TEAM_ID' `
@@ -121,6 +177,23 @@ $expectedTeamId = $expectedTeamIdInfo.Value
 $expectedScope = $expectedScopeInfo.Value
 $expectedProjectId = $expectedProjectIdInfo.Value
 $expectedProject = $expectedProjectInfo.Value
+$expectedCreateDeployments = if (-not [string]::IsNullOrWhiteSpace($configCreateDeployments)) { $configCreateDeployments.Trim() } else { 'disabled' }
+$pnpmCommand = Get-PnpmCommand
+
+$repoGitTopLevel = (& git -C $resolvedRepoPath rev-parse --show-toplevel 2>$null)
+$repoGitExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+$normalizedRepoGitTopLevel = if ([string]::IsNullOrWhiteSpace($repoGitTopLevel)) { $null } else { [System.IO.Path]::GetFullPath($repoGitTopLevel.Trim()) }
+$normalizedRepoPath = [System.IO.Path]::GetFullPath($resolvedRepoPath)
+
+if ($repoGitExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($normalizedRepoGitTopLevel) -or $normalizedRepoGitTopLevel -ne $normalizedRepoPath) {
+  Write-Host 'Fitness deploy blocked before Vercel.' -ForegroundColor Red
+  Write-Host 'The target path is not a real standalone Fitness repo boundary.' -ForegroundColor Yellow
+  Write-Host ''
+  Write-Host ("Repo path: {0}" -f $resolvedRepoPath)
+  Write-Host ("git rev-parse --show-toplevel: {0}" -f (Get-DisplayValue -Value $normalizedRepoGitTopLevel))
+  Write-Host 'Expected: the Fitness repo path must be its own git toplevel before any deploy lane can run.'
+  exit 1
+}
 
 if (-not (Test-Path -LiteralPath $projectJsonPath)) {
   Write-Host 'Fitness deploy blocked before Vercel.' -ForegroundColor Red
@@ -146,36 +219,30 @@ $linkedTeamId = [string]$projectJson.orgId
 $linkedProjectId = [string]$projectJson.projectId
 $linkedProjectName = [string]$projectJson.projectName
 
-$stdoutPath = [System.IO.Path]::GetTempFileName()
-$stderrPath = [System.IO.Path]::GetTempFileName()
+$inspectResult = Invoke-PnpmCapture `
+  -FilePath $pnpmCommand `
+  -ArgumentList @('dlx', 'vercel@51.6.1', '--cwd', $resolvedRepoPath, 'project', 'inspect')
 
-try {
-  $pnpmCommand = (Get-Command 'pnpm.cmd' -ErrorAction SilentlyContinue).Source
-  if ([string]::IsNullOrWhiteSpace($pnpmCommand)) {
-    $pnpmCommand = (Get-Command 'pnpm' -ErrorAction Stop).Source
-  }
-
-  $inspectProcess = Start-Process `
-    -FilePath $pnpmCommand `
-    -ArgumentList @('dlx', 'vercel@51.6.1', '--cwd', $resolvedRepoPath, 'project', 'inspect') `
-    -Wait `
-    -NoNewWindow `
-    -PassThru `
-    -RedirectStandardOutput $stdoutPath `
-    -RedirectStandardError $stderrPath
-
-  $inspectExitCode = [int]$inspectProcess.ExitCode
-  $stdoutText = if (Test-Path -LiteralPath $stdoutPath) { (Get-Content -LiteralPath $stdoutPath -Raw) } else { '' }
-  $stderrText = if (Test-Path -LiteralPath $stderrPath) { (Get-Content -LiteralPath $stderrPath -Raw) } else { '' }
-  $inspectText = ($stdoutText, $stderrText | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join [Environment]::NewLine
-  $inspectText = $inspectText.Trim()
-}
-finally {
-  Remove-Item -LiteralPath $stdoutPath, $stderrPath -ErrorAction SilentlyContinue
+if ($inspectResult.ExitCode -ne 0) {
+  throw ("Unable to inspect the linked Fitness Vercel project for {0}. Output:`n{1}" -f $resolvedRepoPath, $inspectResult.Combined)
 }
 
-if ($inspectExitCode -ne 0) {
-  throw ("Unable to inspect the linked Fitness Vercel project for {0}. Output:`n{1}" -f $resolvedRepoPath, $inspectText)
+$inspectText = $inspectResult.Combined
+
+$projectApiResult = Invoke-PnpmCapture `
+  -FilePath $pnpmCommand `
+  -ArgumentList @('dlx', 'vercel@51.6.1', '--cwd', $resolvedRepoPath, 'api', ('/v9/projects/{0}' -f $expectedProjectId), '--scope', $expectedScope, '--raw')
+
+if ($projectApiResult.ExitCode -ne 0) {
+  throw ("Unable to read the linked Fitness Vercel project API state for {0}. Output:`n{1}" -f $resolvedRepoPath, $projectApiResult.Combined)
+}
+
+$projectApi = $projectApiResult.StdOut | ConvertFrom-Json
+$observedCreateDeployments = if ($null -ne $projectApi.gitProviderOptions) {
+  [string]$projectApi.gitProviderOptions.createDeployments
+}
+else {
+  $null
 }
 
 $matched = [regex]::Match($inspectText, 'Found Project\s+([^\s/]+)/([^\s\[]+)')
@@ -228,6 +295,13 @@ elseif ($inspectedProjectName -ne $expectedProject) {
   $mismatches.Add('vercel project inspect resolved a different current project name than the configured Fitness project name')
 }
 
+if ([string]::IsNullOrWhiteSpace($observedCreateDeployments)) {
+  $mismatches.Add('Vercel project API did not return gitProviderOptions.createDeployments')
+}
+elseif ($observedCreateDeployments -ne $expectedCreateDeployments) {
+  $mismatches.Add(("Vercel Git auto-deploy createDeployments is {0}; expected {1}" -f $observedCreateDeployments, $expectedCreateDeployments))
+}
+
 if ($linkedTeamId -ne $expectedTeamId) {
   $diagnoses.Add('Wrong account or team link: the local .vercel metadata points at a different Vercel team ID than the canonical Fitness lane.')
 }
@@ -246,6 +320,10 @@ if ($linkedTeamId -eq $expectedTeamId -and $linkedProjectId -eq $expectedProject
 
 if ([string]::IsNullOrWhiteSpace($linkedScope) -or [string]::IsNullOrWhiteSpace($inspectedProjectName)) {
   $diagnoses.Add('CLI inspection did not return the current human-readable identity cleanly. Re-run vercel project inspect manually before deploying if this persists.')
+}
+
+if ($observedCreateDeployments -ne $expectedCreateDeployments) {
+  $diagnoses.Add('Git auto-deploy drift: disable Git-triggered deployments again before manual Fitness deploys. Use pnpm run fitness:git:autodeploy:disable from _stack.')
 }
 
 if ($mismatches.Count -gt 0) {
@@ -267,6 +345,7 @@ if ($mismatches.Count -gt 0) {
   Write-Host ("  .vercel projectName:      {0}" -f (Get-DisplayValue -Value $linkedProjectName))
   Write-Host ("  inspected owner/team:     {0}" -f (Get-DisplayValue -Value $linkedScope))
   Write-Host ("  inspected project name:   {0}" -f (Get-DisplayValue -Value $inspectedProjectName))
+  Write-Host ("  Git auto-deploy state:    {0}" -f (Get-DisplayValue -Value $observedCreateDeployments))
   Write-Host ("  local project.json path:  {0}" -f $projectJsonPath)
   Write-Host ''
   Write-Host 'Mismatch details:'
@@ -292,4 +371,5 @@ Write-Host ("Expected team ID source: {0}" -f $expectedTeamIdInfo.Source)
 Write-Host ("Expected scope source: {0}" -f $expectedScopeInfo.Source)
 Write-Host ("Expected project ID source: {0}" -f $expectedProjectIdInfo.Source)
 Write-Host ("Expected project source: {0}" -f $expectedProjectInfo.Source)
+Write-Host ("Git auto-deploy createDeployments: {0}" -f $observedCreateDeployments)
 Write-Host ("Deploy identity config: {0}" -f $resolvedConfigPath)

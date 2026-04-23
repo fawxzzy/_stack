@@ -5,6 +5,9 @@
     "teamId": "team_CMJn7MvzFZZBnhNnjVUZF2RD",
     "scope": "fawxzzy",
     "projectId": "prj_rtlFVOMFAWCRoJ3SQjHloi89881K",
-    "project": "fawxzzy-fitness"
+    "project": "fawxzzy-fitness",
+    "gitProviderOptions": {
+      "createDeployments": "disabled"
+    }
   }
 }

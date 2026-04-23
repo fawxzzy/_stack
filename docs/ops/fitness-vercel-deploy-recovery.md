@@ -4,6 +4,8 @@
 
 This runbook is the canonical recovery lane for Fitness production deploys when Vercel identity, repo linkage, or deployment plumbing drifts.
 
+Fitness deploys are manual-only from `_stack`. Git/Vercel auto-deploy creation must remain disabled unless the owner explicitly requests re-enabling it.
+
 ## Canonical hosting identity
 
 - Team ID: `team_CMJn7MvzFZZBnhNnjVUZF2RD`
@@ -32,17 +34,21 @@ cd C:\ATLAS\repos\_stack
 pnpm run fitness:deploy:preflight
 ```
 
-4. Classify any mismatch exactly:
+4. Confirm Git auto-deploy creation is disabled.
+   - Expected Vercel API state: `gitProviderOptions.createDeployments = disabled`.
+   - If it drifted, run `pnpm run fitness:git:autodeploy:disable` from `_stack`, then rerun preflight.
+   - Do not deploy while Git auto-deploys are enabled.
+5. Classify any mismatch exactly:
    - Team ID mismatch: wrong Vercel account or wrong team link.
    - Project ID mismatch under the correct team ID: wrong project link.
    - Matching team/project IDs with mismatched slug/name: rename drift. Update checked-in config to the connector-confirmed current slug/name.
-5. Verify targeted env coverage only after identity is confirmed.
+6. Verify targeted env coverage only after identity is confirmed.
 
 ```powershell
 pnpm run fitness:doctor
 ```
 
-6. Run the repo-local verification lane from `..\fawxzzy-fitness`.
+7. Run the repo-local verification lane from `..\fawxzzy-fitness`.
 
 ```powershell
 npm run verify
@@ -50,14 +56,22 @@ npm run verify:mobile-regression
 npm run verify:strict
 ```
 
-7. Deploy production from the canonical linked project.
+8. Deploy production from the canonical linked project.
 
 ```powershell
 cd C:\ATLAS\repos\_stack
 pnpm run fitness:deploy:prod
 ```
 
-8. If the deployment fails, inspect the same deployment through the Vercel connector first, then the local CLI if more detail is needed.
+9. If the deployment fails, inspect the same deployment through the Vercel connector first, then the local CLI if more detail is needed.
+
+## Manual deploy-only policy
+
+- Do not deploy Fitness from `repos/fawxzzy-fitness` directly.
+- Do not rely on Git push to create Fitness deployments.
+- Use `_stack` scripts for preview, production, prebuilt, and logs variants.
+- `_stack` preflight must pass before any Fitness deploy command calls Vercel.
+- Re-enabling Git auto-deploys is an owner-requested change, not an incident workaround.
 
 ## Current observed rename drift
 
