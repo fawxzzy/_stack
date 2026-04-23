@@ -1,0 +1,17 @@
+{
+  "url": "https://fawxzzy-fitness-d82z4dfbr-fawxzzy.vercel.app/history/exercises",
+  "width": 430,
+  "height": 932,
+  "mobile": true,
+  "deviceScaleFactor": 1,
+  "initialWaitMs": 1600,
+  "actions": [
+    {
+      "type": "waitForSelector",
+      "selector": "body",
+      "timeoutMs": 10000
+    }
+  ],
+  "finalWaitMs": 900,
+  "outPath": "C:\\ATLAS\\repos\\_stack\\tmp\\history-after-deployed\\history-after-exercises.png"
+}

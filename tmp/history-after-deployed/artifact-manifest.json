@@ -1,0 +1,43 @@
+{
+  "generatedAt": "2026-04-23T07:08:54.446Z",
+  "commitSha": "3d00eac717b69ccbf1f548fab7c6fd735b8af584",
+  "helper": "repos/fawxzzy-fitness/scripts/qa-ui-pass.mjs",
+  "runner": "repos/fawxzzy-fitness/scripts/qa/cdp-edge.mjs",
+  "inputDir": "repos/_stack/tmp/history-after-input",
+  "outputDir": "repos/_stack/tmp/history-after-deployed",
+  "captureCount": 2,
+  "freshness": {
+    "outputDirectoryReset": true,
+    "freshBrowserProfilePerCapture": true,
+    "browserStateClearedBeforeNavigate": true
+  },
+  "effectiveDefaults": {
+    "deviceScaleFactor": 1
+  },
+  "captures": [
+    {
+      "captureConfig": "history-after-exercises.capture.json",
+      "screenshot": "history-after-exercises.png",
+      "url": "https://fawxzzy-fitness-d82z4dfbr-fawxzzy.vercel.app/history/exercises",
+      "width": 430,
+      "height": 932,
+      "mobile": true,
+      "deviceScaleFactor": 1,
+      "initialWaitMs": 1600,
+      "finalWaitMs": 900,
+      "actionCount": 1
+    },
+    {
+      "captureConfig": "history-after-sessions.capture.json",
+      "screenshot": "history-after-sessions.png",
+      "url": "https://fawxzzy-fitness-d82z4dfbr-fawxzzy.vercel.app/history",
+      "width": 430,
+      "height": 932,
+      "mobile": true,
+      "deviceScaleFactor": 1,
+      "initialWaitMs": 1600,
+      "finalWaitMs": 900,
+      "actionCount": 1
+    }
+  ]
+}
