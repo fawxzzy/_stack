@@ -11,7 +11,7 @@
 - The workspace-root dispatcher protocol lives at `docs/dispatcher-protocol.md`.
 - Child-task handoff templates live at `templates/child-task-handoff.md`.
 - Future automation task drops live at `queue`.
-- Fitness local verify guidance lives at `docs/fitness-local-verify.md`.
+- Fitness verify guidance lives at `docs/fitness-verify.md`.
 - Workflow-pack and execution owner-boundary adoption lives at `docs/STACK-ORCHESTRATION-ADOPTION.md`.
 - Shared Codex runner guidance lives at `docs/codex-orchestration.md`.
 
@@ -169,10 +169,10 @@
 4. If preview deploy debugging is needed, use `pnpm run fitness:build:vercel` and then `pnpm run fitness:deploy:prebuilt`.
 5. Do not run production deploys unless you explicitly intend to promote the current state.
 
-## Fitness local verify split
+## Fitness verify split
 - Run `_stack` workflow entrypoints from this repo root.
 - Run Fitness lint, test, build, and UI-contract validation from `..\fawxzzy-fitness`.
-- Use `docs/fitness-local-verify.md` for the bottom-action intent consistency checklist.
+- Use `docs/fitness-verify.md` for the bottom-action intent consistency checklist.
 
 ## Scope boundaries
 - `_stack` owns workflow commands, editor tasks, receipts scaffolding, and operator docs.
@@ -192,7 +192,8 @@
 - Do not use untargeted env listing; use explicit targets:
   - `vercel env ls preview`
   - `vercel env ls production`
-- Vercel Git is intentionally disconnected for the current local-first deploy path.
+- `vercel git connect https://github.com/fawxzzy/fawxzzy-fitness.git` currently fails with `Failed to connect fawxzzy/fawxzzy-fitness to project. Make sure there aren't any typos and that you have access to the repository if it's private.`
+- Treat that Fitness Git-connect failure as a GitHub/Vercel auth or access blocker, not as a local `_stack` or `.vercel/project.json` linkage failure; `_stack` preview and prod deploys remain operational through the local Vercel CLI path.
 
 ## Receipts
 - Operator receipts live in `receipts/`.

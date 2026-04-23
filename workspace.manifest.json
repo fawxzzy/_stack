@@ -11,10 +11,10 @@
       "path": "../fawxzzy-fitness",
       "verify": "pnpm verify:strict",
       "deployModel": "vercel-cli",
-      "deployPreview": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy",
-      "deployPreviewPrebuilt": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prebuilt",
-      "deployProd": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prod --yes",
-      "deployProdPrebuilt": "pnpm dlx vercel --cwd ../fawxzzy-fitness deploy --prebuilt --prod"
+      "deployPreview": "pnpm dlx vercel@51.6.1 --cwd ../fawxzzy-fitness deploy",
+      "deployPreviewPrebuilt": "pnpm dlx vercel@51.6.1 --cwd ../fawxzzy-fitness deploy --prebuilt",
+      "deployProd": "pnpm dlx vercel@51.6.1 --cwd ../fawxzzy-fitness deploy --prod --yes",
+      "deployProdPrebuilt": "pnpm dlx vercel@51.6.1 --cwd ../fawxzzy-fitness deploy --prebuilt --prod"
     },
     "mazer": {
       "path": "../fawxzzy-mazer",

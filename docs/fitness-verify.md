@@ -1,4 +1,4 @@
-# Fitness Local Verify
+# Fitness Verify
 
 Use this note when the change touches Fitness UI behavior, especially bottom-action intent consistency.
 
@@ -17,9 +17,11 @@ cd repos/_stack
 pnpm run fitness:doctor
 pnpm run fitness:verify
 pnpm run fitness:verify:clean
+pnpm run fitness:deploy:preflight
 ```
 
 `fitness:verify` is the standard workflow entrypoint and currently delegates to the Fitness repo's strict verify command. Use `fitness:verify:clean` when you need a fresh `.next` state before verifying or deploying.
+`fitness:deploy:preflight` is the required production-link guard. It validates immutable Vercel `teamId` and `projectId` first, then checks the current slug/name for rename drift.
 
 Run code/test/build checks from the Fitness repo root:
 
@@ -48,13 +50,18 @@ npm run test:mobile-regression-fixtures
 
 1. Start the shared workflow verify path from `_stack` so operator flow stays consistent.
 2. Switch to `repos/fawxzzy-fitness` for repo-local validation and run `npm run verify:strict` or the narrower repo-local checks you need.
-3. Confirm the screen uses the shell-owned bottom action surface correctly:
+3. Before any production deploy, run `pnpm run fitness:deploy:preflight` from `_stack`.
+4. If the preflight reports rename drift, update the checked-in `_stack/config/fitness-deploy.identity.json` slug/name to the connector-confirmed current values instead of relinking to a different project.
+5. If the preflight reports a team ID mismatch, the repo is linked to the wrong Vercel account/team.
+6. If the preflight reports a project ID mismatch under the correct team ID, the repo is linked to the wrong Vercel project.
+7. Use `docs/ops/fitness-vercel-deploy-recovery.md` for the full recovery lane, including connector-first inspection and the Windows prebuilt caveat.
+8. Confirm the screen uses the shell-owned bottom action surface correctly:
    - only screen shells own `BottomActionsProvider` / `BottomActionsSlot`
    - feature components publish actions instead of mounting their own dock surface
-4. Confirm the button uses the canonical intent mapping in `src/components/layout/bottomActionIntents.ts`.
-5. Confirm rendered bottom actions expose the expected `data-bottom-action-intent` value through shared dock components such as `BottomDockButton` / `BottomDockLink`.
-6. In local dev, compare the changed screen against the deterministic contract route at `/dev/ui-contract` to check repeated button families and dock treatment.
-7. If the change affects dock semantics, verify the chosen intent still matches the user action:
+9. Confirm the button uses the canonical intent mapping in `src/components/layout/bottomActionIntents.ts`.
+10. Confirm rendered bottom actions expose the expected `data-bottom-action-intent` value through shared dock components such as `BottomDockButton` / `BottomDockLink`.
+11. In local dev, compare the changed screen against the deterministic contract route at `/dev/ui-contract` to check repeated button families and dock treatment.
+12. If the change affects dock semantics, verify the chosen intent still matches the user action:
    - `positive` for forward/commit actions
    - `info` for neutral secondary actions
    - `danger` for destructive actions
