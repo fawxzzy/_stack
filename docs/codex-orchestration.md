@@ -87,7 +87,8 @@ This preserves the pilot behavior while moving the engine into `_stack`:
 
 - repo-local inbox/archive/log/worktree/export paths remain under Playbook `.codex/`
 - Playbook verification bootstrap and docs audit stay Playbook-specific
-- mutation scope stays limited to Playbook docs, `.codex/`, `README.md`, and `scripts/codex-*.ps1`
+- mutation scope is now a narrow changelog-generator exception: `.codex/**`, `packages/engine/src/release/changelog/**`, `packages/engine/src/release/index.ts`, `packages/engine/src/index.ts`, `packages/cli/src/commands/changelog/**`, `packages/cli/src/commands/changelog.ts`, `packages/cli/src/commands/index.ts`, `packages/cli/src/lib/commandMetadata.ts`, `docs/CHANGELOG-GENERATOR.md`, `docs/RELEASING.md`, `docs/CHANGELOG.md`, `.github/workflows/changelog.yml`, `CHANGELOG-GENERATOR-PLAN.md`, and `docs/codex/CHANGELOG-GENERATOR-PLAN.md`
+- broad globs such as `packages/**`, `packages/engine/**`, `packages/cli/**`, `.github/**`, and `docs/**` remain intentionally disallowed
 - push remains manual-only
 - auto-commit remains enabled by default for successful mutating tasks
 

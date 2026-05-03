@@ -13,20 +13,31 @@
       "pnpm playbook docs audit --json"
     ],
     "notes": [
-      "Docs-only and governance-doc tasks should stay inside the documented mutation surfaces.",
+      "This adapter keeps a project-scoped exception for the Playbook changelog-generator rollout; mutations outside the explicit allowlist still fail closed.",
       "Fresh worktrees do not carry repo-local node_modules, so verification bootstrap runs before declared verify commands.",
-      "If command or workflow state changes, also run pnpm agents:update and pnpm agents:check before promotion."
+      "If command or workflow state changes inside the allowed surfaces, also run pnpm agents:update and pnpm agents:check before promotion."
     ]
   },
   "allowedMutationSurfaces": [
     ".codex/**",
-    "README.md",
-    "docs/**",
-    "scripts/codex-*.ps1"
+    "packages/engine/src/release/changelog/**",
+    "packages/engine/src/release/index.ts",
+    "packages/engine/src/index.ts",
+    "packages/cli/src/commands/changelog/**",
+    "packages/cli/src/commands/changelog.ts",
+    "packages/cli/src/commands/index.ts",
+    "packages/cli/src/lib/commandMetadata.ts",
+    "docs/CHANGELOG-GENERATOR.md",
+    "docs/RELEASING.md",
+    "docs/CHANGELOG.md",
+    ".github/workflows/changelog.yml",
+    "CHANGELOG-GENERATOR-PLAN.md",
+    "docs/codex/CHANGELOG-GENERATOR-PLAN.md"
   ],
   "docsUpdateRules": [
-    "If command or workflow state changes, keep README.md, docs/commands/README.md, docs/PLAYBOOK_PRODUCT_ROADMAP.md, and docs/CHANGELOG.md aligned in the same change or immediately after.",
-    "Keep Playbook Codex execution repo-local in this phase; do not edit _stack, Atlas, Lifeline, or Fitness from Playbook tasks.",
+    "This adapter exception exists only for the changelog-generator rollout. Keep mutations inside the explicit allowlist and do not widen to broad package, workflow, or docs globs.",
+    "If command or workflow state changes inside this rollout, keep docs/CHANGELOG-GENERATOR.md, docs/RELEASING.md, and docs/CHANGELOG.md aligned in the same change or immediately after. Broader Playbook docs updates require an explicit scope expansion.",
+    "Do not edit _stack, Atlas, Lifeline, or Fitness from Playbook tasks launched through this adapter.",
     "Prefer Playbook command outputs over broad repository inference when command coverage exists."
   ],
   "artifacts": {

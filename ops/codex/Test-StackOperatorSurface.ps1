@@ -214,6 +214,43 @@ foreach ($adapterPath in $disabledLandingAdapters) {
     }
 }
 
+$playbookAdapter = Get-Content -LiteralPath "ops/codex/repos/playbook/adapter.json" -Raw | ConvertFrom-Json
+$requiredPlaybookMutationSurfaces = @(
+    ".codex/**",
+    "packages/engine/src/release/changelog/**",
+    "packages/engine/src/release/index.ts",
+    "packages/engine/src/index.ts",
+    "packages/cli/src/commands/changelog/**",
+    "packages/cli/src/commands/changelog.ts",
+    "packages/cli/src/commands/index.ts",
+    "packages/cli/src/lib/commandMetadata.ts",
+    "docs/CHANGELOG-GENERATOR.md",
+    "docs/RELEASING.md",
+    "docs/CHANGELOG.md",
+    ".github/workflows/changelog.yml",
+    "CHANGELOG-GENERATOR-PLAN.md",
+    "docs/codex/CHANGELOG-GENERATOR-PLAN.md"
+)
+foreach ($requiredSurface in $requiredPlaybookMutationSurfaces) {
+    if ($requiredSurface -notin $playbookAdapter.allowedMutationSurfaces) {
+        throw ("Playbook adapter is missing the changelog-generator mutation surface: {0}" -f $requiredSurface)
+    }
+}
+
+$forbiddenPlaybookMutationSurfaces = @(
+    "packages/**",
+    "packages/engine/**",
+    "packages/cli/**",
+    "docs/**",
+    ".github/**",
+    "scripts/**"
+)
+foreach ($forbiddenSurface in $forbiddenPlaybookMutationSurfaces) {
+    if ($forbiddenSurface -in $playbookAdapter.allowedMutationSurfaces) {
+        throw ("Playbook adapter must not widen to the broad mutation surface: {0}" -f $forbiddenSurface)
+    }
+}
+
 $parserTestRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("stack-parser-{0}" -f ([guid]::NewGuid().ToString("N")))
 New-Item -ItemType Directory -Path $parserTestRoot -Force | Out-Null
 
