@@ -202,7 +202,7 @@
       "script": "trove:deploy:preview",
       "notes": [
         "Runs the current Trove preview deploy wrapper from _stack.",
-        "The approved script performs repo-local verification before Vercel."
+        "The approved script performs Trove Vercel identity preflight and repo-local verification before Vercel."
       ],
       "tags": [
         "release",
@@ -222,7 +222,7 @@
       "script": "trove:deploy:prebuilt",
       "notes": [
         "Uses the prebuilt preview path for remote-build isolation.",
-        "The approved script performs build-time verification before Vercel."
+        "The approved script performs Trove Vercel identity preflight and build-time verification before Vercel."
       ],
       "tags": [
         "release",
@@ -245,7 +245,7 @@
       "confirmText": "release trove to production",
       "notes": [
         "Promotes the current Trove state to production.",
-        "The approved script performs repo-local verification before Vercel."
+        "The approved script performs Trove Vercel identity preflight and repo-local verification before Vercel."
       ],
       "tags": [
         "release",
@@ -267,7 +267,7 @@
       "confirmText": "release trove to production",
       "notes": [
         "Uses the prebuilt production path for remote-build isolation.",
-        "The approved script performs build-time verification before Vercel."
+        "The approved script performs Trove Vercel identity preflight and build-time verification before Vercel."
       ],
       "tags": [
         "release",
@@ -347,6 +347,26 @@
       "tags": [
         "verify",
         "trove"
+      ]
+    },
+    {
+      "id": "trove-deploy-preflight",
+      "group": "ops",
+      "action": "maintenance",
+      "advanced": true,
+      "app": "trove",
+      "environment": "operator",
+      "label": "Trove Deploy Preflight",
+      "description": "Check the pinned Trove Vercel project identity before any deploy.",
+      "script": "trove:deploy:preflight",
+      "notes": [
+        "Checks the pinned Trove Vercel project identity before any preview or production deploy."
+      ],
+      "tags": [
+        "ops",
+        "trove",
+        "preflight",
+        "vercel"
       ]
     },
     {

@@ -12,6 +12,7 @@ $requiredFiles = @(
     "ops/assets/release-launcher.ico",
     "ops/Install-ReleaseLauncherShortcut.ps1",
     "ops/Open-ReleaseLauncher.ps1",
+    "ops/Test-TroveDeployLink.ps1",
     "ops/codex/Start-CodexInboxRunner.ps1",
     "ops/codex/Invoke-CodexRepoTask.ps1",
     "ops/codex/CodexRunner.Common.ps1",
@@ -23,6 +24,7 @@ $requiredFiles = @(
     "ops/stack/Test-StackWorkerArtifacts.ps1",
     "ops/bin/release-launcher.cmd",
     "package.json",
+    "config/trove-deploy.identity.json",
     "scripts/command-runner.mjs",
     "scripts/command-runner.test.mjs",
     "scripts/release-launcher.test.mjs",
@@ -55,7 +57,8 @@ $requiredScripts = @(
     "codex:stack:inbox",
     "codex:stack:inbox:once",
     "codex:stack:task",
-    "codex:stack:verify"
+    "codex:stack:verify",
+    "trove:deploy:preflight"
 )
 $missingScripts = @(
     $requiredScripts |

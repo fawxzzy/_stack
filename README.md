@@ -97,6 +97,7 @@
 
 ## Trove operator commands
 - `pnpm run trove:verify`
+- `pnpm run trove:deploy:preflight`
 - `pnpm run trove:build:vercel`
 - `pnpm run trove:deploy:preview`
 - `pnpm run trove:deploy:prebuilt`
@@ -123,10 +124,11 @@
   - `git -C "..\fawxzzy-mazer" commit --amend --reset-author --no-edit`
 
 ## Trove deploy model
-1. Run `pnpm run trove:verify` from `_stack`.
-2. Use `pnpm run trove:deploy:preview` for the standard preview path.
-3. If preview deploy debugging is needed, use `pnpm run trove:build:vercel` and then `pnpm run trove:deploy:prebuilt`.
-4. Do not run production deploys unless you explicitly intend to promote the current state.
+1. Run `pnpm run trove:deploy:preflight` from `_stack` to validate the pinned local Vercel project identity before any deploy path reaches Vercel.
+2. Run `pnpm run trove:verify` from `_stack`.
+3. Use `pnpm run trove:deploy:preview` for the standard preview path.
+4. If preview deploy debugging is needed, use `pnpm run trove:build:vercel` and then `pnpm run trove:deploy:prebuilt`.
+5. Do not run production deploys unless you explicitly intend to promote the current state.
 
 ### Desktop shortcut / taskbar pin
 - Run `pnpm run ops:install-shortcut` from `_stack` to create `Stack Release Launcher.lnk` on the Desktop.
@@ -189,6 +191,7 @@
 - `fitness:build:vercel` uses `vercel build --yes` so the CLI can pull local project settings on the first local Vercel build.
 - Mazer deploys run the owner-author preflight, verify locally, and then deploy from the local repo path; no GitHub-triggered deploy flow is assumed.
 - Trove deploys currently use repo-local verification and the standard Vercel CLI path, but this pass does not perform live project binding.
+- Trove deploy wrappers now fail closed before Vercel if `..\fawxzzy-trove\.vercel\project.json` does not match the pinned canonical project identity in `config/trove-deploy.identity.json`.
 - Do not use untargeted env listing; use explicit targets:
   - `vercel env ls preview`
   - `vercel env ls production`

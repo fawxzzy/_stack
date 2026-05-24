@@ -45,10 +45,11 @@
     "mazer:deploy:prod": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\Invoke-MazerDeploy.ps1 -Target prod",
     "mazer:deploy-prod": "pnpm run mazer:deploy:prod",
     "trove:verify": "npm --prefix ../fawxzzy-trove run verify",
-    "trove:build:vercel": "npm --prefix ../fawxzzy-trove run verify && pnpm dlx vercel --cwd ../fawxzzy-trove build --yes",
-    "trove:deploy:preview": "npm --prefix ../fawxzzy-trove run verify && pnpm dlx vercel --cwd ../fawxzzy-trove deploy",
+    "trove:deploy:preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\Test-TroveDeployLink.ps1 -ConfigPath .\\config\\trove-deploy.identity.json",
+    "trove:build:vercel": "pnpm run trove:deploy:preflight && npm --prefix ../fawxzzy-trove run verify && pnpm dlx vercel --cwd ../fawxzzy-trove build --yes",
+    "trove:deploy:preview": "pnpm run trove:deploy:preflight && npm --prefix ../fawxzzy-trove run verify && pnpm dlx vercel --cwd ../fawxzzy-trove deploy",
     "trove:deploy:prebuilt": "pnpm run trove:build:vercel && pnpm dlx vercel --cwd ../fawxzzy-trove deploy --prebuilt",
-    "trove:deploy:prod": "npm --prefix ../fawxzzy-trove run verify && pnpm dlx vercel --cwd ../fawxzzy-trove deploy --prod",
+    "trove:deploy:prod": "pnpm run trove:deploy:preflight && npm --prefix ../fawxzzy-trove run verify && pnpm dlx vercel --cwd ../fawxzzy-trove deploy --prod",
     "trove:deploy:prebuilt:prod": "pnpm run trove:build:vercel && pnpm dlx vercel --cwd ../fawxzzy-trove deploy --prebuilt --prod"
   }
 }
