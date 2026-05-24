@@ -139,15 +139,29 @@ if ([string]::IsNullOrWhiteSpace($RepoPath)) {
 
 $resolvedStackRoot = (Resolve-Path -LiteralPath $StackRoot).Path
 $resolvedRepoPath = (Resolve-Path -LiteralPath $RepoPath).Path
-$preflightPath = Join-Path $resolvedStackRoot 'ops\Test-MazerDeployIdentity.ps1'
+$authorPreflightPath = Join-Path $resolvedStackRoot 'ops\Test-MazerDeployIdentity.ps1'
+$linkPreflightPath = Join-Path $resolvedStackRoot 'ops\Test-MazerDeployLink.ps1'
+$linkConfigPath = Join-Path $resolvedStackRoot 'config\mazer-deploy.identity.json'
 
-if (-not (Test-Path -LiteralPath $preflightPath)) {
-  throw "Preflight script not found: $preflightPath"
+if (-not (Test-Path -LiteralPath $authorPreflightPath)) {
+  throw "Preflight script not found: $authorPreflightPath"
+}
+
+if (-not (Test-Path -LiteralPath $linkPreflightPath)) {
+  throw "Preflight script not found: $linkPreflightPath"
 }
 
 Set-Location -LiteralPath $resolvedStackRoot
 
-& $preflightPath -RepoPath $resolvedRepoPath
+$preflightStageFailures = New-Object System.Collections.Generic.List[string]
+
+& $authorPreflightPath -RepoPath $resolvedRepoPath
+$preflightExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+if ($preflightExitCode -ne 0) {
+  exit $preflightExitCode
+}
+
+& $linkPreflightPath -RepoPath $resolvedRepoPath -ConfigPath $linkConfigPath
 $preflightExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
 if ($preflightExitCode -ne 0) {
   exit $preflightExitCode

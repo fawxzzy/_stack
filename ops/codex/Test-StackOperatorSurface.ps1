@@ -12,6 +12,7 @@ $requiredFiles = @(
     "ops/assets/release-launcher.ico",
     "ops/Install-ReleaseLauncherShortcut.ps1",
     "ops/Open-ReleaseLauncher.ps1",
+    "ops/Test-MazerDeployLink.ps1",
     "ops/Test-TroveDeployLink.ps1",
     "ops/codex/Start-CodexInboxRunner.ps1",
     "ops/codex/Invoke-CodexRepoTask.ps1",
@@ -24,6 +25,7 @@ $requiredFiles = @(
     "ops/stack/Test-StackWorkerArtifacts.ps1",
     "ops/bin/release-launcher.cmd",
     "package.json",
+    "config/mazer-deploy.identity.json",
     "config/trove-deploy.identity.json",
     "scripts/command-runner.mjs",
     "scripts/command-runner.test.mjs",
@@ -111,6 +113,14 @@ if (($launcherDryRunOutput -join "`n") -notmatch "pr preview:\s+pr-\{number\}\.f
     throw "_stack release launcher did not surface the Atlas PR preview naming hint for Fitness preview."
 }
 
+$mazerIdentityOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File ".\ops\Test-MazerDeployLink.ps1" -ConfigPath ".\config\mazer-deploy.identity.json"
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack Mazer deploy identity preflight failed against the local canonical Vercel link."
+}
+if (($mazerIdentityOutput -join "`n") -notmatch "Mazer deploy link preflight passed") {
+    throw "_stack Mazer deploy identity preflight did not report a clear pass message."
+}
+
 $topologyFailureRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("stack-topology-{0}" -f ([guid]::NewGuid().ToString("N")))
 New-Item -ItemType Directory -Path $topologyFailureRoot -Force | Out-Null
 
@@ -188,6 +198,62 @@ try {
 finally {
     if (Test-Path -LiteralPath $topologyFailureRoot) {
         Remove-Item -LiteralPath $topologyFailureRoot -Recurse -Force
+    }
+}
+
+$mazerPreflightFailureRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("mazer-identity-{0}" -f ([guid]::NewGuid().ToString("N")))
+New-Item -ItemType Directory -Path $mazerPreflightFailureRoot -Force | Out-Null
+
+try {
+    & git -C $mazerPreflightFailureRoot init | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "_stack Mazer deploy identity fixture could not initialize a temporary git repo."
+    }
+
+    $vercelDir = Join-Path -Path $mazerPreflightFailureRoot -ChildPath ".vercel"
+    New-Item -ItemType Directory -Path $vercelDir -Force | Out-Null
+
+    $invalidProjectJsonPath = Join-Path -Path $vercelDir -ChildPath "project.json"
+    $invalidProjectJson = @"
+{
+  "projectId": "prj_invalid_fixture",
+  "orgId": "team_CMJn7MvzFZZBnhNnjVUZF2RD",
+  "projectName": "fawxzzy-mazer"
+}
+"@
+    [System.IO.File]::WriteAllText($invalidProjectJsonPath, $invalidProjectJson)
+
+    $invalidStdoutPath = Join-Path -Path $mazerPreflightFailureRoot -ChildPath "invalid-stdout.log"
+    $invalidStderrPath = Join-Path -Path $mazerPreflightFailureRoot -ChildPath "invalid-stderr.log"
+    $invalidPreflightProcess = Start-Process `
+        -FilePath "powershell.exe" `
+        -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".\ops\Test-MazerDeployLink.ps1", "-RepoPath", $mazerPreflightFailureRoot, "-ConfigPath", ".\config\mazer-deploy.identity.json") `
+        -WorkingDirectory (Get-Location).Path `
+        -Wait `
+        -PassThru `
+        -NoNewWindow `
+        -RedirectStandardOutput $invalidStdoutPath `
+        -RedirectStandardError $invalidStderrPath
+
+    $invalidPreflightOutput = @()
+    if (Test-Path -LiteralPath $invalidStdoutPath) {
+        $invalidPreflightOutput += Get-Content -LiteralPath $invalidStdoutPath
+    }
+    if (Test-Path -LiteralPath $invalidStderrPath) {
+        $invalidPreflightOutput += Get-Content -LiteralPath $invalidStderrPath
+    }
+
+    if ($invalidPreflightProcess.ExitCode -eq 0) {
+        throw "_stack Mazer deploy identity preflight accepted a mismatched project fixture."
+    }
+
+    if (($invalidPreflightOutput -join "`n") -notmatch "projectId does not match the required Mazer Vercel project ID") {
+        throw "_stack Mazer deploy identity preflight did not report the expected projectId mismatch."
+    }
+}
+finally {
+    if (Test-Path -LiteralPath $mazerPreflightFailureRoot) {
+        Remove-Item -LiteralPath $mazerPreflightFailureRoot -Recurse -Force
     }
 }
 

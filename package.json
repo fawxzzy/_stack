@@ -39,7 +39,7 @@
     "mazer:dev:open": "ops\\bin\\mazer-dev.cmd",
     "mazer:preview": "npm --prefix ../fawxzzy-mazer run build && pnpm --dir ../fawxzzy-mazer exec vite preview --host 0.0.0.0 --port 4173 --strictPort",
     "mazer:preview:open": "ops\\bin\\mazer-preview.cmd",
-    "mazer:deploy:preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\Test-MazerDeployIdentity.ps1",
+    "mazer:deploy:preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\Test-MazerDeployIdentity.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\Test-MazerDeployLink.ps1 -ConfigPath .\\config\\mazer-deploy.identity.json",
     "mazer:deploy:preview": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\Invoke-MazerDeploy.ps1 -Target preview",
     "mazer:deploy-preview": "pnpm run mazer:deploy:preview",
     "mazer:deploy:prod": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\Invoke-MazerDeploy.ps1 -Target prod",

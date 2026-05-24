@@ -109,7 +109,7 @@
 - Use `pnpm run mazer:dev:open` to open a durable `_stack` PowerShell window for the dev server and open the browser at `http://127.0.0.1:5173`.
 - Use `pnpm run mazer:preview` to build and run local preview in the current terminal on `http://127.0.0.1:4173`.
 - Use `pnpm run mazer:preview:open` to open a durable `_stack` PowerShell window for local preview.
-- Use `pnpm run mazer:deploy:preflight` to check the repo Git identity before any Mazer Vercel deploy.
+- Use `pnpm run mazer:deploy:preflight` to check the repo Git identity and pinned local Vercel project identity before any Mazer deploy.
 - Use either `pnpm run mazer:deploy:preview` or `pnpm run mazer:deploy-preview` for the same preview deploy path.
 - Use either `pnpm run mazer:deploy:prod` or `pnpm run mazer:deploy-prod` for the same production deploy path.
 
@@ -122,6 +122,14 @@
   - `git -C "..\fawxzzy-mazer" config user.name "Zachariah Redfield"`
   - `git -C "..\fawxzzy-mazer" config user.email "zjhredfield@icloud.com"`
   - `git -C "..\fawxzzy-mazer" commit --amend --reset-author --no-edit`
+
+### Mazer deploy identity preflight
+- Mazer deploy wrappers now also stop before Vercel if `..\fawxzzy-mazer\.vercel\project.json` does not match the pinned canonical project identity in `config/mazer-deploy.identity.json`.
+- Required Mazer Vercel identity:
+  - `team_CMJn7MvzFZZBnhNnjVUZF2RD`
+  - `prj_t3zothbtj9DExrh3FjMsH98hwwSZ`
+  - `fawxzzy-mazer`
+- This keeps the current author-identity guard and adds immutable local project-link proof before preview or production deploys can proceed.
 
 ## Trove deploy model
 1. Run `pnpm run trove:deploy:preflight` from `_stack` to validate the pinned local Vercel project identity before any deploy path reaches Vercel.
@@ -190,6 +198,7 @@
 - Use `pnpm dlx vercel --cwd ../fawxzzy-trove ...` for Trove Vercel operations.
 - `fitness:build:vercel` uses `vercel build --yes` so the CLI can pull local project settings on the first local Vercel build.
 - Mazer deploys run the owner-author preflight, verify locally, and then deploy from the local repo path; no GitHub-triggered deploy flow is assumed.
+- Mazer deploys now fail closed before Vercel if the local `.vercel/project.json` link does not match the pinned canonical Mazer project identity.
 - Trove deploys currently use repo-local verification and the standard Vercel CLI path, but this pass does not perform live project binding.
 - Trove deploy wrappers now fail closed before Vercel if `..\fawxzzy-trove\.vercel\project.json` does not match the pinned canonical project identity in `config/trove-deploy.identity.json`.
 - Do not use untargeted env listing; use explicit targets:

@@ -160,7 +160,7 @@
       "script": "mazer:deploy:preview",
       "notes": [
         "Runs the existing Mazer preview deploy wrapper from _stack.",
-        "The approved script already performs owner-author preflight and local verification."
+        "The approved script already performs author-identity preflight, Mazer Vercel identity preflight, and local verification."
       ],
       "tags": [
         "release",
@@ -182,7 +182,7 @@
       "confirmText": "release mazer to production",
       "notes": [
         "Promotes the current Mazer state to production.",
-        "The approved script already performs owner-author preflight and local verification."
+        "The approved script already performs author-identity preflight, Mazer Vercel identity preflight, and local verification."
       ],
       "tags": [
         "release",
@@ -420,7 +420,7 @@
       "description": "Check the required owner Git identity before any Mazer deploy.",
       "script": "mazer:deploy:preflight",
       "notes": [
-        "Checks the required owner Git identity before any Mazer deploy."
+        "Checks the required owner Git identity and pinned Mazer Vercel project identity before any deploy."
       ],
       "tags": [
         "ops",
