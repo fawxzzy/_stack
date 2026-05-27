@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import test from "node:test";
+import { emitDryRunPacket } from "./data-gateway-packet-emitter.mjs";
 import { runPacketWrapper } from "./data-gateway-packet-wrapper.mjs";
 
 function buildValidPacket(overrides = {}) {
@@ -41,6 +42,26 @@ function buildValidPacket(overrides = {}) {
     },
     receipt_or_proof_ref: "docs/ops/example.md",
     ...overrides
+  };
+}
+
+async function emitReviewablePacket({ lane }) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ldg-wrapper-"));
+  const packetPath = path.join(tempDir, "packet.json");
+  await fs.writeFile(packetPath, JSON.stringify(buildValidPacket()), "utf8");
+
+  const emitted = await emitDryRunPacket({
+    inputPath: packetPath,
+    lane,
+    artifactRoot: tempDir
+  });
+
+  assert.equal(emitted.ok, true);
+
+  return {
+    tempDir,
+    packetPath,
+    emitted
   };
 }
 
@@ -142,23 +163,103 @@ test("emit-dry-run does not bypass primitive validation checks", async () => {
   await fs.rm(tempDir, { recursive: true, force: true });
 });
 
-test("wrapper CLI rejects transport-shaped flags in package 1", async () => {
+test("review-only succeeds on a valid emitted packet and preserves no-send state", async () => {
+  const { tempDir, emitted } = await emitReviewablePacket({
+    lane: "supabase-review"
+  });
+
+  const result = await runPacketWrapper({
+    lane: "supabase-review",
+    mode: "review-only",
+    artifactDir: emitted.artifactDir,
+    reviewer: "codex",
+    disposition: "approved",
+    reviewerNote: "local review complete"
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.wrapperStage, "review");
+  assert.equal(result.validationState, "pass");
+  assert.equal(result.reviewState, "recorded");
+  assert.equal(result.reviewer, "codex");
+  assert.equal(result.disposition, "approved");
+  assert.equal(result.noSendAttestation.downstream_send_performed, false);
+  assert.equal(result.noSendAttestation.automatic_handoff_authorized, false);
+  assert.ok(result.reviewArtifacts.review.startsWith(tempDir));
+  assert.ok(result.reviewArtifacts.metadata.startsWith(tempDir));
+
+  const reviewMetadata = JSON.parse(await fs.readFile(result.reviewArtifacts.metadata, "utf8"));
+  assert.equal(reviewMetadata.review_mode, "local-only");
+  assert.equal(reviewMetadata.disposition, "approved");
+  assert.equal(reviewMetadata.no_send_attestation.downstream_send_performed, false);
+
+  await fs.rm(tempDir, { recursive: true, force: true });
+});
+
+test("review-only fails closed on missing packet prerequisites", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ldg-wrapper-"));
+
+  const result = await runPacketWrapper({
+    lane: "supabase-review",
+    mode: "review-only",
+    artifactDir: tempDir,
+    reviewer: "codex",
+    disposition: "approved"
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.failureStage, "review");
+  assert.equal(result.reviewState, "fail");
+  assert.match(result.errors.join("\n"), /Missing required artifact: packet\.json\./);
+
+  await fs.rm(tempDir, { recursive: true, force: true });
+});
+
+test("review-only does not bypass primitive review checks", async () => {
+  const { tempDir, emitted } = await emitReviewablePacket({
+    lane: "discordos-feedback"
+  });
+
+  const metadata = JSON.parse(await fs.readFile(emitted.artifacts.metadata, "utf8"));
+  metadata.emit_mode = "send";
+  await fs.writeFile(emitted.artifacts.metadata, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+
+  const result = await runPacketWrapper({
+    lane: "discordos-feedback",
+    mode: "review-only",
+    artifactDir: emitted.artifactDir,
+    reviewer: "codex",
+    disposition: "needs-revision"
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.failureStage, "review");
+  assert.equal(result.reviewState, "fail");
+  assert.match(result.errors.join("\n"), /emit_mode must remain dry-run/);
+
+  await fs.rm(tempDir, { recursive: true, force: true });
+});
+
+test("wrapper CLI rejects transport-shaped flags in package 2", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ldg-wrapper-"));
   const packetPath = path.join(tempDir, "packet.json");
   await fs.writeFile(packetPath, JSON.stringify(buildValidPacket()), "utf8");
 
   const scriptPath = path.resolve("scripts/data-gateway-packet-wrapper.mjs");
-  const result = spawnSync(
-    process.execPath,
-    [scriptPath, "--lane", "supabase-review", "--mode", "validate-only", "--source", packetPath, "--target", "example"],
-    {
-      cwd: path.resolve("."),
-      encoding: "utf8"
-    }
-  );
 
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /--target is not admitted in wrapper package 1/);
+  for (const flag of ["--target", "--secret", "--send"]) {
+    const result = spawnSync(
+      process.execPath,
+      [scriptPath, "--lane", "supabase-review", "--mode", "validate-only", "--source", packetPath, flag, "example"],
+      {
+        cwd: path.resolve("."),
+        encoding: "utf8"
+      }
+    );
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, new RegExp(`${flag} is not admitted in wrapper package 2`));
+  }
 
   await fs.rm(tempDir, { recursive: true, force: true });
 });

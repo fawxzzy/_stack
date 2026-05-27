@@ -2,13 +2,11 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { emitDryRunPacket } from "./data-gateway-packet-emitter.mjs";
+import { reviewDryRunPacket } from "./data-gateway-packet-review.mjs";
 import { runPacketValidation } from "./data-gateway-packet-validator.mjs";
 
-const WRAPPER_MODES = new Set(["validate-only", "emit-dry-run"]);
-const REJECTED_FLAGS = new Set([
-  "--artifact-dir",
-  "--reviewer",
-  "--disposition",
+const WRAPPER_MODES = new Set(["validate-only", "emit-dry-run", "review-only"]);
+const UNIVERSALLY_REJECTED_FLAGS = new Set([
   "--target",
   "--endpoint",
   "--remote-target",
@@ -40,19 +38,21 @@ function buildUsage(scriptName) {
   return [
     "Usage:",
     `  node ${scriptName} --lane <lane> --mode <validate-only|emit-dry-run> --source <local-path> [--artifact-root <path>]`,
+    `  node ${scriptName} --lane <lane> --mode review-only --artifact-dir <path> --reviewer <label> --disposition <approved|rejected|needs-revision|no-decision> [--note <text>]`,
     "",
     "Thin Local Data Gateway wrapper over the existing local helper family.",
-    "Package 1 supports validate-only and emit-dry-run only.",
+    "Package 2 adds review-only over an existing emitted packet artifact directory.",
     "No send, transport, target selection, or downstream execution is performed."
   ].join("\n");
 }
 
-function buildSummaryBase({ lane, mode, sourcePath }) {
+function buildSummaryBase({ lane, mode, sourcePath, artifactDir }) {
   return {
     ok: false,
     lane,
     mode,
-    sourcePath,
+    sourcePath: isNonEmptyString(sourcePath) ? path.resolve(sourcePath) : null,
+    artifactDir: isNonEmptyString(artifactDir) ? path.resolve(artifactDir) : null,
     noSendAttestation: buildNoSendAttestation()
   };
 }
@@ -66,19 +66,17 @@ function parseArgs(argv) {
     };
   }
 
-  for (const flag of REJECTED_FLAGS) {
+  for (const flag of UNIVERSALLY_REJECTED_FLAGS) {
     if (args.includes(flag)) {
       return {
         ok: false,
-        errors: [`${flag} is not admitted in wrapper package 1.`]
+        errors: [`${flag} is not admitted in wrapper package 2.`]
       };
     }
   }
 
   const laneIndex = args.indexOf("--lane");
   const modeIndex = args.indexOf("--mode");
-  const sourceIndex = args.indexOf("--source");
-  const artifactRootIndex = args.indexOf("--artifact-root");
 
   if (laneIndex === -1 || !args[laneIndex + 1]) {
     return {
@@ -90,23 +88,12 @@ function parseArgs(argv) {
   if (modeIndex === -1 || !args[modeIndex + 1]) {
     return {
       ok: false,
-      errors: ["Missing required --mode <validate-only|emit-dry-run> argument."]
-    };
-  }
-
-  if (sourceIndex === -1 || !args[sourceIndex + 1]) {
-    return {
-      ok: false,
-      errors: ["Missing required --source <local-path> argument."]
+      errors: ["Missing required --mode <validate-only|emit-dry-run|review-only> argument."]
     };
   }
 
   const lane = args[laneIndex + 1];
   const mode = args[modeIndex + 1];
-  const sourcePath = path.resolve(process.cwd(), args[sourceIndex + 1]);
-  const artifactRoot = artifactRootIndex !== -1 && args[artifactRootIndex + 1]
-    ? path.resolve(process.cwd(), args[artifactRootIndex + 1])
-    : undefined;
 
   if (!isNonEmptyString(lane)) {
     return {
@@ -122,21 +109,137 @@ function parseArgs(argv) {
     };
   }
 
+  const sourceIndex = args.indexOf("--source");
+  const artifactRootIndex = args.indexOf("--artifact-root");
+  const artifactDirIndex = args.indexOf("--artifact-dir");
+  const reviewerIndex = args.indexOf("--reviewer");
+  const dispositionIndex = args.indexOf("--disposition");
+  const noteIndex = args.indexOf("--note");
+
+  if (mode === "review-only") {
+    if (sourceIndex !== -1) {
+      return {
+        ok: false,
+        errors: ["--source is not admitted in review-only mode."]
+      };
+    }
+
+    if (artifactRootIndex !== -1) {
+      return {
+        ok: false,
+        errors: ["--artifact-root is not admitted in review-only mode."]
+      };
+    }
+
+    if (artifactDirIndex === -1 || !args[artifactDirIndex + 1]) {
+      return {
+        ok: false,
+        errors: ["Missing required --artifact-dir <path> argument."]
+      };
+    }
+
+    if (reviewerIndex === -1 || !args[reviewerIndex + 1]) {
+      return {
+        ok: false,
+        errors: ["Missing required --reviewer <label> argument."]
+      };
+    }
+
+    if (dispositionIndex === -1 || !args[dispositionIndex + 1]) {
+      return {
+        ok: false,
+        errors: ["Missing required --disposition <value> argument."]
+      };
+    }
+
+    return {
+      ok: true,
+      lane,
+      mode,
+      artifactDir: path.resolve(process.cwd(), args[artifactDirIndex + 1]),
+      reviewer: args[reviewerIndex + 1],
+      disposition: args[dispositionIndex + 1],
+      reviewerNote: noteIndex !== -1 && args[noteIndex + 1] ? args[noteIndex + 1] : ""
+    };
+  }
+
+  if (artifactDirIndex !== -1 || reviewerIndex !== -1 || dispositionIndex !== -1 || noteIndex !== -1) {
+    return {
+      ok: false,
+      errors: ["Review-only arguments are not admitted outside review-only mode."]
+    };
+  }
+
+  if (sourceIndex === -1 || !args[sourceIndex + 1]) {
+    return {
+      ok: false,
+      errors: ["Missing required --source <local-path> argument."]
+    };
+  }
+
   return {
     ok: true,
     lane,
     mode,
-    sourcePath,
-    artifactRoot
+    sourcePath: path.resolve(process.cwd(), args[sourceIndex + 1]),
+    artifactRoot: artifactRootIndex !== -1 && args[artifactRootIndex + 1]
+      ? path.resolve(process.cwd(), args[artifactRootIndex + 1])
+      : undefined
   };
 }
 
-export async function runPacketWrapper({ lane, mode, sourcePath, artifactRoot }) {
+export async function runPacketWrapper({
+  lane,
+  mode,
+  sourcePath,
+  artifactRoot,
+  artifactDir,
+  reviewer,
+  disposition,
+  reviewerNote
+}) {
   const summary = buildSummaryBase({
     lane,
     mode,
-    sourcePath: path.resolve(sourcePath)
+    sourcePath,
+    artifactDir
   });
+
+  if (mode === "review-only") {
+    const reviewResult = await reviewDryRunPacket({
+      artifactDir,
+      reviewer,
+      disposition,
+      reviewerNote
+    });
+
+    if (!reviewResult.ok) {
+      return {
+        ...summary,
+        artifactDir: reviewResult.artifactDir ?? summary.artifactDir,
+        errors: reviewResult.errors,
+        validationState: "not-run",
+        reviewState: "fail",
+        failureStage: "review"
+      };
+    }
+
+    return {
+      ...summary,
+      ok: true,
+      lane: reviewResult.reviewMetadata.lane,
+      errors: [],
+      artifactDir: reviewResult.artifactDir,
+      packetId: reviewResult.reviewMetadata.packet_id,
+      validationState: reviewResult.reviewMetadata.packet_validation_result,
+      reviewState: "recorded",
+      reviewer: reviewResult.reviewMetadata.reviewer,
+      disposition: reviewResult.reviewMetadata.disposition,
+      wrapperStage: "review",
+      reviewArtifacts: reviewResult.reviewArtifacts,
+      noSendAttestation: reviewResult.reviewMetadata.no_send_attestation
+    };
+  }
 
   const validation = await runPacketValidation(sourcePath);
   if (!validation.ok) {
