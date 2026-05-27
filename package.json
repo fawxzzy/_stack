@@ -13,6 +13,8 @@
     "data-gateway:packet:review:test": "node --test .\\scripts\\data-gateway-packet-review.test.mjs",
     "data-gateway:packet:validate": "node .\\scripts\\data-gateway-packet-validator.mjs",
     "data-gateway:packet:validate:test": "node --test .\\scripts\\data-gateway-packet-validator.test.mjs",
+    "data-gateway:packet:wrapper": "node .\\scripts\\data-gateway-packet-wrapper.mjs",
+    "data-gateway:packet:wrapper:test": "node --test .\\scripts\\data-gateway-packet-wrapper.test.mjs",
     "release:launcher": "node .\\scripts\\release-launcher.mjs",
     "ops:install-shortcut": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\\ops\\Install-ReleaseLauncherShortcut.ps1",
     "ops:install-shortcut:start-menu": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\\ops\\Install-ReleaseLauncherShortcut.ps1 -StartMenu",
