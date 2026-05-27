@@ -7,6 +7,8 @@
     "atlas:brand:verify": "node ..\\..\\branding\\scripts\\sync-brand-assets.mjs --check",
     "data-gateway:packet:emit:dry-run": "node .\\scripts\\data-gateway-packet-emitter.mjs",
     "data-gateway:packet:emit:dry-run:test": "node --test .\\scripts\\data-gateway-packet-emitter.test.mjs",
+    "data-gateway:packet:proof-package": "node .\\scripts\\data-gateway-packet-proof-packager.mjs",
+    "data-gateway:packet:proof-package:test": "node --test .\\scripts\\data-gateway-packet-proof-packager.test.mjs",
     "data-gateway:packet:review": "node .\\scripts\\data-gateway-packet-review.mjs",
     "data-gateway:packet:review:test": "node --test .\\scripts\\data-gateway-packet-review.test.mjs",
     "data-gateway:packet:validate": "node .\\scripts\\data-gateway-packet-validator.mjs",
