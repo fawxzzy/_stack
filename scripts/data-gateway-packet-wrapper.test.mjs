@@ -6,9 +6,10 @@ import path from "node:path";
 import process from "node:process";
 import test from "node:test";
 import { emitDryRunPacket } from "./data-gateway-packet-emitter.mjs";
+import { reviewDryRunPacket } from "./data-gateway-packet-review.mjs";
 import { runPacketWrapper } from "./data-gateway-packet-wrapper.mjs";
 
-const REVIEW_WORKFLOW_CASES = [
+const WORKFLOW_CASES = [
   {
     lane: "supabase-export-approval",
     packet: {
@@ -154,6 +155,23 @@ async function emitWorkflowPacket({ lane, packetOverrides }) {
   };
 }
 
+async function emitReviewedWorkflowPacket({ lane, packetOverrides }) {
+  const emittedPacket = await emitWorkflowPacket({ lane, packetOverrides });
+  const reviewed = await reviewDryRunPacket({
+    artifactDir: emittedPacket.emitted.artifactDir,
+    reviewer: "codex",
+    disposition: "approved",
+    reviewerNote: "local review complete"
+  });
+
+  assert.equal(reviewed.ok, true);
+
+  return {
+    ...emittedPacket,
+    reviewed
+  };
+}
+
 test("validate-only succeeds for a valid packet without writing artifacts", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ldg-wrapper-"));
   const packetPath = path.join(tempDir, "packet.json");
@@ -253,7 +271,7 @@ test("emit-dry-run does not bypass primitive validation checks", async () => {
 });
 
 test("review-only succeeds on the three admitted workflow classes and preserves no-send state", async () => {
-  for (const workflowCase of REVIEW_WORKFLOW_CASES) {
+  for (const workflowCase of WORKFLOW_CASES) {
     const { tempDir, emitted } = await emitWorkflowPacket({
       lane: workflowCase.lane,
       packetOverrides: workflowCase.packet
@@ -361,6 +379,133 @@ test("wrapper CLI rejects transport-shaped flags at the review-only entrypoint i
 
     assert.equal(result.status, 1);
     assert.match(result.stderr, new RegExp(`${flag} is not admitted in wrapper package 2`));
+  }
+
+  await fs.rm(tempDir, { recursive: true, force: true });
+});
+
+test("proof-only succeeds on the three admitted workflow classes and preserves no-send state", async () => {
+  for (const workflowCase of WORKFLOW_CASES) {
+    const { tempDir, emitted } = await emitReviewedWorkflowPacket({
+      lane: workflowCase.lane,
+      packetOverrides: workflowCase.packet
+    });
+
+    const result = await runPacketWrapper({
+      lane: workflowCase.lane,
+      mode: "proof-only",
+      artifactDir: emitted.artifactDir
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.wrapperStage, "proof");
+    assert.equal(result.validationState, "pass");
+    assert.equal(result.reviewState, "approved");
+    assert.equal(result.proofState, "packaged");
+    assert.equal(result.lane, workflowCase.lane);
+    assert.equal(result.noSendAttestation.downstream_send_performed, false);
+    assert.equal(result.noSendAttestation.automatic_handoff_authorized, false);
+    assert.ok(result.proofArtifacts.summary.startsWith(tempDir));
+    assert.ok(result.proofArtifacts.metadata.startsWith(tempDir));
+
+    const proofMetadata = JSON.parse(await fs.readFile(result.proofArtifacts.metadata, "utf8"));
+    assert.equal(proofMetadata.proof_mode, "local-proof-only");
+    assert.equal(proofMetadata.review_snapshot.disposition, "approved");
+    assert.equal(proofMetadata.lane, workflowCase.lane);
+    assert.equal(proofMetadata.no_send_attestation.downstream_send_performed, false);
+
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("proof-only fails closed on missing reviewed packet prerequisites", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ldg-wrapper-"));
+
+  const result = await runPacketWrapper({
+    lane: "supabase-review",
+    mode: "proof-only",
+    artifactDir: tempDir
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.failureStage, "proof");
+  assert.equal(result.proofState, "fail");
+  assert.match(result.errors.join("\n"), /Missing required artifact: packet\.json\./);
+
+  await fs.rm(tempDir, { recursive: true, force: true });
+});
+
+test("proof-only does not bypass primitive proof-packager checks", async () => {
+  const { tempDir, emitted } = await emitReviewedWorkflowPacket({
+    lane: "discordos-feedback",
+    packetOverrides: {
+      packet_purpose: "discordos-boundary-handoff",
+      source_provenance: {
+        owner_surface: "repos/DiscordOS",
+        source_type: "receipt-chain",
+        source_refs: ["repos/DiscordOS/docs/ops/example.md"],
+        captured_at: "2026-05-27T00:00:00Z",
+        capture_method: "local-script"
+      },
+      transformation_record: {
+        normalized: true,
+        validated: true,
+        redacted: true,
+        sensitivity_classified: true,
+        deduped: true,
+        extracted: true,
+        notes: ["trust-boundary payload only"]
+      }
+    }
+  });
+
+  const reviewMetadataPath = path.join(emitted.artifactDir, "packet-review-metadata.json");
+  const reviewMetadata = JSON.parse(await fs.readFile(reviewMetadataPath, "utf8"));
+  reviewMetadata.disposition = "auto-approved";
+  await fs.writeFile(reviewMetadataPath, `${JSON.stringify(reviewMetadata, null, 2)}\n`, "utf8");
+
+  const result = await runPacketWrapper({
+    lane: "discordos-feedback",
+    mode: "proof-only",
+    artifactDir: emitted.artifactDir
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.failureStage, "proof");
+  assert.equal(result.proofState, "fail");
+  assert.match(result.errors.join("\n"), /disposition must be one of/);
+
+  await fs.rm(tempDir, { recursive: true, force: true });
+});
+
+test("wrapper CLI rejects transport-shaped flags at the proof-only entrypoint in package 3", async () => {
+  const { tempDir, emitted } = await emitReviewedWorkflowPacket({
+    lane: "supabase-review",
+    packetOverrides: {
+      packet_purpose: "supabase-review"
+    }
+  });
+
+  const scriptPath = path.resolve("scripts/data-gateway-packet-wrapper.mjs");
+
+  for (const flag of ["--target", "--secret", "--send"]) {
+    const result = spawnSync(
+      process.execPath,
+      [
+        scriptPath,
+        "--lane", "supabase-review",
+        "--mode", "proof-only",
+        "--artifact-dir", emitted.artifactDir,
+        flag, "example"
+      ],
+      {
+        cwd: path.resolve("."),
+        encoding: "utf8"
+      }
+    );
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, new RegExp(`${flag} is not admitted in wrapper package 3`));
   }
 
   await fs.rm(tempDir, { recursive: true, force: true });

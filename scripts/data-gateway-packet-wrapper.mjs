@@ -2,10 +2,11 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { emitDryRunPacket } from "./data-gateway-packet-emitter.mjs";
+import { packageReviewedPacketProof } from "./data-gateway-packet-proof-packager.mjs";
 import { reviewDryRunPacket } from "./data-gateway-packet-review.mjs";
 import { runPacketValidation } from "./data-gateway-packet-validator.mjs";
 
-const WRAPPER_MODES = new Set(["validate-only", "emit-dry-run", "review-only"]);
+const WRAPPER_MODES = new Set(["validate-only", "emit-dry-run", "review-only", "proof-only"]);
 const UNIVERSALLY_REJECTED_FLAGS = new Set([
   "--target",
   "--endpoint",
@@ -20,6 +21,18 @@ const UNIVERSALLY_REJECTED_FLAGS = new Set([
   "--model",
   "--provider"
 ]);
+
+function getPackageLabelForMode(mode) {
+  if (mode === "review-only") {
+    return "wrapper package 2";
+  }
+
+  if (mode === "proof-only") {
+    return "wrapper package 3";
+  }
+
+  return "wrapper package 1";
+}
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
@@ -39,9 +52,10 @@ function buildUsage(scriptName) {
     "Usage:",
     `  node ${scriptName} --lane <lane> --mode <validate-only|emit-dry-run> --source <local-path> [--artifact-root <path>]`,
     `  node ${scriptName} --lane <lane> --mode review-only --artifact-dir <path> --reviewer <label> --disposition <approved|rejected|needs-revision|no-decision> [--note <text>]`,
+    `  node ${scriptName} --lane <lane> --mode proof-only --artifact-dir <path>`,
     "",
     "Thin Local Data Gateway wrapper over the existing local helper family.",
-    "Package 2 adds review-only over an existing emitted packet artifact directory.",
+    "Package 3 adds proof-only over an existing reviewed packet artifact directory.",
     "No send, transport, target selection, or downstream execution is performed."
   ].join("\n");
 }
@@ -64,15 +78,6 @@ function parseArgs(argv) {
     return {
       help: true
     };
-  }
-
-  for (const flag of UNIVERSALLY_REJECTED_FLAGS) {
-    if (args.includes(flag)) {
-      return {
-        ok: false,
-        errors: [`${flag} is not admitted in wrapper package 2.`]
-      };
-    }
   }
 
   const laneIndex = args.indexOf("--lane");
@@ -107,6 +112,15 @@ function parseArgs(argv) {
       ok: false,
       errors: [`--mode must be one of: ${Array.from(WRAPPER_MODES).join(", ")}.`]
     };
+  }
+
+  for (const flag of UNIVERSALLY_REJECTED_FLAGS) {
+    if (args.includes(flag)) {
+      return {
+        ok: false,
+        errors: [`${flag} is not admitted in ${getPackageLabelForMode(mode)}.`]
+      };
+    }
   }
 
   const sourceIndex = args.indexOf("--source");
@@ -160,6 +174,43 @@ function parseArgs(argv) {
       reviewer: args[reviewerIndex + 1],
       disposition: args[dispositionIndex + 1],
       reviewerNote: noteIndex !== -1 && args[noteIndex + 1] ? args[noteIndex + 1] : ""
+    };
+  }
+
+  if (mode === "proof-only") {
+    if (sourceIndex !== -1) {
+      return {
+        ok: false,
+        errors: ["--source is not admitted in proof-only mode."]
+      };
+    }
+
+    if (artifactRootIndex !== -1) {
+      return {
+        ok: false,
+        errors: ["--artifact-root is not admitted in proof-only mode."]
+      };
+    }
+
+    if (reviewerIndex !== -1 || dispositionIndex !== -1 || noteIndex !== -1) {
+      return {
+        ok: false,
+        errors: ["Review-only arguments are not admitted in proof-only mode."]
+      };
+    }
+
+    if (artifactDirIndex === -1 || !args[artifactDirIndex + 1]) {
+      return {
+        ok: false,
+        errors: ["Missing required --artifact-dir <path> argument."]
+      };
+    }
+
+    return {
+      ok: true,
+      lane,
+      mode,
+      artifactDir: path.resolve(process.cwd(), args[artifactDirIndex + 1])
     };
   }
 
@@ -238,6 +289,39 @@ export async function runPacketWrapper({
       wrapperStage: "review",
       reviewArtifacts: reviewResult.reviewArtifacts,
       noSendAttestation: reviewResult.reviewMetadata.no_send_attestation
+    };
+  }
+
+  if (mode === "proof-only") {
+    const proofResult = await packageReviewedPacketProof({
+      artifactDir
+    });
+
+    if (!proofResult.ok) {
+      return {
+        ...summary,
+        artifactDir: proofResult.artifactDir ?? summary.artifactDir,
+        errors: proofResult.errors,
+        validationState: "not-run",
+        reviewState: "not-run",
+        proofState: "fail",
+        failureStage: "proof"
+      };
+    }
+
+    return {
+      ...summary,
+      ok: true,
+      lane: proofResult.proofMetadata.lane,
+      errors: [],
+      artifactDir: proofResult.artifactDir,
+      packetId: proofResult.proofMetadata.packet_id,
+      validationState: proofResult.proofMetadata.packet_snapshot.validation_result,
+      reviewState: proofResult.proofMetadata.review_snapshot.disposition,
+      proofState: "packaged",
+      wrapperStage: "proof",
+      proofArtifacts: proofResult.proofArtifacts,
+      noSendAttestation: proofResult.proofMetadata.no_send_attestation
     };
   }
 
