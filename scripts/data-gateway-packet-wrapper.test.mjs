@@ -8,6 +8,75 @@ import test from "node:test";
 import { emitDryRunPacket } from "./data-gateway-packet-emitter.mjs";
 import { runPacketWrapper } from "./data-gateway-packet-wrapper.mjs";
 
+const REVIEW_WORKFLOW_CASES = [
+  {
+    lane: "supabase-export-approval",
+    packet: {
+      packet_purpose: "supabase-review",
+      source_provenance: {
+        owner_surface: "repos/fawxzzy-fitness",
+        source_type: "export",
+        source_refs: ["docs/ops/FITNESS-SUPABASE-PROFILE-DATA-HYGIENE-EXPORT-PACKET-1-2026-05-24.md"],
+        captured_at: "2026-05-27T00:00:00Z",
+        capture_method: "local-script"
+      },
+      transformation_record: {
+        normalized: true,
+        validated: true,
+        redacted: true,
+        sensitivity_classified: true,
+        deduped: true,
+        extracted: true,
+        notes: ["bounded approval rows only"]
+      }
+    }
+  },
+  {
+    lane: "vercel-dependency-deletion-decision",
+    packet: {
+      packet_purpose: "vercel-review",
+      source_provenance: {
+        owner_surface: "repos/_stack",
+        source_type: "receipt-chain",
+        source_refs: ["docs/ops/VERCEL-HELPER-SURFACE-DELETION-DECISION-2026-05-25.md"],
+        captured_at: "2026-05-27T00:00:00Z",
+        capture_method: "local-script"
+      },
+      transformation_record: {
+        normalized: true,
+        validated: true,
+        redacted: true,
+        sensitivity_classified: true,
+        deduped: true,
+        extracted: true,
+        notes: ["candidate helper dependency scope only"]
+      }
+    }
+  },
+  {
+    lane: "discordos-trust-boundary",
+    packet: {
+      packet_purpose: "discordos-boundary-handoff",
+      source_provenance: {
+        owner_surface: "repos/DiscordOS",
+        source_type: "receipt-chain",
+        source_refs: ["repos/DiscordOS/docs/ops/feedback-lookup-transport-neutral-externally-backed-live-provider-trust-boundary-package-16-2026-05-27.md"],
+        captured_at: "2026-05-27T00:00:00Z",
+        capture_method: "local-script"
+      },
+      transformation_record: {
+        normalized: true,
+        validated: true,
+        redacted: true,
+        sensitivity_classified: true,
+        deduped: true,
+        extracted: true,
+        notes: ["trust-boundary payload only"]
+      }
+    }
+  }
+];
+
 function buildValidPacket(overrides = {}) {
   return {
     packet_purpose: "supabase-review",
@@ -49,6 +118,26 @@ async function emitReviewablePacket({ lane }) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ldg-wrapper-"));
   const packetPath = path.join(tempDir, "packet.json");
   await fs.writeFile(packetPath, JSON.stringify(buildValidPacket()), "utf8");
+
+  const emitted = await emitDryRunPacket({
+    inputPath: packetPath,
+    lane,
+    artifactRoot: tempDir
+  });
+
+  assert.equal(emitted.ok, true);
+
+  return {
+    tempDir,
+    packetPath,
+    emitted
+  };
+}
+
+async function emitWorkflowPacket({ lane, packetOverrides }) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ldg-wrapper-"));
+  const packetPath = path.join(tempDir, "packet.json");
+  await fs.writeFile(packetPath, JSON.stringify(buildValidPacket(packetOverrides)), "utf8");
 
   const emitted = await emitDryRunPacket({
     inputPath: packetPath,
@@ -163,37 +252,42 @@ test("emit-dry-run does not bypass primitive validation checks", async () => {
   await fs.rm(tempDir, { recursive: true, force: true });
 });
 
-test("review-only succeeds on a valid emitted packet and preserves no-send state", async () => {
-  const { tempDir, emitted } = await emitReviewablePacket({
-    lane: "supabase-review"
-  });
+test("review-only succeeds on the three admitted workflow classes and preserves no-send state", async () => {
+  for (const workflowCase of REVIEW_WORKFLOW_CASES) {
+    const { tempDir, emitted } = await emitWorkflowPacket({
+      lane: workflowCase.lane,
+      packetOverrides: workflowCase.packet
+    });
 
-  const result = await runPacketWrapper({
-    lane: "supabase-review",
-    mode: "review-only",
-    artifactDir: emitted.artifactDir,
-    reviewer: "codex",
-    disposition: "approved",
-    reviewerNote: "local review complete"
-  });
+    const result = await runPacketWrapper({
+      lane: workflowCase.lane,
+      mode: "review-only",
+      artifactDir: emitted.artifactDir,
+      reviewer: "codex",
+      disposition: "approved",
+      reviewerNote: "local review complete"
+    });
 
-  assert.equal(result.ok, true);
-  assert.equal(result.wrapperStage, "review");
-  assert.equal(result.validationState, "pass");
-  assert.equal(result.reviewState, "recorded");
-  assert.equal(result.reviewer, "codex");
-  assert.equal(result.disposition, "approved");
-  assert.equal(result.noSendAttestation.downstream_send_performed, false);
-  assert.equal(result.noSendAttestation.automatic_handoff_authorized, false);
-  assert.ok(result.reviewArtifacts.review.startsWith(tempDir));
-  assert.ok(result.reviewArtifacts.metadata.startsWith(tempDir));
+    assert.equal(result.ok, true);
+    assert.equal(result.wrapperStage, "review");
+    assert.equal(result.validationState, "pass");
+    assert.equal(result.reviewState, "recorded");
+    assert.equal(result.reviewer, "codex");
+    assert.equal(result.disposition, "approved");
+    assert.equal(result.lane, workflowCase.lane);
+    assert.equal(result.noSendAttestation.downstream_send_performed, false);
+    assert.equal(result.noSendAttestation.automatic_handoff_authorized, false);
+    assert.ok(result.reviewArtifacts.review.startsWith(tempDir));
+    assert.ok(result.reviewArtifacts.metadata.startsWith(tempDir));
 
-  const reviewMetadata = JSON.parse(await fs.readFile(result.reviewArtifacts.metadata, "utf8"));
-  assert.equal(reviewMetadata.review_mode, "local-only");
-  assert.equal(reviewMetadata.disposition, "approved");
-  assert.equal(reviewMetadata.no_send_attestation.downstream_send_performed, false);
+    const reviewMetadata = JSON.parse(await fs.readFile(result.reviewArtifacts.metadata, "utf8"));
+    assert.equal(reviewMetadata.review_mode, "local-only");
+    assert.equal(reviewMetadata.disposition, "approved");
+    assert.equal(reviewMetadata.lane, workflowCase.lane);
+    assert.equal(reviewMetadata.no_send_attestation.downstream_send_performed, false);
 
-  await fs.rm(tempDir, { recursive: true, force: true });
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("review-only fails closed on missing packet prerequisites", async () => {
@@ -240,17 +334,25 @@ test("review-only does not bypass primitive review checks", async () => {
   await fs.rm(tempDir, { recursive: true, force: true });
 });
 
-test("wrapper CLI rejects transport-shaped flags in package 2", async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ldg-wrapper-"));
-  const packetPath = path.join(tempDir, "packet.json");
-  await fs.writeFile(packetPath, JSON.stringify(buildValidPacket()), "utf8");
+test("wrapper CLI rejects transport-shaped flags at the review-only entrypoint in package 2", async () => {
+  const { tempDir, emitted } = await emitReviewablePacket({
+    lane: "supabase-review"
+  });
 
   const scriptPath = path.resolve("scripts/data-gateway-packet-wrapper.mjs");
 
   for (const flag of ["--target", "--secret", "--send"]) {
     const result = spawnSync(
       process.execPath,
-      [scriptPath, "--lane", "supabase-review", "--mode", "validate-only", "--source", packetPath, flag, "example"],
+      [
+        scriptPath,
+        "--lane", "supabase-review",
+        "--mode", "review-only",
+        "--artifact-dir", emitted.artifactDir,
+        "--reviewer", "codex",
+        "--disposition", "approved",
+        flag, "example"
+      ],
       {
         cwd: path.resolve("."),
         encoding: "utf8"
