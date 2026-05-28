@@ -522,67 +522,64 @@ test("wrapper CLI rejects transport-shaped flags at the proof-only entrypoint in
   await fs.rm(tempDir, { recursive: true, force: true });
 });
 
-test("full-local-chain succeeds on valid local packet inputs and preserves no-send state", async () => {
-  const { tempDir, packetPath } = await writePacketToTemp({
-    packet_purpose: "discordos-boundary-handoff",
-    source_provenance: {
-      owner_surface: "repos/DiscordOS",
-      source_type: "receipt-chain",
-      source_refs: ["repos/DiscordOS/docs/ops/feedback-lookup-transport-neutral-externally-backed-live-provider-trust-boundary-package-16-2026-05-27.md"],
-      captured_at: "2026-05-27T00:00:00Z",
-      capture_method: "local-script"
-    },
-    transformation_record: {
-      normalized: true,
-      validated: true,
-      redacted: true,
-      sensitivity_classified: true,
-      deduped: true,
-      extracted: true,
-      notes: ["trust-boundary payload only"]
-    }
-  });
+test("full-local-chain succeeds on the three admitted workflow classes and stays receipt-ready local-only", async () => {
+  for (const workflowCase of WORKFLOW_CASES) {
+    const { tempDir, packetPath } = await writePacketToTemp(workflowCase.packet);
 
-  const result = await runPacketWrapper({
-    lane: "discordos-trust-boundary",
-    mode: "full-local-chain",
-    sourcePath: packetPath,
-    artifactRoot: tempDir,
-    reviewer: "codex",
-    disposition: "approved",
-    reviewerNote: "full local chain complete"
-  });
+    const result = await runPacketWrapper({
+      lane: workflowCase.lane,
+      mode: "full-local-chain",
+      sourcePath: packetPath,
+      artifactRoot: tempDir,
+      reviewer: "codex",
+      disposition: "approved",
+      reviewerNote: "full local chain complete"
+    });
 
-  assert.equal(result.ok, true);
-  assert.equal(result.wrapperStage, "proof");
-  assert.equal(result.validationState, "pass");
-  assert.equal(result.reviewState, "recorded");
-  assert.equal(result.disposition, "approved");
-  assert.equal(result.proofState, "packaged");
-  assert.equal(result.noSendAttestation.downstream_send_performed, false);
-  assert.equal(result.noSendAttestation.automatic_handoff_authorized, false);
-  assert.ok(result.artifactDir.startsWith(tempDir));
-  assert.ok(result.emittedArtifacts.packet.startsWith(tempDir));
-  assert.ok(result.reviewArtifacts.review.startsWith(tempDir));
-  assert.ok(result.proofArtifacts.summary.startsWith(tempDir));
+    assert.equal(result.ok, true);
+    assert.equal(result.lane, workflowCase.lane);
+    assert.equal(result.mode, "full-local-chain");
+    assert.equal(result.wrapperStage, "proof");
+    assert.equal(result.validationState, "pass");
+    assert.equal(result.reviewState, "recorded");
+    assert.equal(result.disposition, "approved");
+    assert.equal(result.proofState, "packaged");
+    assert.equal(typeof result.packetId, "string");
+    assert.ok(result.packetId.length > 0);
+    assert.equal(result.noSendAttestation.downstream_send_performed, false);
+    assert.equal(result.noSendAttestation.downstream_execution_performed, false);
+    assert.equal(result.noSendAttestation.remote_target_selected, false);
+    assert.equal(result.noSendAttestation.automatic_handoff_authorized, false);
+    assert.ok(result.artifactDir.startsWith(tempDir));
+    assert.ok(result.emittedArtifacts.packet.startsWith(tempDir));
+    assert.ok(result.emittedArtifacts.metadata.startsWith(tempDir));
+    assert.ok(result.reviewArtifacts.review.startsWith(tempDir));
+    assert.ok(result.reviewArtifacts.metadata.startsWith(tempDir));
+    assert.ok(result.proofArtifacts.summary.startsWith(tempDir));
+    assert.ok(result.proofArtifacts.metadata.startsWith(tempDir));
+    assert.equal(path.dirname(result.emittedArtifacts.packet), result.artifactDir);
+    assert.equal(path.dirname(result.reviewArtifacts.review), result.artifactDir);
+    assert.equal(path.dirname(result.proofArtifacts.summary), result.artifactDir);
 
-  const artifactNames = (await fs.readdir(result.artifactDir)).sort();
-  assert.deepEqual(artifactNames, [
-    "packet-metadata.json",
-    "packet-review-metadata.json",
-    "packet-review.md",
-    "packet-summary.md",
-    "packet.json",
-    "proof-metadata.json",
-    "proof-summary.md"
-  ]);
+    const artifactNames = (await fs.readdir(result.artifactDir)).sort();
+    assert.deepEqual(artifactNames, [
+      "packet-metadata.json",
+      "packet-review-metadata.json",
+      "packet-review.md",
+      "packet-summary.md",
+      "packet.json",
+      "proof-metadata.json",
+      "proof-summary.md"
+    ]);
 
-  const proofMetadata = JSON.parse(await fs.readFile(result.proofArtifacts.metadata, "utf8"));
-  assert.equal(proofMetadata.proof_mode, "local-proof-only");
-  assert.equal(proofMetadata.review_snapshot.disposition, "approved");
-  assert.equal(proofMetadata.no_send_attestation.downstream_send_performed, false);
+    const proofMetadata = JSON.parse(await fs.readFile(result.proofArtifacts.metadata, "utf8"));
+    assert.equal(proofMetadata.lane, workflowCase.lane);
+    assert.equal(proofMetadata.proof_mode, "local-proof-only");
+    assert.equal(proofMetadata.review_snapshot.disposition, "approved");
+    assert.equal(proofMetadata.no_send_attestation.downstream_send_performed, false);
 
-  await fs.rm(tempDir, { recursive: true, force: true });
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("full-local-chain fails at validation and stops before artifact emission", async () => {
