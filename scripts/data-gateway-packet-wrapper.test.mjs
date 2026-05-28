@@ -172,6 +172,17 @@ async function emitReviewedWorkflowPacket({ lane, packetOverrides }) {
   };
 }
 
+async function writePacketToTemp(packetOverrides = {}) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ldg-wrapper-"));
+  const packetPath = path.join(tempDir, "packet.json");
+  await fs.writeFile(packetPath, JSON.stringify(buildValidPacket(packetOverrides)), "utf8");
+
+  return {
+    tempDir,
+    packetPath
+  };
+}
+
 test("validate-only succeeds for a valid packet without writing artifacts", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ldg-wrapper-"));
   const packetPath = path.join(tempDir, "packet.json");
@@ -506,6 +517,210 @@ test("wrapper CLI rejects transport-shaped flags at the proof-only entrypoint in
 
     assert.equal(result.status, 1);
     assert.match(result.stderr, new RegExp(`${flag} is not admitted in wrapper package 3`));
+  }
+
+  await fs.rm(tempDir, { recursive: true, force: true });
+});
+
+test("full-local-chain succeeds on valid local packet inputs and preserves no-send state", async () => {
+  const { tempDir, packetPath } = await writePacketToTemp({
+    packet_purpose: "discordos-boundary-handoff",
+    source_provenance: {
+      owner_surface: "repos/DiscordOS",
+      source_type: "receipt-chain",
+      source_refs: ["repos/DiscordOS/docs/ops/feedback-lookup-transport-neutral-externally-backed-live-provider-trust-boundary-package-16-2026-05-27.md"],
+      captured_at: "2026-05-27T00:00:00Z",
+      capture_method: "local-script"
+    },
+    transformation_record: {
+      normalized: true,
+      validated: true,
+      redacted: true,
+      sensitivity_classified: true,
+      deduped: true,
+      extracted: true,
+      notes: ["trust-boundary payload only"]
+    }
+  });
+
+  const result = await runPacketWrapper({
+    lane: "discordos-trust-boundary",
+    mode: "full-local-chain",
+    sourcePath: packetPath,
+    artifactRoot: tempDir,
+    reviewer: "codex",
+    disposition: "approved",
+    reviewerNote: "full local chain complete"
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.wrapperStage, "proof");
+  assert.equal(result.validationState, "pass");
+  assert.equal(result.reviewState, "recorded");
+  assert.equal(result.disposition, "approved");
+  assert.equal(result.proofState, "packaged");
+  assert.equal(result.noSendAttestation.downstream_send_performed, false);
+  assert.equal(result.noSendAttestation.automatic_handoff_authorized, false);
+  assert.ok(result.artifactDir.startsWith(tempDir));
+  assert.ok(result.emittedArtifacts.packet.startsWith(tempDir));
+  assert.ok(result.reviewArtifacts.review.startsWith(tempDir));
+  assert.ok(result.proofArtifacts.summary.startsWith(tempDir));
+
+  const artifactNames = (await fs.readdir(result.artifactDir)).sort();
+  assert.deepEqual(artifactNames, [
+    "packet-metadata.json",
+    "packet-review-metadata.json",
+    "packet-review.md",
+    "packet-summary.md",
+    "packet.json",
+    "proof-metadata.json",
+    "proof-summary.md"
+  ]);
+
+  const proofMetadata = JSON.parse(await fs.readFile(result.proofArtifacts.metadata, "utf8"));
+  assert.equal(proofMetadata.proof_mode, "local-proof-only");
+  assert.equal(proofMetadata.review_snapshot.disposition, "approved");
+  assert.equal(proofMetadata.no_send_attestation.downstream_send_performed, false);
+
+  await fs.rm(tempDir, { recursive: true, force: true });
+});
+
+test("full-local-chain fails at validation and stops before artifact emission", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ldg-wrapper-"));
+  const packetPath = path.join(tempDir, "packet.json");
+  const packet = buildValidPacket();
+  delete packet.packet_purpose;
+  await fs.writeFile(packetPath, JSON.stringify(packet), "utf8");
+
+  const result = await runPacketWrapper({
+    lane: "supabase-review",
+    mode: "full-local-chain",
+    sourcePath: packetPath,
+    artifactRoot: tempDir,
+    reviewer: "codex",
+    disposition: "approved"
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.failureStage, "validate");
+  assert.equal(result.validationState, "fail");
+  assert.equal(result.artifactDir, null);
+
+  const remainingEntries = await fs.readdir(tempDir);
+  assert.deepEqual(remainingEntries, ["packet.json"]);
+
+  await fs.rm(tempDir, { recursive: true, force: true });
+});
+
+test("full-local-chain fails at emit and stops before review or proof", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ldg-wrapper-"));
+  const packetPath = path.join(tempDir, "packet.json");
+  const blockedArtifactRoot = path.join(tempDir, "artifact-root-blocker");
+  await fs.writeFile(packetPath, JSON.stringify(buildValidPacket()), "utf8");
+  await fs.writeFile(blockedArtifactRoot, "blocked", "utf8");
+
+  const result = await runPacketWrapper({
+    lane: "supabase-review",
+    mode: "full-local-chain",
+    sourcePath: packetPath,
+    artifactRoot: blockedArtifactRoot,
+    reviewer: "codex",
+    disposition: "approved"
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.failureStage, "emit");
+  assert.equal(result.validationState, "pass");
+  assert.equal(result.reviewState, undefined);
+  assert.equal(result.proofState, undefined);
+
+  const remainingEntries = await fs.readdir(tempDir);
+  assert.deepEqual(remainingEntries.sort(), ["artifact-root-blocker", "packet.json"]);
+
+  await fs.rm(tempDir, { recursive: true, force: true });
+});
+
+test("full-local-chain fails at review and does not run proof", async () => {
+  const { tempDir, packetPath } = await writePacketToTemp();
+
+  const result = await runPacketWrapper({
+    lane: "supabase-review",
+    mode: "full-local-chain",
+    sourcePath: packetPath,
+    artifactRoot: tempDir,
+    reviewer: "codex",
+    disposition: "auto-approved"
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.failureStage, "review");
+  assert.equal(result.validationState, "pass");
+  assert.equal(result.reviewState, "fail");
+  assert.ok(result.artifactDir.startsWith(tempDir));
+  assert.ok(result.emittedArtifacts.packet.startsWith(tempDir));
+  assert.equal(await fs.stat(path.join(result.artifactDir, "packet.json")).then(() => true, () => false), true);
+  assert.equal(await fs.stat(path.join(result.artifactDir, "packet-review.md")).then(() => true, () => false), false);
+  assert.equal(await fs.stat(path.join(result.artifactDir, "proof-summary.md")).then(() => true, () => false), false);
+
+  await fs.rm(tempDir, { recursive: true, force: true });
+});
+
+test("full-local-chain fails at proof and does not downgrade primitive proof failure", async () => {
+  const { tempDir, packetPath } = await writePacketToTemp();
+
+  const result = await runPacketWrapper({
+    lane: "supabase-review",
+    mode: "full-local-chain",
+    sourcePath: packetPath,
+    artifactRoot: tempDir,
+    reviewer: "codex",
+    disposition: "approved",
+    stageHooks: {
+      async afterReview({ artifactDir }) {
+        const reviewMetadataPath = path.join(artifactDir, "packet-review-metadata.json");
+        const reviewMetadata = JSON.parse(await fs.readFile(reviewMetadataPath, "utf8"));
+        reviewMetadata.disposition = "auto-approved";
+        await fs.writeFile(reviewMetadataPath, `${JSON.stringify(reviewMetadata, null, 2)}\n`, "utf8");
+      }
+    }
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.failureStage, "proof");
+  assert.equal(result.validationState, "pass");
+  assert.equal(result.reviewState, "recorded");
+  assert.equal(result.proofState, "fail");
+  assert.equal(await fs.stat(path.join(result.artifactDir, "packet-review.md")).then(() => true, () => false), true);
+  assert.equal(await fs.stat(path.join(result.artifactDir, "proof-summary.md")).then(() => true, () => false), false);
+
+  await fs.rm(tempDir, { recursive: true, force: true });
+});
+
+test("wrapper CLI rejects transport-shaped flags at the full-local-chain entrypoint in package 4", async () => {
+  const { tempDir, packetPath } = await writePacketToTemp();
+  const scriptPath = path.resolve("scripts/data-gateway-packet-wrapper.mjs");
+
+  for (const flag of ["--target", "--secret", "--send"]) {
+    const result = spawnSync(
+      process.execPath,
+      [
+        scriptPath,
+        "--lane", "supabase-review",
+        "--mode", "full-local-chain",
+        "--source", packetPath,
+        "--artifact-root", tempDir,
+        "--reviewer", "codex",
+        "--disposition", "approved",
+        flag, "example"
+      ],
+      {
+        cwd: path.resolve("."),
+        encoding: "utf8"
+      }
+    );
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, new RegExp(`${flag} is not admitted in wrapper package 4`));
   }
 
   await fs.rm(tempDir, { recursive: true, force: true });
