@@ -29,6 +29,22 @@ Constraints:
 - Use `_stack` workflow commands when they exist.
 - Do not create opportunistic repo changes.
 
+Acceptance Criteria:
+- For mutating tasks, list one individually checkable criterion per bullet.
+- Use stable criterion wording that can be proven from the final repo diff.
+- Do not claim success for any criterion that cannot be proven from the final diff.
+
+Expected Changed Paths:
+- For mutating tasks, list the repo-relative paths or globs that are expected to change.
+
+Expected Unchanged Paths:
+- For mutating tasks, list the repo-relative paths or globs that must stay unchanged unless explicitly justified.
+
+Blocked / Skipped Reporting Rules:
+- If a criterion cannot be completed, the worker must mark it as `blocked`, `skipped`, or `failed` instead of `satisfied`.
+- If an expected unchanged path must change, the worker must provide an explicit justification.
+- Partial completion must be reported as partial; do not summarize it as success.
+
 Verification:
 - <command to run, or "report no repo-local verify command exists for this task">
 Pause / Resume / Merge:
@@ -40,6 +56,7 @@ Deliver Back:
 - Files changed
 - Verification result
 - Risks or follow-ups
+- Criterion-by-criterion completion status for mutating tasks
 ```
 
 ## Target Presets

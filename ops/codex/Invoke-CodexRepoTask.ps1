@@ -81,9 +81,18 @@ $commitMetadataArtifactPath = $null
 $commitMetadataArtifactRecord = $null
 $commitMetadataArtifactTracked = $false
 $commitMetadataArtifactRemoved = $false
+$specToDiffPolicy = $null
+$specToDiffArtifactPath = $null
+$specToDiffArtifactRecord = $null
+$specToDiffArtifactTracked = $false
+$specToDiffArtifactRemoved = $false
+$specToDiffRecord = $null
+$specToDiffFailureReason = $null
 $commitMetadataRawPath = $null
 $commitMetadataResolvedPath = $null
 $commitMessagePath = $null
+$specToDiffRawPath = $null
+$specToDiffValidationPath = $null
 $resolvedCommit = $null
 $commitMessage = $null
 $localLandingMode = "disabled"
@@ -162,15 +171,18 @@ try {
     }
 
     $promptRecord = Parse-PromptFile -Path $PromptPath
+    $specToDiffPolicy = Get-SpecToDiffPromptPolicy -PromptRecord $promptRecord
     $effectiveVerifyCommands = @($promptRecord.Verify)
-    if ($effectiveVerifyCommands.Count -eq 0 -and $null -ne $adapterContract.verify) {
-        $effectiveVerifyCommands = @(ConvertTo-StringArray -Value $adapterContract.verify.defaultCommands)
+    $adapterVerifyConfig = if ($null -ne $adapterContract) { Get-ObjectPropertyValue -Object $adapterContract -Name "verify" -DefaultValue $null } else { $null }
+    if ($effectiveVerifyCommands.Count -eq 0 -and $null -ne $adapterVerifyConfig) {
+        $effectiveVerifyCommands = @(ConvertTo-StringArray -Value (Get-ObjectPropertyValue -Object $adapterVerifyConfig -Name "defaultCommands" -DefaultValue @()))
         if ($effectiveVerifyCommands.Count -gt 0) {
             $verificationSource = "adapter-default"
         }
     }
-    if ($null -ne $adapterContract.verify -and $null -ne $adapterContract.verify.proofGate) {
-        $proofGateConfig = $adapterContract.verify.proofGate
+    $proofGateCandidate = if ($null -ne $adapterVerifyConfig) { Get-ObjectPropertyValue -Object $adapterVerifyConfig -Name "proofGate" -DefaultValue $null } else { $null }
+    if ($null -ne $proofGateCandidate) {
+        $proofGateConfig = $proofGateCandidate
     }
 
     $slugSeed = $promptRecord.BranchSlug
@@ -239,6 +251,9 @@ try {
     $worktreeResult = Invoke-Git -Arguments @("worktree", "add", "-b", $branchName, $worktreePath, $baseRef) -WorkingDirectory $repoRoot
     Assert-CommandSucceeded -Result $worktreeResult -Description "git worktree add"
     $commitMetadataArtifactPath = Resolve-PathFromBase -BasePath $worktreePath -Value ([string]$commitMetadataPolicy.artifactPath)
+    if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
+        $specToDiffArtifactPath = Resolve-PathFromBase -BasePath $worktreePath -Value ([string]$specToDiffPolicy.artifactPath)
+    }
 
     $summaryPath = Join-Path -Path $logDirectory -ChildPath "final-summary.md"
     $codexStdOutPath = Join-Path -Path $logDirectory -ChildPath "codex.stdout.log"
@@ -305,6 +320,51 @@ try {
         "- Do not rely on raw hidden transcript history or ad hoc pasted summaries."
     ) -join "`r`n"
     $effectivePrompt = $effectivePrompt + "`r`n`r`n" + $workerContextInstructions + "`r`n`r`n" + $commitContractInstructions
+    if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
+        $criterionLines = @(
+            $specToDiffPolicy.acceptanceCriteria |
+            ForEach-Object { "- {0}: {1}" -f [string]$_.id, [string]$_.text }
+        )
+        $expectedChangedLines = if (@($specToDiffPolicy.expectedChangedPaths).Length -gt 0) {
+            @($specToDiffPolicy.expectedChangedPaths | ForEach-Object { "- {0}" -f [string]$_ })
+        }
+        else {
+            @("- none declared")
+        }
+        $expectedUnchangedLines = if (@($specToDiffPolicy.expectedUnchangedPaths).Length -gt 0) {
+            @($specToDiffPolicy.expectedUnchangedPaths | ForEach-Object { "- {0}" -f [string]$_ })
+        }
+        else {
+            @("- none declared")
+        }
+        $blockedSkippedRuleLines = if (@($specToDiffPolicy.blockedSkippedRules).Length -gt 0) {
+            @($specToDiffPolicy.blockedSkippedRules | ForEach-Object { "- {0}" -f [string]$_ })
+        }
+        else {
+            @("- If a criterion cannot be proven from the final diff, mark it as blocked, skipped, or failed instead of satisfied.")
+        }
+        $specToDiffInstructions = @(
+            "Spec-to-diff completion contract:",
+            ("- This prompt declares acceptance criteria, so write UTF-8 JSON to `{0}`." -f $specToDiffPolicy.artifactPath),
+            "- Use exactly this shape:",
+            '- {"contract_version":"atlas.stack.spec_to_diff.v1","criteria":[{"criterion_id":"ac-01","status":"satisfied","changed_paths":["docs/example.md"],"diff_evidence":["literal diff snippet"],"note":"optional note"}],"unchanged_path_justifications":[{"path":"docs/example.md","justification":"why the expected unchanged path changed","criterion_ids":["ac-01"]}]}',
+            "- Emit one criteria entry for every acceptance criterion id listed below.",
+            "- Allowed criterion statuses: satisfied, skipped, failed, blocked.",
+            "- For satisfied criteria, changed_paths must list the actual changed repo-relative files and diff_evidence must quote short literal snippets that appear in the final diff or newly added file content.",
+            "- Do not mark a criterion satisfied unless it is provable from the final diff.",
+            "- If any criterion cannot be completed or proven, mark it blocked, skipped, or failed and explain why in note.",
+            "- If an expected unchanged path changes, add an unchanged_path_justifications entry with an explicit reason.",
+            "Acceptance criteria ids:",
+            $criterionLines -join "`r`n",
+            "Expected changed paths:",
+            $expectedChangedLines -join "`r`n",
+            "Expected unchanged paths:",
+            $expectedUnchangedLines -join "`r`n",
+            "Blocked / skipped reporting rules:",
+            $blockedSkippedRuleLines -join "`r`n"
+        ) -join "`r`n"
+        $effectivePrompt = $effectivePrompt + "`r`n`r`n" + $specToDiffInstructions
+    }
     Write-TextFile -Path (Join-Path -Path $logDirectory -ChildPath "effective.prompt.md") -Content $effectivePrompt
 
     $inputHandoffRefs = @()
@@ -369,9 +429,12 @@ try {
         -Notes ("Stack worker assignment stamped from {0}." -f $stackLockContext.stackLockPath)
     [void](Write-StackWorkerArtifact -Artifact $workerAssignmentRecord -Path $workerAssignmentPath)
     $workerAssignmentRef = Get-StackRelativePath -RepoRoot $repoRoot -Path $workerAssignmentPath
+    $workerAssignmentToolId = [string](Get-ObjectPropertyValue -Object $workerAssignmentRecord -Name "tool_id" -DefaultValue "")
+    $workerAssignmentExtensionId = Get-ObjectPropertyValue -Object $workerAssignmentRecord -Name "extension_id" -DefaultValue $null
+    $workerAssignmentRegistryDigest = [string](Get-ObjectPropertyValue -Object $workerAssignmentRecord -Name "registry_digest" -DefaultValue "")
     if (
-        -not [string]::IsNullOrWhiteSpace([string]$workerAssignmentRecord.tool_id) -and
-        -not [string]::IsNullOrWhiteSpace([string]$workerAssignmentRecord.registry_digest)
+        -not [string]::IsNullOrWhiteSpace($workerAssignmentToolId) -and
+        -not [string]::IsNullOrWhiteSpace($workerAssignmentRegistryDigest)
     ) {
         $assignmentObservationRefs = @($governedSourceRefs + @($workerAssignmentRef) | Select-Object -Unique)
         [void](Publish-AtlasObservation `
@@ -388,9 +451,9 @@ try {
                 -WorkerId ([string]$workerAssignmentRecord.worker_id) `
                 -AssignmentId ([string]$workerAssignmentRecord.assignment_id) `
                 -StackLockDigest ([string]$workerAssignmentRecord.stack_lock_digest) `
-                -ToolId ([string]$workerAssignmentRecord.tool_id) `
-                -ExtensionId ([string]$workerAssignmentRecord.extension_id) `
-                -RegistryDigest ([string]$workerAssignmentRecord.registry_digest) `
+                -ToolId $workerAssignmentToolId `
+                -ExtensionId $workerAssignmentExtensionId `
+                -RegistryDigest $workerAssignmentRegistryDigest `
                 -SourceArtifactRefs $assignmentObservationRefs))
     }
 
@@ -403,14 +466,17 @@ try {
         -OutputRefs @() `
         -BlockedReason $null `
         -MergeRequestRef $null `
-        -ToolId ([string]$workerAssignmentRecord.tool_id) `
-        -ExtensionId ([string]$workerAssignmentRecord.extension_id) `
-        -RegistryDigest ([string]$workerAssignmentRecord.registry_digest)
+        -ToolId $workerAssignmentToolId `
+        -ExtensionId $workerAssignmentExtensionId `
+        -RegistryDigest $workerAssignmentRegistryDigest
     [void](Write-StackWorkerArtifact -Artifact $workerRunningStatusRecord -Path $workerRunningStatusPath)
     $workerRunningStatusRef = Get-StackRelativePath -RepoRoot $repoRoot -Path $workerRunningStatusPath
+    $workerRunningStatusToolId = [string](Get-ObjectPropertyValue -Object $workerRunningStatusRecord -Name "tool_id" -DefaultValue "")
+    $workerRunningStatusExtensionId = Get-ObjectPropertyValue -Object $workerRunningStatusRecord -Name "extension_id" -DefaultValue $null
+    $workerRunningStatusRegistryDigest = [string](Get-ObjectPropertyValue -Object $workerRunningStatusRecord -Name "registry_digest" -DefaultValue "")
     if (
-        -not [string]::IsNullOrWhiteSpace([string]$workerRunningStatusRecord.tool_id) -and
-        -not [string]::IsNullOrWhiteSpace([string]$workerRunningStatusRecord.registry_digest)
+        -not [string]::IsNullOrWhiteSpace($workerRunningStatusToolId) -and
+        -not [string]::IsNullOrWhiteSpace($workerRunningStatusRegistryDigest)
     ) {
         $runningObservationRefs = @($governedSourceRefs + @($workerAssignmentRef, $workerRunningStatusRef) | Select-Object -Unique)
         [void](Publish-AtlasObservation `
@@ -427,9 +493,9 @@ try {
                 -WorkerId ([string]$workerRunningStatusRecord.worker_id) `
                 -AssignmentId ([string]$workerRunningStatusRecord.assignment_id) `
                 -StackLockDigest ([string]$workerAssignmentRecord.stack_lock_digest) `
-                -ToolId ([string]$workerRunningStatusRecord.tool_id) `
-                -ExtensionId ([string]$workerRunningStatusRecord.extension_id) `
-                -RegistryDigest ([string]$workerRunningStatusRecord.registry_digest) `
+                -ToolId $workerRunningStatusToolId `
+                -ExtensionId $workerRunningStatusExtensionId `
+                -RegistryDigest $workerRunningStatusRegistryDigest `
                 -SourceArtifactRefs $runningObservationRefs))
     }
 
@@ -503,13 +569,26 @@ try {
             Write-RunnerMessage -Message ("Commit metadata artifact path is tracked and could not be treated as temporary: {0}" -f $commitMetadataPolicy.artifactPath) -Level "WARN"
         }
     }
+    if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
+        $specToDiffArtifactRecord = Read-SpecToDiffArtifact -Path $specToDiffArtifactPath
+        if ($null -ne $specToDiffArtifactRecord) {
+            $specToDiffRawPath = Join-Path -Path $logDirectory -ChildPath "spec-to-diff.raw.json"
+            Write-TextFile -Path $specToDiffRawPath -Content $specToDiffArtifactRecord.rawContent
+
+            $specToDiffArtifactTracked = Test-GitPathTracked -Path ([string]$specToDiffPolicy.artifactPath) -WorkingDirectory $worktreePath
+            if (-not $specToDiffArtifactTracked) {
+                Remove-Item -LiteralPath $specToDiffArtifactPath -Force
+                $specToDiffArtifactRemoved = $true
+            }
+        }
+    }
 
     $verificationDirectory = Join-Path -Path $logDirectory -ChildPath "verification"
     New-Item -ItemType Directory -Path $verificationDirectory -Force | Out-Null
     if (-not $SkipVerification.IsPresent) {
         $bootstrapIndex = 0
-        if ($null -ne $adapterContract.verify) {
-            foreach ($bootstrapCommand in (ConvertTo-StringArray -Value $adapterContract.verify.bootstrapCommands)) {
+        if ($null -ne $adapterVerifyConfig) {
+            foreach ($bootstrapCommand in (ConvertTo-StringArray -Value (Get-ObjectPropertyValue -Object $adapterVerifyConfig -Name "bootstrapCommands" -DefaultValue @()))) {
                 $bootstrapIndex += 1
                 Write-RunnerMessage -Message ("Running verification bootstrap {0}: {1}" -f $bootstrapIndex, $bootstrapCommand)
                 $bootstrapResult = Invoke-ShellCommand -Command $bootstrapCommand -WorkingDirectory $worktreePath
@@ -624,6 +703,19 @@ try {
         }
     }
 
+    if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
+        if ($null -eq $specToDiffArtifactRecord) {
+            $status = "spec_to_diff_failed"
+            $specToDiffFailureReason = "Spec-to-diff completion artifact is required when acceptance criteria are declared."
+            throw $specToDiffFailureReason
+        }
+        if ($specToDiffArtifactTracked) {
+            $status = "spec_to_diff_failed"
+            $specToDiffFailureReason = ("Spec-to-diff artifact path is tracked and cannot be treated as temporary: {0}" -f $specToDiffPolicy.artifactPath)
+            throw $specToDiffFailureReason
+        }
+    }
+
     $statusResult = Invoke-Git -Arguments @("status", "--porcelain") -WorkingDirectory $worktreePath
     Assert-CommandSucceeded -Result $statusResult -Description "git status --porcelain"
     if ([string]::IsNullOrWhiteSpace($statusResult.StdOut)) {
@@ -641,6 +733,25 @@ try {
         if ($mutationScopeViolations.Count -gt 0) {
             $status = "mutation_scope_failed"
             throw ("Changed files exceeded repo adapter mutation scope: {0}" -f ($mutationScopeViolations -join ", "))
+        }
+    }
+    if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
+        $specToDiffRecord = Test-SpecToDiffCompletionProof `
+            -PromptRecord $promptRecord `
+            -ArtifactRecord $specToDiffArtifactRecord `
+            -ChangedPaths $changedPaths `
+            -WorkingDirectory $worktreePath
+        $specToDiffValidationPath = Join-Path -Path $logDirectory -ChildPath "spec-to-diff.validation.json"
+        Write-TextFile -Path $specToDiffValidationPath -Content (($specToDiffRecord | ConvertTo-Json -Depth 8) + "`r`n")
+        if (-not $specToDiffRecord.isValid) {
+            $status = "spec_to_diff_failed"
+            $specToDiffFailureReason = if ($specToDiffRecord.blockingReasons.Count -gt 0) {
+                [string]$specToDiffRecord.blockingReasons[0]
+            }
+            else {
+                "Spec-to-diff validation failed."
+            }
+            throw ("Spec-to-diff verification gate failed: {0}" -f $specToDiffFailureReason)
         }
     }
 
@@ -801,6 +912,7 @@ finally {
                 "verification_failed" { "blocked" }
                 "proof_gate_failed" { "blocked" }
                 "mutation_scope_failed" { "blocked" }
+                "spec_to_diff_failed" { "blocked" }
                 "no_changes" { "blocked" }
                 "codex_failed" { "failed" }
                 "commit_failed" { "failed" }
@@ -813,6 +925,9 @@ finally {
             }
             elseif ($status -eq "proof_gate_failed" -and -not [string]::IsNullOrWhiteSpace($proofGateFailureReason)) {
                 "proof_gate_failed: $proofGateFailureReason"
+            }
+            elseif ($status -eq "spec_to_diff_failed" -and -not [string]::IsNullOrWhiteSpace($specToDiffFailureReason)) {
+                "spec_to_diff_failed: $specToDiffFailureReason"
             }
             else {
                 $status
@@ -833,15 +948,18 @@ finally {
                 -OutputRefs $workerOutputRefs `
                 -BlockedReason $workerBlockedReason `
                 -MergeRequestRef $null `
-                -ToolId ([string]$workerAssignmentRecord.tool_id) `
-                -ExtensionId ([string]$workerAssignmentRecord.extension_id) `
-                -RegistryDigest ([string]$workerAssignmentRecord.registry_digest)
+                -ToolId $workerAssignmentToolId `
+                -ExtensionId $workerAssignmentExtensionId `
+                -RegistryDigest $workerAssignmentRegistryDigest
             [void](Write-StackWorkerArtifact -Artifact $workerCompletedStatusRecord -Path $workerCompletedStatusPath)
             $workerCompletedStatusRef = Get-StackRelativePath -RepoRoot $repoRoot -Path $workerCompletedStatusPath
+            $workerCompletedStatusToolId = [string](Get-ObjectPropertyValue -Object $workerCompletedStatusRecord -Name "tool_id" -DefaultValue "")
+            $workerCompletedStatusExtensionId = Get-ObjectPropertyValue -Object $workerCompletedStatusRecord -Name "extension_id" -DefaultValue $null
+            $workerCompletedStatusRegistryDigest = [string](Get-ObjectPropertyValue -Object $workerCompletedStatusRecord -Name "registry_digest" -DefaultValue "")
             if (
                 $workerState -eq "completed" -and
-                -not [string]::IsNullOrWhiteSpace([string]$workerCompletedStatusRecord.tool_id) -and
-                -not [string]::IsNullOrWhiteSpace([string]$workerCompletedStatusRecord.registry_digest)
+                -not [string]::IsNullOrWhiteSpace($workerCompletedStatusToolId) -and
+                -not [string]::IsNullOrWhiteSpace($workerCompletedStatusRegistryDigest)
             ) {
                 $completedObservationRefs = @($governedSourceRefs + @($workerAssignmentRef, $workerCompletedStatusRef) | Select-Object -Unique)
                 [void](Publish-AtlasObservation `
@@ -858,9 +976,9 @@ finally {
                         -WorkerId ([string]$workerCompletedStatusRecord.worker_id) `
                         -AssignmentId ([string]$workerCompletedStatusRecord.assignment_id) `
                         -StackLockDigest ([string]$workerAssignmentRecord.stack_lock_digest) `
-                        -ToolId ([string]$workerCompletedStatusRecord.tool_id) `
-                        -ExtensionId ([string]$workerCompletedStatusRecord.extension_id) `
-                        -RegistryDigest ([string]$workerCompletedStatusRecord.registry_digest) `
+                        -ToolId $workerCompletedStatusToolId `
+                        -ExtensionId $workerCompletedStatusExtensionId `
+                        -RegistryDigest $workerCompletedStatusRegistryDigest `
                         -SourceArtifactRefs $completedObservationRefs))
             }
 
@@ -946,6 +1064,22 @@ finally {
                 artifactRemoved = $commitMetadataArtifactRemoved
                 validationFailures = if ($null -ne $resolvedCommit -and $resolvedCommit.PSObject.Properties.Name -contains "candidateErrors") { @($resolvedCommit.candidateErrors) } else { @() }
             }
+            specToDiff = [ordered]@{
+                enabled = if ($null -ne $specToDiffPolicy) { [bool]$specToDiffPolicy.enabled } else { $false }
+                artifactPath = if ($null -ne $specToDiffPolicy) { [string]$specToDiffPolicy.artifactPath } else { $null }
+                artifactLogPath = $specToDiffRawPath
+                artifactProvided = $null -ne $specToDiffArtifactRecord
+                artifactParseError = if ($null -ne $specToDiffArtifactRecord) { $specToDiffArtifactRecord.parseError } else { $null }
+                artifactTracked = $specToDiffArtifactTracked
+                artifactRemoved = $specToDiffArtifactRemoved
+                validationPath = $specToDiffValidationPath
+                validationPassed = if ($null -ne $specToDiffRecord) { [bool]$specToDiffRecord.isValid } else { $null }
+                failureReason = $specToDiffFailureReason
+                acceptanceCriteria = if ($null -ne $specToDiffPolicy) { @($specToDiffPolicy.acceptanceCriteria) } else { @() }
+                expectedChangedPaths = if ($null -ne $specToDiffPolicy) { @($specToDiffPolicy.expectedChangedPaths) } else { @() }
+                expectedUnchangedPaths = if ($null -ne $specToDiffPolicy) { @($specToDiffPolicy.expectedUnchangedPaths) } else { @() }
+                blockedSkippedRules = if ($null -ne $specToDiffPolicy) { @($specToDiffPolicy.blockedSkippedRules) } else { @() }
+            }
             sandboxMode = $effectiveSandboxMode
             logs = [ordered]@{
                 directory = $logDirectory
@@ -991,9 +1125,9 @@ finally {
                 description = $adapterContract.description
                 allowedMutationSurfaces = @(ConvertTo-StringArray -Value $adapterContract.allowedMutationSurfaces)
                 docsUpdateRules = @(ConvertTo-StringArray -Value $adapterContract.docsUpdateRules)
-                bootstrapVerifyCommands = if ($null -ne $adapterContract.verify) { @(ConvertTo-StringArray -Value $adapterContract.verify.bootstrapCommands) } else { @() }
-                defaultVerifyCommands = if ($null -ne $adapterContract.verify) { @(ConvertTo-StringArray -Value $adapterContract.verify.defaultCommands) } else { @() }
-                proofGate = if ($null -ne $adapterContract.verify) { $adapterContract.verify.proofGate } else { $null }
+                bootstrapVerifyCommands = if ($null -ne $adapterVerifyConfig) { @(ConvertTo-StringArray -Value (Get-ObjectPropertyValue -Object $adapterVerifyConfig -Name "bootstrapCommands" -DefaultValue @())) } else { @() }
+                defaultVerifyCommands = if ($null -ne $adapterVerifyConfig) { @(ConvertTo-StringArray -Value (Get-ObjectPropertyValue -Object $adapterVerifyConfig -Name "defaultCommands" -DefaultValue @())) } else { @() }
+                proofGate = if ($null -ne $adapterVerifyConfig) { Get-ObjectPropertyValue -Object $adapterVerifyConfig -Name "proofGate" -DefaultValue $null } else { $null }
                 artifacts = $adapterContract.artifacts
                 pushPolicy = $pushPolicy
                 autoCommitPolicy = $autoCommitPolicy

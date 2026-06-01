@@ -129,6 +129,30 @@ Rules:
 - line ranges are the observation surface
 - commit and pre-edit digest anchor the range meaning
 - completion is the terminal `state = completed` status artifact
+- for mutating prompts with acceptance criteria, completion also requires criterion-level proof against the final repo diff before `_stack` may emit `state = completed`
+
+## Spec-To-Diff Completion Gate
+
+Pattern: `Spec-to-Diff Verification Gate`
+
+Mutating worker prompts may declare explicit acceptance criteria plus expected changed and unchanged paths. When they do, the worker must emit a temporary spec-to-diff completion artifact before `_stack` can mark the run completed.
+
+Gate rules:
+
+- one artifact entry per acceptance criterion
+- each `satisfied` criterion must cite supporting changed paths and literal diff evidence
+- changed-path presence alone is not proof
+- summary text is not proof
+- `git diff --check` is hygiene only
+- visual diffs are screenshot proof, not source-edit proof
+- blocked, skipped, and failed criteria keep the worker out of the success path
+- expected unchanged paths must remain unchanged unless the completion artifact includes an explicit justification
+- mutating Codex tasks are not considered governed unless they declare acceptance criteria
+- legacy mutating prompts stay on the compatibility path until they are migrated onto the acceptance-criteria contract
+
+Failure Mode: `Summary-Truth Drift`
+
+The failure mode occurs when a worker summary says the requested change is complete but the repository diff does not prove that every requested edit actually landed.
 
 ## Pause / Resume / Merge
 

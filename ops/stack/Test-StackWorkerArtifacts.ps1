@@ -573,63 +573,76 @@ try {
             }
         }
 
-        $approvedExpiryAt = "2099-12-31T23:59:59Z"
+        $lifelineRequiredPaths = @(
+            (Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "repos\fawxzzy-lifeline"),
+            (Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "repos\fawxzzy-lifeline\dist\cli.js"),
+            (Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "repos\fawxzzy-lifeline\examples\privileged-execution\capability-profile.json"),
+            (Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "repos\fawxzzy-lifeline\examples\privileged-execution\capability-profile.scoped-write-dry-run.json")
+        )
+        $missingLifelinePaths = @($lifelineRequiredPaths | Where-Object { -not (Test-Path -LiteralPath $_) })
 
-        $lifelineReadOnlyScenario = Invoke-LifelineExecutionScenario `
-            -Name "read-only" `
-            -Operation "read_only_scan" `
-            -ApprovalStatus "approved" `
-            -ExpiryAt $approvedExpiryAt `
-            -Command @("node", "--version") `
-            -TargetPaths @("README.md")
-        Assert-Condition -Condition ($lifelineReadOnlyScenario.receipt.result -eq "succeeded") -Message "Read-only Lifeline bridge should succeed."
-        Assert-Condition -Condition ($lifelineReadOnlyScenario.receipt.execution_mode -eq "read_only_scan") -Message "Read-only Lifeline bridge should preserve the read_only_scan execution mode."
-        Assert-Condition -Condition ($lifelineReadOnlyScenario.updatedStatus.output_refs -contains [string]$lifelineReadOnlyScenario.bridge.receipt_ref) -Message "Read-only Lifeline bridge did not write the receipt ref back into worker status."
-        Assert-Condition -Condition ($lifelineReadOnlyScenario.receipt.worker_id -eq $lifelineReadOnlyScenario.bridge.worker_id) -Message "Read-only Lifeline receipt lost the worker id."
-        Assert-Condition -Condition ($lifelineReadOnlyScenario.receipt.assignment_id -eq $lifelineReadOnlyScenario.bridge.assignment_id) -Message "Read-only Lifeline receipt lost the assignment id."
-        Assert-Condition -Condition ($lifelineReadOnlyScenario.receipt.stack_lock_digest -eq $stackLockContext.stackLockDigest) -Message "Read-only Lifeline receipt lost the stack lock digest."
-        Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.receipt.contract_version -eq "atlas.privileged-action.receipt.v1") -Message "Read-only Lifeline bridge must preserve the Lifeline receipt contract version."
-        Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.receipt.tool_id -eq "read_only_scan") -Message "Read-only Lifeline receipt lost the governed tool id."
-        Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.receipt.registry_digest -eq $testRegistryDigest) -Message "Read-only Lifeline receipt lost the registry digest."
-        Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.bridgeRecord.schema_version -eq "atlas.stack.lifeline-execution.v1") -Message "Read-only Lifeline bridge record must keep the _stack bridge contract version."
-        Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.bridgeRecord.request_ref -eq [string]$lifelineReadOnlyScenario.bridge.request_ref) -Message "Read-only Lifeline bridge record lost the canonical request ref."
-        Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.bridgeRecord.approval_receipt_ref -eq [string]$lifelineReadOnlyScenario.bridge.approval_receipt_ref) -Message "Read-only Lifeline bridge record lost the canonical approval ref."
-        Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.bridgeRecord.receipt_ref -eq [string]$lifelineReadOnlyScenario.bridge.receipt_ref) -Message "Read-only Lifeline bridge record lost the canonical receipt ref."
+        if ($missingLifelinePaths.Count -eq 0) {
+            $approvedExpiryAt = "2099-12-31T23:59:59Z"
 
-        $lifelineDryRunScenario = Invoke-LifelineExecutionScenario `
-            -Name "dry-run" `
-            -Operation "scoped_write" `
-            -ApprovalStatus "approved" `
-            -ExpiryAt $approvedExpiryAt `
-            -Command @("node", "--version") `
-            -TargetResources @("node")
-        Assert-Condition -Condition ($lifelineDryRunScenario.receipt.result -eq "succeeded") -Message "Dry-run Lifeline bridge should succeed."
-        Assert-Condition -Condition ($lifelineDryRunScenario.receipt.execution_mode -eq "dry_run_command") -Message "Dry-run Lifeline bridge should use the dry_run_command execution mode."
-        Assert-Condition -Condition ($lifelineDryRunScenario.receipt.command_result.command[0] -eq "node") -Message "Dry-run Lifeline bridge did not preserve the requested command."
-        Assert-Condition -Condition ([string]$lifelineDryRunScenario.receipt.contract_version -eq "atlas.privileged-action.receipt.v1") -Message "Dry-run Lifeline bridge must preserve the Lifeline receipt contract version."
-        Assert-Condition -Condition ([string]$lifelineDryRunScenario.receipt.tool_id -eq "scoped_write.dry_run") -Message "Dry-run Lifeline receipt lost the governed tool id."
+            $lifelineReadOnlyScenario = Invoke-LifelineExecutionScenario `
+                -Name "read-only" `
+                -Operation "read_only_scan" `
+                -ApprovalStatus "approved" `
+                -ExpiryAt $approvedExpiryAt `
+                -Command @("node", "--version") `
+                -TargetPaths @("README.md")
+            Assert-Condition -Condition ($lifelineReadOnlyScenario.receipt.result -eq "succeeded") -Message "Read-only Lifeline bridge should succeed."
+            Assert-Condition -Condition ($lifelineReadOnlyScenario.receipt.execution_mode -eq "read_only_scan") -Message "Read-only Lifeline bridge should preserve the read_only_scan execution mode."
+            Assert-Condition -Condition ($lifelineReadOnlyScenario.updatedStatus.output_refs -contains [string]$lifelineReadOnlyScenario.bridge.receipt_ref) -Message "Read-only Lifeline bridge did not write the receipt ref back into worker status."
+            Assert-Condition -Condition ($lifelineReadOnlyScenario.receipt.worker_id -eq $lifelineReadOnlyScenario.bridge.worker_id) -Message "Read-only Lifeline receipt lost the worker id."
+            Assert-Condition -Condition ($lifelineReadOnlyScenario.receipt.assignment_id -eq $lifelineReadOnlyScenario.bridge.assignment_id) -Message "Read-only Lifeline receipt lost the assignment id."
+            Assert-Condition -Condition ($lifelineReadOnlyScenario.receipt.stack_lock_digest -eq $stackLockContext.stackLockDigest) -Message "Read-only Lifeline receipt lost the stack lock digest."
+            Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.receipt.contract_version -eq "atlas.privileged-action.receipt.v1") -Message "Read-only Lifeline bridge must preserve the Lifeline receipt contract version."
+            Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.receipt.tool_id -eq "read_only_scan") -Message "Read-only Lifeline receipt lost the governed tool id."
+            Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.receipt.registry_digest -eq $testRegistryDigest) -Message "Read-only Lifeline receipt lost the registry digest."
+            Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.bridgeRecord.schema_version -eq "atlas.stack.lifeline-execution.v1") -Message "Read-only Lifeline bridge record must keep the _stack bridge contract version."
+            Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.bridgeRecord.request_ref -eq [string]$lifelineReadOnlyScenario.bridge.request_ref) -Message "Read-only Lifeline bridge record lost the canonical request ref."
+            Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.bridgeRecord.approval_receipt_ref -eq [string]$lifelineReadOnlyScenario.bridge.approval_receipt_ref) -Message "Read-only Lifeline bridge record lost the canonical approval ref."
+            Assert-Condition -Condition ([string]$lifelineReadOnlyScenario.bridgeRecord.receipt_ref -eq [string]$lifelineReadOnlyScenario.bridge.receipt_ref) -Message "Read-only Lifeline bridge record lost the canonical receipt ref."
 
-        $lifelineRejectedScenario = Invoke-LifelineExecutionScenario `
-            -Name "rejected" `
-            -Operation "scoped_write" `
-            -ApprovalStatus "rejected" `
-            -ExpiryAt "" `
-            -Command @("node", "--version") `
-            -TargetResources @("node")
-        Assert-Condition -Condition ($lifelineRejectedScenario.receipt.result -eq "blocked") -Message "Rejected approval should emit a blocked receipt."
-        Assert-Condition -Condition ($lifelineRejectedScenario.updatedStatus.state -eq "blocked") -Message "Rejected approval should write a blocked worker status."
-        Assert-Condition -Condition ($lifelineRejectedScenario.updatedStatus.output_refs -contains [string]$lifelineRejectedScenario.bridge.receipt_ref) -Message "Rejected approval did not write the receipt ref back into worker status."
+            $lifelineDryRunScenario = Invoke-LifelineExecutionScenario `
+                -Name "dry-run" `
+                -Operation "scoped_write" `
+                -ApprovalStatus "approved" `
+                -ExpiryAt $approvedExpiryAt `
+                -Command @("node", "--version") `
+                -TargetResources @("node")
+            Assert-Condition -Condition ($lifelineDryRunScenario.receipt.result -eq "succeeded") -Message "Dry-run Lifeline bridge should succeed."
+            Assert-Condition -Condition ($lifelineDryRunScenario.receipt.execution_mode -eq "dry_run_command") -Message "Dry-run Lifeline bridge should use the dry_run_command execution mode."
+            Assert-Condition -Condition ($lifelineDryRunScenario.receipt.command_result.command[0] -eq "node") -Message "Dry-run Lifeline bridge did not preserve the requested command."
+            Assert-Condition -Condition ([string]$lifelineDryRunScenario.receipt.contract_version -eq "atlas.privileged-action.receipt.v1") -Message "Dry-run Lifeline bridge must preserve the Lifeline receipt contract version."
+            Assert-Condition -Condition ([string]$lifelineDryRunScenario.receipt.tool_id -eq "scoped_write.dry_run") -Message "Dry-run Lifeline receipt lost the governed tool id."
 
-        $lifelineExpiredScenario = Invoke-LifelineExecutionScenario `
-            -Name "expired" `
-            -Operation "scoped_write" `
-            -ApprovalStatus "approved" `
-            -ExpiryAt "2026-04-13T00:00:00Z" `
-            -Command @("node", "--version") `
-            -TargetResources @("node")
-        Assert-Condition -Condition ($lifelineExpiredScenario.receipt.result -eq "blocked") -Message "Expired approval should emit a blocked receipt."
-        Assert-Condition -Condition ($lifelineExpiredScenario.updatedStatus.state -eq "blocked") -Message "Expired approval should write a blocked worker status."
-        Assert-Condition -Condition ([string]$lifelineExpiredScenario.receipt.blocked_reason -match "expired") -Message "Expired approval should report an expired blocked reason."
+            $lifelineRejectedScenario = Invoke-LifelineExecutionScenario `
+                -Name "rejected" `
+                -Operation "scoped_write" `
+                -ApprovalStatus "rejected" `
+                -ExpiryAt "" `
+                -Command @("node", "--version") `
+                -TargetResources @("node")
+            Assert-Condition -Condition ($lifelineRejectedScenario.receipt.result -eq "blocked") -Message "Rejected approval should emit a blocked receipt."
+            Assert-Condition -Condition ($lifelineRejectedScenario.updatedStatus.state -eq "blocked") -Message "Rejected approval should write a blocked worker status."
+            Assert-Condition -Condition ($lifelineRejectedScenario.updatedStatus.output_refs -contains [string]$lifelineRejectedScenario.bridge.receipt_ref) -Message "Rejected approval did not write the receipt ref back into worker status."
+
+            $lifelineExpiredScenario = Invoke-LifelineExecutionScenario `
+                -Name "expired" `
+                -Operation "scoped_write" `
+                -ApprovalStatus "approved" `
+                -ExpiryAt "2026-04-13T00:00:00Z" `
+                -Command @("node", "--version") `
+                -TargetResources @("node")
+            Assert-Condition -Condition ($lifelineExpiredScenario.receipt.result -eq "blocked") -Message "Expired approval should emit a blocked receipt."
+            Assert-Condition -Condition ($lifelineExpiredScenario.updatedStatus.state -eq "blocked") -Message "Expired approval should write a blocked worker status."
+            Assert-Condition -Condition ([string]$lifelineExpiredScenario.receipt.blocked_reason -match "expired") -Message "Expired approval should report an expired blocked reason."
+        }
+        else {
+            Write-Host ("Skipping Lifeline bridge execution fixtures because required workspace dependencies are missing: {0}" -f ($missingLifelinePaths -join ", "))
+        }
     }
     finally {
         Set-Location -LiteralPath $originalLocation

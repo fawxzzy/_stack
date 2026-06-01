@@ -568,37 +568,49 @@ function Resolve-AtlasGovernedFlowContext {
             [void]$sourceArtifactRefs.Add($relativeRef)
         }
 
+        $artifactWorkerId = [string](Get-ObjectPropertyValue -Object $artifact -Name "worker_id" -DefaultValue "")
+        $artifactAssignmentId = [string](Get-ObjectPropertyValue -Object $artifact -Name "assignment_id" -DefaultValue "")
+        $artifactSessionId = [string](Get-ObjectPropertyValue -Object $artifact -Name "session_id" -DefaultValue "")
+        $artifactContractVersion = [string](Get-ObjectPropertyValue -Object $artifact -Name "contract_version" -DefaultValue "")
+        $artifactStackLockDigest = [string](Get-ObjectPropertyValue -Object $artifact -Name "stack_lock_digest" -DefaultValue "")
+        $artifactToolId = [string](Get-ObjectPropertyValue -Object $artifact -Name "tool_id" -DefaultValue "")
+        $artifactExtensionId = [string](Get-ObjectPropertyValue -Object $artifact -Name "extension_id" -DefaultValue "")
+        $artifactRegistryDigest = [string](Get-ObjectPropertyValue -Object $artifact -Name "registry_digest" -DefaultValue "")
+
         if ([string]::IsNullOrWhiteSpace($sessionId)) {
             $sessionId = Resolve-AtlasObservationSessionId `
-                -WorkerId ([string]$artifact.worker_id) `
-                -AssignmentId ([string]$artifact.assignment_id) `
+                -WorkerId $artifactWorkerId `
+                -AssignmentId $artifactAssignmentId `
                 -SourceArtifactRefs @($relativeRef)
-            if ([string]::IsNullOrWhiteSpace($sessionId) -and -not [string]::IsNullOrWhiteSpace([string]$artifact.session_id)) {
-                $sessionId = [string]$artifact.session_id
+            if ([string]::IsNullOrWhiteSpace($sessionId) -and -not [string]::IsNullOrWhiteSpace($artifactSessionId)) {
+                $sessionId = $artifactSessionId
             }
         }
 
-        if ([string]$artifact.contract_version -eq "atlas.session.v1") {
-            if ([string]::IsNullOrWhiteSpace($sessionId) -and -not [string]::IsNullOrWhiteSpace([string]$artifact.session_id)) {
-                $sessionId = [string]$artifact.session_id
+        if ($artifactContractVersion -eq "atlas.session.v1") {
+            if ([string]::IsNullOrWhiteSpace($sessionId) -and -not [string]::IsNullOrWhiteSpace($artifactSessionId)) {
+                $sessionId = $artifactSessionId
             }
-            if ([string]::IsNullOrWhiteSpace($stackLockDigest) -and -not [string]::IsNullOrWhiteSpace([string]$artifact.stack_lock_digest)) {
-                $stackLockDigest = [string]$artifact.stack_lock_digest
+            if ([string]::IsNullOrWhiteSpace($stackLockDigest) -and -not [string]::IsNullOrWhiteSpace($artifactStackLockDigest)) {
+                $stackLockDigest = $artifactStackLockDigest
             }
 
-            $governedSurfaces = $artifact.governed_surfaces
+            $governedSurfaces = Get-ObjectPropertyValue -Object $artifact -Name "governed_surfaces" -DefaultValue $null
             if ($null -ne $governedSurfaces) {
-                if ([string]::IsNullOrWhiteSpace($registryDigest) -and -not [string]::IsNullOrWhiteSpace([string]$governedSurfaces.registry_digest)) {
-                    $registryDigest = [string]$governedSurfaces.registry_digest
+                $surfaceRegistryDigest = [string](Get-ObjectPropertyValue -Object $governedSurfaces -Name "registry_digest" -DefaultValue "")
+                if ([string]::IsNullOrWhiteSpace($registryDigest) -and -not [string]::IsNullOrWhiteSpace($surfaceRegistryDigest)) {
+                    $registryDigest = $surfaceRegistryDigest
                 }
 
-                $executionSurface = $governedSurfaces.execution
+                $executionSurface = Get-ObjectPropertyValue -Object $governedSurfaces -Name "execution" -DefaultValue $null
                 if ($null -ne $executionSurface) {
-                    if ([string]::IsNullOrWhiteSpace($toolId) -and -not [string]::IsNullOrWhiteSpace([string]$executionSurface.tool_id)) {
-                        $toolId = [string]$executionSurface.tool_id
+                    $executionToolId = [string](Get-ObjectPropertyValue -Object $executionSurface -Name "tool_id" -DefaultValue "")
+                    $executionExtensionId = [string](Get-ObjectPropertyValue -Object $executionSurface -Name "extension_id" -DefaultValue "")
+                    if ([string]::IsNullOrWhiteSpace($toolId) -and -not [string]::IsNullOrWhiteSpace($executionToolId)) {
+                        $toolId = $executionToolId
                     }
-                    if ($null -eq $extensionId -and -not [string]::IsNullOrWhiteSpace([string]$executionSurface.extension_id)) {
-                        $extensionId = [string]$executionSurface.extension_id
+                    if ($null -eq $extensionId -and -not [string]::IsNullOrWhiteSpace($executionExtensionId)) {
+                        $extensionId = $executionExtensionId
                     }
                 }
             }
@@ -606,17 +618,17 @@ function Resolve-AtlasGovernedFlowContext {
             continue
         }
 
-        if ([string]::IsNullOrWhiteSpace($stackLockDigest) -and -not [string]::IsNullOrWhiteSpace([string]$artifact.stack_lock_digest)) {
-            $stackLockDigest = [string]$artifact.stack_lock_digest
+        if ([string]::IsNullOrWhiteSpace($stackLockDigest) -and -not [string]::IsNullOrWhiteSpace($artifactStackLockDigest)) {
+            $stackLockDigest = $artifactStackLockDigest
         }
-        if ([string]::IsNullOrWhiteSpace($toolId) -and -not [string]::IsNullOrWhiteSpace([string]$artifact.tool_id)) {
-            $toolId = [string]$artifact.tool_id
+        if ([string]::IsNullOrWhiteSpace($toolId) -and -not [string]::IsNullOrWhiteSpace($artifactToolId)) {
+            $toolId = $artifactToolId
         }
-        if ($null -eq $extensionId -and -not [string]::IsNullOrWhiteSpace([string]$artifact.extension_id)) {
-            $extensionId = [string]$artifact.extension_id
+        if ($null -eq $extensionId -and -not [string]::IsNullOrWhiteSpace($artifactExtensionId)) {
+            $extensionId = $artifactExtensionId
         }
-        if ([string]::IsNullOrWhiteSpace($registryDigest) -and -not [string]::IsNullOrWhiteSpace([string]$artifact.registry_digest)) {
-            $registryDigest = [string]$artifact.registry_digest
+        if ([string]::IsNullOrWhiteSpace($registryDigest) -and -not [string]::IsNullOrWhiteSpace($artifactRegistryDigest)) {
+            $registryDigest = $artifactRegistryDigest
         }
     }
 

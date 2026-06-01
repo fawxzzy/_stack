@@ -105,8 +105,13 @@ The parent runner should include:
 - worker assignment/status or merge-request refs when the handoff is a resume or merge step
 - objective
 - constraints
+- acceptance criteria, expected changed paths, expected unchanged paths, and blocked/skipped reporting rules for mutating tasks
 - verification command or explicit verification expectation
 - deliverables back to the parent runner
+
+Rule:
+
+- mutating child-task handoffs are not governed unless they declare the acceptance-criteria contract from `templates/child-task-handoff.md`
 
 ## Queue / Task Drop Pattern
 

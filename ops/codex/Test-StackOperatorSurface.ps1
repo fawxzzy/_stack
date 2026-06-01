@@ -3,6 +3,19 @@ $ErrorActionPreference = "Stop"
 
 . (Join-Path -Path $PSScriptRoot -ChildPath "CodexRunner.Common.ps1")
 
+function Assert-Condition {
+    param(
+        [Parameter(Mandatory = $true)]
+        [bool]$Condition,
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    if (-not $Condition) {
+        throw $Message
+    }
+}
+
 $requiredFiles = @(
     "AGENTS.md",
     "README.md",
@@ -113,12 +126,18 @@ if (($launcherDryRunOutput -join "`n") -notmatch "pr preview:\s+pr-\{number\}\.f
     throw "_stack release launcher did not surface the Atlas PR preview naming hint for Fitness preview."
 }
 
-$mazerIdentityOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File ".\ops\Test-MazerDeployLink.ps1" -ConfigPath ".\config\mazer-deploy.identity.json"
-if ($LASTEXITCODE -ne 0) {
-    throw "_stack Mazer deploy identity preflight failed against the local canonical Vercel link."
+$mazerRepoPath = Join-Path -Path (Get-Location).Path -ChildPath "..\fawxzzy-mazer"
+if (Test-Path -LiteralPath $mazerRepoPath) {
+    $mazerIdentityOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File ".\ops\Test-MazerDeployLink.ps1" -ConfigPath ".\config\mazer-deploy.identity.json"
+    if ($LASTEXITCODE -ne 0) {
+        throw "_stack Mazer deploy identity preflight failed against the local canonical Vercel link."
+    }
+    if (($mazerIdentityOutput -join "`n") -notmatch "Mazer deploy link preflight passed") {
+        throw "_stack Mazer deploy identity preflight did not report a clear pass message."
+    }
 }
-if (($mazerIdentityOutput -join "`n") -notmatch "Mazer deploy link preflight passed") {
-    throw "_stack Mazer deploy identity preflight did not report a clear pass message."
+else {
+    Write-Host ("Skipping _stack Mazer deploy identity preflight because the workspace does not contain {0}." -f $mazerRepoPath)
 }
 
 $topologyFailureRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("stack-topology-{0}" -f ([guid]::NewGuid().ToString("N")))
@@ -391,6 +410,40 @@ Plain markdown prompt body with no structured metadata.
             ExpectedTitle = "lifeline-smoke-filename-fallback"
             ExpectedVerify = @()
             ExpectedBranchSlug = $null
+        },
+        @{
+            Name = "acceptance criteria prompt"
+            FileName = "acceptance-criteria-prompt.md"
+            Content = @"
+Title: Stack proof gate prompt
+
+Objective:
+Implement the bounded proof gate update.
+
+Acceptance Criteria:
+- Update the shared runner completion gate.
+- Add criterion-level proof validation.
+
+Expected Changed Paths:
+- ops/codex/**
+- docs/**
+
+Expected Unchanged Paths:
+- package.json
+
+Blocked / Skipped Reporting Rules:
+- Report blocked criteria explicitly.
+"@
+            ExpectedTitle = "Stack proof gate prompt"
+            ExpectedVerify = @()
+            ExpectedBranchSlug = $null
+            ExpectedAcceptanceCriteria = @(
+                @{ id = "ac-01"; text = "Update the shared runner completion gate." },
+                @{ id = "ac-02"; text = "Add criterion-level proof validation." }
+            )
+            ExpectedChangedPaths = @("ops/codex/**", "docs/**")
+            ExpectedUnchangedPaths = @("package.json")
+            ExpectedBlockedSkippedRules = @("Report blocked criteria explicitly.")
         }
     )
 
@@ -424,6 +477,251 @@ Plain markdown prompt body with no structured metadata.
                 throw ("Parse-PromptFile resolved the wrong verify command for the {0} case at index {1}." -f $promptCase.Name, $index)
             }
         }
+
+        $expectedAcceptanceCriteria = if ($promptCase.ContainsKey("ExpectedAcceptanceCriteria")) {
+            @($promptCase.ExpectedAcceptanceCriteria)
+        }
+        else {
+            @()
+        }
+        [object[]]$actualAcceptanceCriteria = @($parsedPrompt.AcceptanceCriteria)
+        if (@($actualAcceptanceCriteria).Length -ne @($expectedAcceptanceCriteria).Length) {
+            throw ("Parse-PromptFile resolved the wrong acceptance-criteria count for the {0} case." -f $promptCase.Name)
+        }
+        for ($index = 0; $index -lt @($expectedAcceptanceCriteria).Length; $index++) {
+            if ([string]$actualAcceptanceCriteria[$index].id -ne [string]$expectedAcceptanceCriteria[$index].id) {
+                throw ("Parse-PromptFile resolved the wrong acceptance-criteria id for the {0} case at index {1}." -f $promptCase.Name, $index)
+            }
+            if ([string]$actualAcceptanceCriteria[$index].text -ne [string]$expectedAcceptanceCriteria[$index].text) {
+                throw ("Parse-PromptFile resolved the wrong acceptance-criteria text for the {0} case at index {1}." -f $promptCase.Name, $index)
+            }
+        }
+
+        $expectedChangedPaths = if ($promptCase.ContainsKey("ExpectedChangedPaths")) {
+            @($promptCase.ExpectedChangedPaths)
+        }
+        else {
+            @()
+        }
+        [object[]]$actualChangedPaths = @($parsedPrompt.ExpectedChangedPaths)
+        if (@($actualChangedPaths).Length -ne @($expectedChangedPaths).Length) {
+            throw ("Parse-PromptFile resolved the wrong expected-changed-path count for the {0} case." -f $promptCase.Name)
+        }
+        if ((@($actualChangedPaths) -join "|") -ne (@($expectedChangedPaths) -join "|")) {
+            throw ("Parse-PromptFile resolved the wrong expected changed paths for the {0} case." -f $promptCase.Name)
+        }
+
+        $expectedUnchangedPaths = if ($promptCase.ContainsKey("ExpectedUnchangedPaths")) {
+            @($promptCase.ExpectedUnchangedPaths)
+        }
+        else {
+            @()
+        }
+        [object[]]$actualUnchangedPaths = @($parsedPrompt.ExpectedUnchangedPaths)
+        if (@($actualUnchangedPaths).Length -ne @($expectedUnchangedPaths).Length) {
+            throw ("Parse-PromptFile resolved the wrong expected-unchanged-path count for the {0} case." -f $promptCase.Name)
+        }
+        if ((@($actualUnchangedPaths) -join "|") -ne (@($expectedUnchangedPaths) -join "|")) {
+            throw ("Parse-PromptFile resolved the wrong expected unchanged paths for the {0} case." -f $promptCase.Name)
+        }
+
+        $expectedBlockedSkippedRules = if ($promptCase.ContainsKey("ExpectedBlockedSkippedRules")) {
+            @($promptCase.ExpectedBlockedSkippedRules)
+        }
+        else {
+            @()
+        }
+        [object[]]$actualBlockedSkippedRules = @($parsedPrompt.BlockedSkippedRules)
+        if (@($actualBlockedSkippedRules).Length -ne @($expectedBlockedSkippedRules).Length) {
+            throw ("Parse-PromptFile resolved the wrong blocked/skipped-rule count for the {0} case." -f $promptCase.Name)
+        }
+        if ((@($actualBlockedSkippedRules) -join "|") -ne (@($expectedBlockedSkippedRules) -join "|")) {
+            throw ("Parse-PromptFile resolved the wrong blocked/skipped rules for the {0} case." -f $promptCase.Name)
+        }
+    }
+
+    $proofPromptPath = Join-Path -Path $parserTestRoot -ChildPath "proof-gate-prompt.md"
+    $proofPromptContent = @"
+Title: Proof gate prompt
+
+Objective:
+Implement the spec-to-diff gate.
+
+Acceptance Criteria:
+- Add spec-to-diff validation to the runner.
+- Update the shared worker docs.
+
+Expected Changed Paths:
+- ops/codex/**
+- docs/**
+
+Expected Unchanged Paths:
+- package.json
+
+Blocked / Skipped Reporting Rules:
+- Mark incomplete criteria as blocked, skipped, or failed.
+"@
+    [System.IO.File]::WriteAllText($proofPromptPath, ($proofPromptContent.TrimStart("`r", "`n")))
+    $proofPrompt = Parse-PromptFile -Path $proofPromptPath
+
+    $missingArtifactResult = Test-SpecToDiffCompletionProof `
+        -PromptRecord $proofPrompt `
+        -ArtifactRecord $null `
+        -ChangedPaths @("ops/codex/Invoke-CodexRepoTask.ps1", "docs/codex-orchestration.md") `
+        -PathEvidenceMap @{
+            "ops/codex/Invoke-CodexRepoTask.ps1" = "+spec gate"
+            "docs/codex-orchestration.md" = "+spec gate docs"
+        }
+    if ($missingArtifactResult.isValid) {
+        throw "Spec-to-diff validation should fail when the completion artifact is missing."
+    }
+    if (($missingArtifactResult.blockingReasons -join "`n") -notmatch "artifact is required") {
+        throw "Spec-to-diff validation did not report the missing artifact failure."
+    }
+
+    $unsupportedDiffResult = Test-SpecToDiffCompletionProof `
+        -PromptRecord $proofPrompt `
+        -ArtifactRecord ([pscustomobject]@{
+            parseError = $null
+            payload = [pscustomobject]@{
+                contract_version = "atlas.stack.spec_to_diff.v1"
+                criteria = @(
+                    [pscustomobject]@{
+                        criterion_id = "ac-01"
+                        status = "satisfied"
+                        changed_paths = @("ops/codex/Invoke-CodexRepoTask.ps1")
+                        diff_evidence = @("missing literal snippet")
+                        note = "proof provided"
+                    },
+                    [pscustomobject]@{
+                        criterion_id = "ac-02"
+                        status = "satisfied"
+                        changed_paths = @("docs/codex-orchestration.md")
+                        diff_evidence = @("Add worker docs")
+                        note = ""
+                    }
+                )
+                unchanged_path_justifications = @()
+            }
+        }) `
+        -ChangedPaths @("ops/codex/Invoke-CodexRepoTask.ps1", "docs/codex-orchestration.md") `
+        -PathEvidenceMap @{
+            "ops/codex/Invoke-CodexRepoTask.ps1" = "+Add spec-to-diff validation to the runner."
+            "docs/codex-orchestration.md" = "+Update the shared worker docs."
+        }
+    if ($unsupportedDiffResult.isValid) {
+        throw "Spec-to-diff validation should fail when a satisfied criterion lacks supporting diff evidence."
+    }
+    if (($unsupportedDiffResult.blockingReasons -join "`n") -notmatch "was not found in the final diff") {
+        throw "Spec-to-diff validation did not report the unsupported diff-evidence failure."
+    }
+
+    $blockedCriterionResult = Test-SpecToDiffCompletionProof `
+        -PromptRecord $proofPrompt `
+        -ArtifactRecord ([pscustomobject]@{
+            parseError = $null
+            payload = [pscustomobject]@{
+                contract_version = "atlas.stack.spec_to_diff.v1"
+                criteria = @(
+                    [pscustomobject]@{
+                        criterion_id = "ac-01"
+                        status = "blocked"
+                        changed_paths = @()
+                        diff_evidence = @()
+                        note = "Dependent repo change is not available."
+                    },
+                    [pscustomobject]@{
+                        criterion_id = "ac-02"
+                        status = "satisfied"
+                        changed_paths = @("docs/codex-orchestration.md")
+                        diff_evidence = @("Update the shared worker docs.")
+                        note = ""
+                    }
+                )
+                unchanged_path_justifications = @()
+            }
+        }) `
+        -ChangedPaths @("docs/codex-orchestration.md") `
+        -PathEvidenceMap @{
+            "docs/codex-orchestration.md" = "+Update the shared worker docs."
+        }
+    if ($blockedCriterionResult.isValid) {
+        throw "Spec-to-diff validation should fail when any criterion is blocked or skipped."
+    }
+    if (($blockedCriterionResult.blockingReasons -join "`n") -notmatch "is blocked") {
+        throw "Spec-to-diff validation did not preserve blocked-criterion reporting."
+    }
+
+    $unchangedViolationResult = Test-SpecToDiffCompletionProof `
+        -PromptRecord $proofPrompt `
+        -ArtifactRecord ([pscustomobject]@{
+            parseError = $null
+            payload = [pscustomobject]@{
+                contract_version = "atlas.stack.spec_to_diff.v1"
+                criteria = @(
+                    [pscustomobject]@{
+                        criterion_id = "ac-01"
+                        status = "satisfied"
+                        changed_paths = @("ops/codex/Invoke-CodexRepoTask.ps1")
+                        diff_evidence = @("Add spec-to-diff validation to the runner.")
+                        note = ""
+                    },
+                    [pscustomobject]@{
+                        criterion_id = "ac-02"
+                        status = "satisfied"
+                        changed_paths = @("docs/codex-orchestration.md")
+                        diff_evidence = @("Update the shared worker docs.")
+                        note = ""
+                    }
+                )
+                unchanged_path_justifications = @()
+            }
+        }) `
+        -ChangedPaths @("ops/codex/Invoke-CodexRepoTask.ps1", "docs/codex-orchestration.md", "package.json") `
+        -PathEvidenceMap @{
+            "ops/codex/Invoke-CodexRepoTask.ps1" = "+Add spec-to-diff validation to the runner."
+            "docs/codex-orchestration.md" = "+Update the shared worker docs."
+            "package.json" = "+unexpected change"
+        }
+    if ($unchangedViolationResult.isValid) {
+        throw "Spec-to-diff validation should fail when an expected unchanged path changes without justification."
+    }
+    if (($unchangedViolationResult.blockingReasons -join "`n") -notmatch "Expected unchanged path 'package.json' changed without explicit justification") {
+        throw "Spec-to-diff validation did not report the expected-unchanged-path violation."
+    }
+
+    $successfulProofResult = Test-SpecToDiffCompletionProof `
+        -PromptRecord $proofPrompt `
+        -ArtifactRecord ([pscustomobject]@{
+            parseError = $null
+            payload = [pscustomobject]@{
+                contract_version = "atlas.stack.spec_to_diff.v1"
+                criteria = @(
+                    [pscustomobject]@{
+                        criterion_id = "ac-01"
+                        status = "satisfied"
+                        changed_paths = @("ops/codex/Invoke-CodexRepoTask.ps1")
+                        diff_evidence = @("Add spec-to-diff validation to the runner.")
+                        note = ""
+                    },
+                    [pscustomobject]@{
+                        criterion_id = "ac-02"
+                        status = "satisfied"
+                        changed_paths = @("docs/codex-orchestration.md")
+                        diff_evidence = @("Update the shared worker docs.")
+                        note = ""
+                    }
+                )
+                unchanged_path_justifications = @()
+            }
+        }) `
+        -ChangedPaths @("ops/codex/Invoke-CodexRepoTask.ps1", "docs/codex-orchestration.md") `
+        -PathEvidenceMap @{
+            "ops/codex/Invoke-CodexRepoTask.ps1" = "+Add spec-to-diff validation to the runner."
+            "docs/codex-orchestration.md" = "+Update the shared worker docs."
+        }
+    if (-not $successfulProofResult.isValid) {
+        throw ("Spec-to-diff validation should pass when every criterion is satisfied and provable. Reasons: {0}" -f ($successfulProofResult.blockingReasons -join "; "))
     }
 }
 finally {

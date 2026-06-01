@@ -39,10 +39,12 @@ The shared runner operates inside repo-local worktrees. It does not move repo ar
 5. Codex runs non-interactively inside that worktree.
 6. Verification bootstrap commands run first, then the effective verify list from prompt metadata or adapter defaults.
 7. Adapters may also declare a proof gate that runs after the standard verify commands and fails closed when the declared status artifact is missing, unreadable, or reports `completion_ready=false`.
-8. The runner writes `worker.assignment.json` and a running status artifact before execution, then records completion status with touched ranges when the run ends.
-9. The runner blocks commit if verification fails, proof gating fails, or changed files exceed `allowedMutationSurfaces`.
-10. Successful mutating tasks auto-commit by default, skip push, export patch and optional bundle artifacts, and archive the prompt.
-11. Failed runs still archive the prompt and keep worktree/log state for inspection.
+8. For mutating prompts that declare explicit acceptance criteria, Codex must emit a temporary spec-to-diff completion artifact before the runner can grant success.
+9. The runner validates that artifact against the final repo diff and fails closed when any criterion is missing, unsupported, contradictory, skipped, failed, blocked, or otherwise unproven.
+10. The runner writes `worker.assignment.json` and a running status artifact before execution, then records completion status with touched ranges when the run ends.
+11. The runner blocks commit if verification fails, proof gating fails, the spec-to-diff gate fails, or changed files exceed `allowedMutationSurfaces`.
+12. Successful mutating tasks auto-commit by default, skip push, export patch and optional bundle artifacts, and archive the prompt.
+13. Failed runs still archive the prompt and keep worktree/log state for inspection.
 
 ## Adapter contract
 
@@ -136,11 +138,33 @@ Lifeline stays intentionally repo-local:
 
 - repo-local inbox/archive/log/worktree/export paths resolve under `_stack/.codex/`
 - verification stays lightweight and checks required operator files, `_stack` Codex scripts/tasks, and whitespace safety with `git diff --check`
+- `git diff --check` remains hygiene only; it is not proof that the requested source edits were applied
 - mutation scope stays limited to `_stack` operator surfaces such as `ops/**`, `docs/**`, `.vscode/**`, templates, queue, receipts scaffolding, and repo metadata
 - docs rules keep README, orchestration docs, dispatcher docs, workspace manifest, and handoff templates aligned when `_stack` runner behavior or workflow boundaries change
 - push remains manual-only
 - local landing is enabled only for `_stack`, using `ff-only` to bring a successful task commit back onto local `main` when the repo-root worktree is safe to advance
 - auto-commit remains enabled by default for successful mutating tasks using the same commit metadata artifact contract
+
+## Spec-To-Diff Gate
+
+Pattern: `Spec-to-Diff Verification Gate`
+
+For mutating prompts that declare explicit acceptance criteria, the runner requires a temporary completion artifact under `.codex/` with one entry per criterion. A task is completion-ready only when every criterion is explicitly accounted for and each `satisfied` criterion is provable from the final repo diff.
+
+Rule details:
+
+- summary text is never proof
+- changed-path presence alone is never proof
+- `git diff --check` is hygiene only
+- visual diffs and proof-gate screenshots are screenshot proof, not source-edit proof
+- blocked, skipped, and failed criteria keep the task out of the success path
+- expected unchanged paths must remain unchanged unless the completion artifact provides an explicit justification
+- mutating Codex tasks are not considered governed unless they declare acceptance criteria
+- legacy mutating prompts remain on the compatibility path until they are converted to the acceptance-criteria contract
+
+Failure Mode: `Summary-Truth Drift`
+
+This failure mode occurs when a worker summary claims the requested change is complete but the repository diff does not prove that every explicit requested edit was applied.
 
 ## Auto-commit, landing, and push policy
 
@@ -149,6 +173,7 @@ Default behavior is explicit and fail-closed:
 - successful mutating tasks auto-commit
 - no-change tasks do not create empty commits
 - verification failure blocks commit
+- spec-to-diff proof failure blocks commit
 - mutation-scope failure blocks commit
 - base-ref resolution is local-first: prefer configured `origin/<branch>` when it exists locally, otherwise fall back to the matching local branch name
 - local landing is adapter-controlled and defaults to disabled
@@ -189,6 +214,15 @@ The runner writes commit trace artifacts into the run log directory:
 - `commit-meta.resolved.json` with the validated or fallback metadata
 - `commit-message.txt` with the final message used for commit
 - `worker.assignment.json`, `worker.status.running.json`, and `worker.status.completed.json` for worker lifecycle tracking
+
+For mutating prompts with acceptance criteria, the runner also asks Codex for a temporary spec-to-diff completion artifact:
+
+- default artifact path: `.codex/spec-to-diff-proof.json`
+- required contract version: `atlas.stack.spec_to_diff.v1`
+- one entry per acceptance criterion
+- allowed statuses: `satisfied`, `skipped`, `failed`, `blocked`
+
+The runner copies the raw artifact into the run log, validates it against the final diff, then removes the temporary worktree artifact before staging. Missing, unreadable, or unproven completion proof blocks success and commit.
 
 Push remains manual-only. This pass does not add any auto-push or multi-repo dispatch behavior.
 

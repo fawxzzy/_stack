@@ -407,6 +407,43 @@ function Read-JsonFile {
     return ($raw | ConvertFrom-Json)
 }
 
+function Read-SpecToDiffArtifact {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    $raw = Get-Content -LiteralPath $Path -Raw
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return [pscustomobject]@{
+            path = $Path
+            rawContent = $raw
+            parseError = "Spec-to-diff completion artifact is empty."
+            payload = $null
+        }
+    }
+
+    try {
+        $payload = $raw | ConvertFrom-Json
+    }
+    catch {
+        return [pscustomobject]@{
+            path = $Path
+            rawContent = $raw
+            parseError = $_.Exception.Message
+            payload = $null
+        }
+    }
+
+    return [pscustomobject]@{
+        path = $Path
+        rawContent = $raw
+        parseError = $null
+        payload = $payload
+    }
+}
+
 function ConvertTo-StringArray {
     param($Value)
 
@@ -459,6 +496,157 @@ function Get-PendingPromptFiles {
     return @(Get-ChildItem -LiteralPath $Directory -Filter *.md -File |
         Where-Object { $_.Name -ne "README.md" } |
         Sort-Object Name)
+}
+
+function Normalize-PromptSectionName {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return ""
+    }
+
+    $trimmed = $Value.Trim()
+    $trimmed = $trimmed -replace '^#{1,6}\s*', ''
+    $trimmed = $trimmed.Trim()
+    while ($trimmed.EndsWith(":")) {
+        $trimmed = $trimmed.Substring(0, $trimmed.Length - 1).Trim()
+    }
+
+    return (($trimmed -replace "[^A-Za-z0-9]", "").ToLowerInvariant())
+}
+
+function Get-PromptBodySections {
+    param([string]$Body)
+
+    $recognizedSections = @(
+        "objective",
+        "context",
+        "constraints",
+        "acceptancecriteria",
+        "expectedchangedpaths",
+        "expectedunchangedpaths",
+        "blockedskippedreportingrules",
+        "verification",
+        "pauseresumemerge",
+        "deliverback",
+        "requiredoutcome",
+        "primaryfile",
+        "implementationscope",
+        "likelyfiles",
+        "mandatoryinheritedcontract",
+        "noexecutionguard",
+        "stopandreturntriggers"
+    )
+
+    $sections = @{}
+    if ([string]::IsNullOrWhiteSpace($Body)) {
+        return $sections
+    }
+
+    $currentSection = $null
+    foreach ($line in ($Body -split "`r?`n")) {
+        $normalizedHeader = Normalize-PromptSectionName -Value $line
+        if ($recognizedSections -contains $normalizedHeader) {
+            $currentSection = $normalizedHeader
+            if (-not $sections.ContainsKey($currentSection)) {
+                $sections[$currentSection] = New-Object System.Collections.Generic.List[string]
+            }
+            continue
+        }
+
+        if ($null -ne $currentSection) {
+            [void]$sections[$currentSection].Add($line)
+        }
+    }
+
+    $result = @{}
+    foreach ($key in $sections.Keys) {
+        $result[$key] = @($sections[$key].ToArray())
+    }
+
+    return $result
+}
+
+function Convert-PromptSectionLinesToItems {
+    param([string[]]$Lines)
+
+    $items = New-Object System.Collections.Generic.List[string]
+    $current = ""
+
+    foreach ($line in @($Lines)) {
+        $trimmed = $line.Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed)) {
+            if (-not [string]::IsNullOrWhiteSpace($current)) {
+                [void]$items.Add($current.Trim())
+                $current = ""
+            }
+            continue
+        }
+
+        if ($trimmed -match '^(?:[-*+]\s+|\d+\.\s+)(?<value>.+)$') {
+            if (-not [string]::IsNullOrWhiteSpace($current)) {
+                [void]$items.Add($current.Trim())
+            }
+            $current = $Matches.value.Trim()
+            continue
+        }
+
+        if ([string]::IsNullOrWhiteSpace($current)) {
+            $current = $trimmed
+        }
+        else {
+            $current = "{0} {1}" -f $current, $trimmed
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($current)) {
+        [void]$items.Add($current.Trim())
+    }
+
+    return @($items.ToArray())
+}
+
+function Convert-PromptAcceptanceCriteria {
+    param([string[]]$Items)
+
+    $criteria = New-Object System.Collections.Generic.List[object]
+    $seenIds = New-Object System.Collections.Generic.HashSet[string]
+    $counter = 0
+
+    foreach ($item in @($Items)) {
+        $text = [string]$item
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            continue
+        }
+
+        $counter += 1
+        $text = $text.Trim()
+        $criterionId = $null
+        if ($text -match '^\[(?<id>[A-Za-z0-9._-]+)\]\s*(?<value>.+)$') {
+            $candidateId = [string]$Matches.id
+            if (-not [string]::IsNullOrWhiteSpace($candidateId)) {
+                $criterionId = $candidateId.Trim().ToLowerInvariant()
+                $text = $Matches.value.Trim()
+            }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($criterionId)) {
+            $criterionId = ("ac-{0:00}" -f $counter)
+        }
+
+        while ($seenIds.Contains($criterionId)) {
+            $counter += 1
+            $criterionId = ("ac-{0:00}" -f $counter)
+        }
+        [void]$seenIds.Add($criterionId)
+
+        [void]$criteria.Add([pscustomobject]@{
+            id = $criterionId
+            text = $text
+        })
+    }
+
+    return @($criteria.ToArray())
 }
 
 function Parse-PromptFile {
@@ -597,6 +785,30 @@ function Parse-PromptFile {
         $body = $rawContent.Trim()
     }
 
+    $bodySections = Get-PromptBodySections -Body $body
+    $acceptanceCriteria = @()
+    if ($bodySections.ContainsKey("acceptancecriteria")) {
+        $acceptanceCriteria = Convert-PromptAcceptanceCriteria -Items (Convert-PromptSectionLinesToItems -Lines $bodySections["acceptancecriteria"])
+    }
+    $expectedChangedPaths = if ($bodySections.ContainsKey("expectedchangedpaths")) {
+        @(Convert-PromptSectionLinesToItems -Lines $bodySections["expectedchangedpaths"])
+    }
+    else {
+        @()
+    }
+    $expectedUnchangedPaths = if ($bodySections.ContainsKey("expectedunchangedpaths")) {
+        @(Convert-PromptSectionLinesToItems -Lines $bodySections["expectedunchangedpaths"])
+    }
+    else {
+        @()
+    }
+    $blockedSkippedRules = if ($bodySections.ContainsKey("blockedskippedreportingrules")) {
+        @(Convert-PromptSectionLinesToItems -Lines $bodySections["blockedskippedreportingrules"])
+    }
+    else {
+        @()
+    }
+
     $title = Resolve-PromptTitle -Metadata $metadata -Lines $lines -Path $Path
     $branchSlug = if ($metadata.ContainsKey("BranchSlug")) { $metadata["BranchSlug"] } else { $null }
     $commitMessage = if ($metadata.ContainsKey("CommitMessage")) { $metadata["CommitMessage"] } else { $null }
@@ -617,8 +829,50 @@ function Parse-PromptFile {
         DocsUpdateNote = $docsUpdateNote
         ExportPatch = $exportPatch
         ExportBundle = $exportBundle
+        AcceptanceCriteria = @($acceptanceCriteria)
+        ExpectedChangedPaths = @($expectedChangedPaths)
+        ExpectedUnchangedPaths = @($expectedUnchangedPaths)
+        BlockedSkippedRules = @($blockedSkippedRules)
         Body = $body
         RawContent = $rawContent
+    }
+}
+
+function Get-SpecToDiffPromptPolicy {
+    param($PromptRecord)
+
+    $criteria = if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "AcceptanceCriteria") {
+        @($PromptRecord.AcceptanceCriteria)
+    }
+    else {
+        @()
+    }
+    $expectedChangedPaths = if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "ExpectedChangedPaths") {
+        @($PromptRecord.ExpectedChangedPaths)
+    }
+    else {
+        @()
+    }
+    $expectedUnchangedPaths = if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "ExpectedUnchangedPaths") {
+        @($PromptRecord.ExpectedUnchangedPaths)
+    }
+    else {
+        @()
+    }
+    $blockedSkippedRules = if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "BlockedSkippedRules") {
+        @($PromptRecord.BlockedSkippedRules)
+    }
+    else {
+        @()
+    }
+
+    return [pscustomobject]@{
+        enabled = $criteria.Count -gt 0
+        artifactPath = ".codex/spec-to-diff-proof.json"
+        acceptanceCriteria = $criteria
+        expectedChangedPaths = $expectedChangedPaths
+        expectedUnchangedPaths = $expectedUnchangedPaths
+        blockedSkippedRules = $blockedSkippedRules
     }
 }
 
@@ -1463,6 +1717,315 @@ function Get-ChangedPaths {
     return @($paths.ToArray())
 }
 
+function Normalize-RepoRelativePathList {
+    param([string[]]$Paths)
+
+    $normalized = New-Object System.Collections.Generic.List[string]
+    foreach ($path in @($Paths)) {
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            continue
+        }
+
+        $candidate = ([string]$path).Trim().Replace("\", "/")
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and -not $normalized.Contains($candidate)) {
+            [void]$normalized.Add($candidate)
+        }
+    }
+
+    return @($normalized.ToArray())
+}
+
+function Get-SpecToDiffPathEvidenceMap {
+    param(
+        [string]$WorkingDirectory,
+        [string[]]$ChangedPaths
+    )
+
+    $evidence = @{}
+    foreach ($path in (Normalize-RepoRelativePathList -Paths $ChangedPaths)) {
+        $diffText = ""
+        if (Test-GitPathTracked -Path $path -WorkingDirectory $WorkingDirectory) {
+            $diffResult = Invoke-Git -Arguments @("diff", "--relative", "HEAD", "--", $path) -WorkingDirectory $WorkingDirectory
+            if ($diffResult.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($diffResult.StdOut)) {
+                $diffText = $diffResult.StdOut
+            }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($diffText)) {
+            $absolutePath = Join-Path -Path $WorkingDirectory -ChildPath $path
+            if (Test-Path -LiteralPath $absolutePath) {
+                $diffText = [System.IO.File]::ReadAllText($absolutePath)
+            }
+        }
+
+        $evidence[$path] = ($diffText -replace "`r`n", "`n")
+    }
+
+    return $evidence
+}
+
+function Test-SpecToDiffCompletionProof {
+    param(
+        $PromptRecord,
+        $ArtifactRecord,
+        [string[]]$ChangedPaths = @(),
+        [string]$WorkingDirectory = "",
+        [hashtable]$PathEvidenceMap = $null
+    )
+
+    $policy = Get-SpecToDiffPromptPolicy -PromptRecord $PromptRecord
+    $normalizedChangedPaths = @(Normalize-RepoRelativePathList -Paths $ChangedPaths)
+    $result = [ordered]@{
+        enabled = [bool]$policy.enabled
+        artifactPath = [string]$policy.artifactPath
+        isValid = $true
+        blockingReasons = @()
+        changedPaths = @($normalizedChangedPaths)
+        criteria = @()
+        expectedChangedPathMatches = @()
+        expectedUnchangedPathViolations = @()
+        justifiedExpectedUnchangedPaths = @()
+    }
+
+    if (-not $policy.enabled) {
+        return [pscustomobject]$result
+    }
+
+    if ($null -eq $ArtifactRecord) {
+        $result.isValid = $false
+        $result.blockingReasons = @("Spec-to-diff completion artifact is required when acceptance criteria are declared.")
+        return [pscustomobject]$result
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace([string]$ArtifactRecord.parseError)) {
+        $result.isValid = $false
+        $result.blockingReasons = @("Spec-to-diff completion artifact could not be parsed: $($ArtifactRecord.parseError)")
+        return [pscustomobject]$result
+    }
+
+    $payload = $ArtifactRecord.payload
+    if ($null -eq $payload) {
+        $result.isValid = $false
+        $result.blockingReasons = @("Spec-to-diff completion artifact payload is missing.")
+        return [pscustomobject]$result
+    }
+
+    $contractVersion = [string](Get-ObjectPropertyValue -Object $payload -Name "contract_version" -DefaultValue "")
+    if ($contractVersion -ne "atlas.stack.spec_to_diff.v1") {
+        $result.isValid = $false
+        $result.blockingReasons += ("Spec-to-diff completion artifact must declare contract_version=atlas.stack.spec_to_diff.v1. Found '{0}'." -f $contractVersion)
+    }
+
+    $artifactCriteria = @(Get-ObjectPropertyValue -Object $payload -Name "criteria" -DefaultValue @())
+    if ($artifactCriteria.Count -eq 0) {
+        $result.isValid = $false
+        $result.blockingReasons += "Spec-to-diff completion artifact must include one criterion entry per acceptance criterion."
+    }
+
+    $artifactCriteriaById = @{}
+    foreach ($entry in $artifactCriteria) {
+        $criterionId = [string](Get-ObjectPropertyValue -Object $entry -Name "criterion_id" -DefaultValue "")
+        if ([string]::IsNullOrWhiteSpace($criterionId)) {
+            $result.isValid = $false
+            $result.blockingReasons += "Each spec-to-diff criterion entry must declare criterion_id."
+            continue
+        }
+
+        if ($artifactCriteriaById.ContainsKey($criterionId)) {
+            $result.isValid = $false
+            $result.blockingReasons += ("Spec-to-diff completion artifact includes duplicate criterion_id '{0}'." -f $criterionId)
+            continue
+        }
+
+        $artifactCriteriaById[$criterionId] = $entry
+    }
+
+    $knownCriterionIds = @($policy.acceptanceCriteria | ForEach-Object { [string]$_.id })
+    foreach ($artifactCriterionId in $artifactCriteriaById.Keys) {
+        if ($artifactCriterionId -notin $knownCriterionIds) {
+            $result.isValid = $false
+            $result.blockingReasons += ("Spec-to-diff completion artifact reported unknown criterion_id '{0}'." -f $artifactCriterionId)
+        }
+    }
+
+    $evidenceMap = if ($null -ne $PathEvidenceMap) {
+        $PathEvidenceMap
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {
+        Get-SpecToDiffPathEvidenceMap -WorkingDirectory $WorkingDirectory -ChangedPaths $normalizedChangedPaths
+    }
+    else {
+        @{}
+    }
+
+    foreach ($criterion in @($policy.acceptanceCriteria)) {
+        $criterionId = [string]$criterion.id
+        $entry = if ($artifactCriteriaById.ContainsKey($criterionId)) { $artifactCriteriaById[$criterionId] } else { $null }
+        if ($null -eq $entry) {
+            $result.isValid = $false
+            $result.blockingReasons += ("Acceptance criterion '{0}' is missing from the completion artifact." -f $criterionId)
+            continue
+        }
+
+        $status = [string](Get-ObjectPropertyValue -Object $entry -Name "status" -DefaultValue "")
+        $status = $status.Trim().ToLowerInvariant()
+        $entryChangedPaths = @(Normalize-RepoRelativePathList -Paths (ConvertTo-StringArray -Value (Get-ObjectPropertyValue -Object $entry -Name "changed_paths" -DefaultValue @())))
+        $diffEvidence = @(ConvertTo-StringArray -Value (Get-ObjectPropertyValue -Object $entry -Name "diff_evidence" -DefaultValue @()))
+        $note = [string](Get-ObjectPropertyValue -Object $entry -Name "note" -DefaultValue "")
+
+        $criterionRecord = [ordered]@{
+            criterion_id = $criterionId
+            criterion_text = [string]$criterion.text
+            status = $status
+            changed_paths = @($entryChangedPaths)
+            diff_evidence = @($diffEvidence)
+            note = $note
+            proven = $false
+        }
+
+        if ($status -notin @("satisfied", "skipped", "failed", "blocked")) {
+            $result.isValid = $false
+            $result.blockingReasons += ("Criterion '{0}' reported invalid status '{1}'." -f $criterionId, $status)
+            $result.criteria += [pscustomobject]$criterionRecord
+            continue
+        }
+
+        if ($status -ne "satisfied") {
+            if ([string]::IsNullOrWhiteSpace($note)) {
+                $result.blockingReasons += ("Criterion '{0}' is {1} but does not include an explanatory note." -f $criterionId, $status)
+            }
+            else {
+                $result.blockingReasons += ("Criterion '{0}' is {1}: {2}" -f $criterionId, $status, $note.Trim())
+            }
+            $result.isValid = $false
+            $result.criteria += [pscustomobject]$criterionRecord
+            continue
+        }
+
+        if ($entryChangedPaths.Count -eq 0) {
+            $result.isValid = $false
+            $result.blockingReasons += ("Criterion '{0}' is marked satisfied but does not list supporting changed_paths." -f $criterionId)
+        }
+
+        foreach ($path in $entryChangedPaths) {
+            if ($path -notin $normalizedChangedPaths) {
+                $result.isValid = $false
+                $result.blockingReasons += ("Criterion '{0}' cites changed path '{1}' that is not present in the final diff." -f $criterionId, $path)
+            }
+        }
+
+        if ($diffEvidence.Count -eq 0) {
+            $result.isValid = $false
+            $result.blockingReasons += ("Criterion '{0}' is marked satisfied but does not include diff_evidence." -f $criterionId)
+        }
+
+        $criterionProven = $true
+        foreach ($evidence in $diffEvidence) {
+            if ([string]::IsNullOrWhiteSpace($evidence)) {
+                $criterionProven = $false
+                $result.isValid = $false
+                $result.blockingReasons += ("Criterion '{0}' includes blank diff_evidence." -f $criterionId)
+                continue
+            }
+
+            $evidenceFound = $false
+            foreach ($path in $entryChangedPaths) {
+                $proofText = [string](Get-ObjectPropertyValue -Object $evidenceMap -Name $path -DefaultValue $null)
+                if ([string]::IsNullOrWhiteSpace($proofText) -and $evidenceMap.ContainsKey($path)) {
+                    $proofText = [string]$evidenceMap[$path]
+                }
+                if (-not [string]::IsNullOrWhiteSpace($proofText) -and $proofText.Contains([string]$evidence)) {
+                    $evidenceFound = $true
+                    break
+                }
+            }
+
+            if (-not $evidenceFound) {
+                $criterionProven = $false
+                $result.isValid = $false
+                $result.blockingReasons += ("Criterion '{0}' evidence '{1}' was not found in the final diff or file content for its declared paths." -f $criterionId, $evidence)
+            }
+        }
+
+        if ($criterionProven -and $entryChangedPaths.Count -gt 0 -and $diffEvidence.Count -gt 0) {
+            $criterionRecord.proven = $true
+        }
+        else {
+            $criterionRecord.proven = $false
+        }
+
+        $result.criteria += [pscustomobject]$criterionRecord
+    }
+
+    foreach ($pattern in @($policy.expectedChangedPaths)) {
+        $matchedPaths = @(
+            $normalizedChangedPaths |
+            Where-Object { Test-PathMatchesAllowedSurface -Path $_ -AllowedPatterns @([string]$pattern) }
+        )
+        $result.expectedChangedPathMatches += [pscustomobject]@{
+            pattern = [string]$pattern
+            matched_paths = @($matchedPaths)
+        }
+        if ($matchedPaths.Count -eq 0) {
+            $result.isValid = $false
+            $result.blockingReasons += ("Expected changed path pattern '{0}' was not present in the final diff." -f $pattern)
+        }
+    }
+
+    $justifications = @(Get-ObjectPropertyValue -Object $payload -Name "unchanged_path_justifications" -DefaultValue @())
+    foreach ($pattern in @($policy.expectedUnchangedPaths)) {
+        $violatingPaths = @(
+            $normalizedChangedPaths |
+            Where-Object { Test-PathMatchesAllowedSurface -Path $_ -AllowedPatterns @([string]$pattern) }
+        )
+        if ($violatingPaths.Count -eq 0) {
+            continue
+        }
+
+        foreach ($violatingPath in $violatingPaths) {
+            $matchingJustificationCandidates = @(
+                $justifications |
+                Where-Object {
+                    $justificationPath = [string](Get-ObjectPropertyValue -Object $_ -Name "path" -DefaultValue "")
+                    Test-PathMatchesAllowedSurface -Path $violatingPath -AllowedPatterns @($justificationPath)
+                } |
+                Select-Object -First 1
+            )
+            $matchingJustification = if ($matchingJustificationCandidates.Count -gt 0) {
+                $matchingJustificationCandidates[0]
+            }
+            else {
+                $null
+            }
+            $justificationText = if ($null -ne $matchingJustification) {
+                [string](Get-ObjectPropertyValue -Object $matchingJustification -Name "justification" -DefaultValue "")
+            }
+            else {
+                ""
+            }
+
+            if ([string]::IsNullOrWhiteSpace($justificationText)) {
+                $result.isValid = $false
+                $result.blockingReasons += ("Expected unchanged path '{0}' changed without explicit justification." -f $violatingPath)
+                $result.expectedUnchangedPathViolations += [pscustomobject]@{
+                    path = $violatingPath
+                    pattern = [string]$pattern
+                    justification = $null
+                }
+                continue
+            }
+
+            $result.justifiedExpectedUnchangedPaths += [pscustomobject]@{
+                path = $violatingPath
+                pattern = [string]$pattern
+                justification = $justificationText.Trim()
+            }
+        }
+    }
+
+    return [pscustomobject]$result
+}
+
 function Test-PathMatchesAllowedSurface {
     param(
         [string]$Path,
@@ -1495,6 +2058,7 @@ function Get-StatusExitCode {
         "no_changes" { return 14 }
         "archive_failed" { return 15 }
         "mutation_scope_failed" { return 16 }
+        "spec_to_diff_failed" { return 17 }
         default { return 10 }
     }
 }
