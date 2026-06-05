@@ -14,7 +14,7 @@
 
 - `pnpm run stack:marker:checkpoint:test`
 - `pnpm run stack:marker:checkpoint -- --format json --scope lane --lane "_stack Readiness"`
-- `python C:\ATLAS\ops\validation\validate_stack.py`
+- `python ops/validation/validate_stack.py`
 
 ## Result
 

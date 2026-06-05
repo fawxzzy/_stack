@@ -16,7 +16,7 @@
 - `pnpm run stack:receipt:package:test`
 - `pnpm run stack:receipt:package -- --format json --lane "AI Repetition-to-Automation Pipeline"`
 - `pnpm run stack:receipt:package -- --format json --lane "_stack Readiness" --receipt-context "docs/ops/_STACK-READINESS-STACK-RECEIPT-PACKAGE-IMPLEMENTATION-READINESS-CLOSEOUT-AND-WORKER-ROUTING-PASS-40-2026-06-04.md"`
-- `python C:\ATLAS\ops\validation\validate_stack.py`
+- `python ops/validation/validate_stack.py`
 
 ## Result
 
