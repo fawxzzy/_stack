@@ -571,7 +571,7 @@ async function loadProofBasis({ workspaceRoot, proofRef, readText }) {
   };
 }
 
-async function loadLedgerBasis({ workspaceRoot, ledgerRef, proof, readText }) {
+async function loadLedgerBasis({ workspaceRoot, proofRef, ledgerRef, proof, readText }) {
   const filePath = path.join(workspaceRoot, normalizeRelativePath(ledgerRef));
   let text;
   try {
@@ -645,7 +645,7 @@ async function loadLedgerBasis({ workspaceRoot, ledgerRef, proof, readText }) {
         routingNote: ROUTING_NOTES.proofLedgerContradiction,
         contradictionNotePayload: contradictionNote(
           contradiction.scope,
-          [normalizeRelativePath(ledgerRef)],
+          [normalizeRelativePath(proofRef), normalizeRelativePath(ledgerRef)],
           "no-package"
         )
       })
@@ -868,6 +868,7 @@ export async function runUpdateDraftCommand(argv, dependencies = {}) {
 
   const ledgerResult = await loadLedgerBasis({
     workspaceRoot,
+    proofRef: parsed.args.proofRef,
     ledgerRef: parsed.args.ledgerRef,
     proof: proofResult.proof,
     readText
