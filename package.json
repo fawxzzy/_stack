@@ -11,6 +11,8 @@
     "stack:marker:checkpoint:test": "node --test .\\scripts\\marker-checkpoint.test.mjs",
     "stack:receipt:package": "node .\\scripts\\receipt-package.mjs",
     "stack:receipt:package:test": "node --test .\\scripts\\receipt-package.test.mjs",
+    "stack:update:draft": "node .\\scripts\\update-draft.mjs",
+    "stack:update:draft:test": "node --test .\\scripts\\update-draft.test.mjs",
     "stack:validate:summary": "node .\\scripts\\validation-summary.mjs",
     "stack:validate:summary:test": "node --test .\\scripts\\validation-summary.test.mjs",
     "data-gateway:packet:emit:dry-run": "node .\\scripts\\data-gateway-packet-emitter.mjs",
