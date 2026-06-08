@@ -151,6 +151,21 @@ test("same-story receipt context upgrades the bounded success contract to packag
     result.report.routing_note,
     "package downstream-consumption only from exact proof and ledger basis plus one same-story context"
   );
+  assertExactKeys(result.report, [
+    "command",
+    "repo",
+    "package_mode",
+    "package_status",
+    "proof_ref",
+    "ledger_ref",
+    "package_fields",
+    "context_status",
+    "routing_note",
+    "receipt_context",
+    "deployment_metadata",
+    "ledger_notes",
+    "context_note"
+  ]);
 
   await fs.rm(workspaceRoot, { recursive: true, force: true });
 });
@@ -183,6 +198,22 @@ test("inadmissible receipt context is ignored without widening the package-ready
   assert.equal(result.report.contradiction_note.contradiction_scope, "receipt-context");
   assert.equal(result.report.contradiction_note.summary_consequence, "package-ready-without-context");
   assert.equal("context_note" in result.report, false);
+  assertExactKeys(result.report, [
+    "command",
+    "repo",
+    "package_mode",
+    "package_status",
+    "proof_ref",
+    "ledger_ref",
+    "package_fields",
+    "context_status",
+    "routing_note",
+    "receipt_context",
+    "deployment_metadata",
+    "ledger_notes",
+    "context_fallback_reason",
+    "contradiction_note"
+  ]);
 
   await fs.rm(workspaceRoot, { recursive: true, force: true });
 });
@@ -271,7 +302,50 @@ test("proof-ledger contradiction fails closed with the bounded contradiction pay
   assert.equal(result.report.failure_code, "proof-ledger-contradiction");
   assert.equal(result.report.failure_scope, "proof-ledger-story");
   assert.equal(result.report.contradiction_note.contradiction_scope, "commit-or-target");
+  assert.deepEqual(result.report.contradiction_note.conflicting_refs, [
+    "repos/fawxzzy-fitness/docs/releases/fitness/2026/mock.md",
+    "repos/fawxzzy-fitness/docs/releases/RELEASE_LEDGER.jsonl"
+  ]);
   assert.equal(result.report.contradiction_note.summary_consequence, "no-package");
+  assertExactKeys(result.report, [
+    "command",
+    "failure_code",
+    "failure_scope",
+    "message",
+    "routing_note",
+    "contradiction_note"
+  ]);
+
+  await fs.rm(workspaceRoot, { recursive: true, force: true });
+});
+
+test("malformed proof basis fails closed without fabricating a package story", async () => {
+  const workspaceRoot = await withWorkspace({
+    "repos/fawxzzy-fitness/docs/releases/fitness/2026/mock.md": "# Not a release proof\n",
+    "repos/fawxzzy-fitness/docs/releases/RELEASE_LEDGER.jsonl": `${createLedgerEntry()}\n`
+  });
+
+  const result = await runUpdateDraftCommand([
+    "--format",
+    "json",
+    "--repo",
+    "repos/fawxzzy-fitness",
+    "--proof-ref",
+    "repos/fawxzzy-fitness/docs/releases/fitness/2026/mock.md",
+    "--ledger-ref",
+    "repos/fawxzzy-fitness/docs/releases/RELEASE_LEDGER.jsonl"
+  ], { workspaceRoot });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.report.failure_code, "package-basis-unavailable");
+  assert.equal(result.report.failure_scope, "proof-basis");
+  assertExactKeys(result.report, [
+    "command",
+    "failure_code",
+    "failure_scope",
+    "message",
+    "routing_note"
+  ]);
 
   await fs.rm(workspaceRoot, { recursive: true, force: true });
 });
@@ -300,6 +374,40 @@ test("malformed ledger basis fails closed without fabricating a package story", 
   await fs.rm(workspaceRoot, { recursive: true, force: true });
 });
 
+test("missing cited receipt path fails closed as invalid input", async () => {
+  const workspaceRoot = await withWorkspace({
+    "repos/fawxzzy-fitness/docs/releases/fitness/2026/mock.md": createProof(),
+    "repos/fawxzzy-fitness/docs/releases/RELEASE_LEDGER.jsonl": `${createLedgerEntry()}\n`
+  });
+
+  const result = await runUpdateDraftCommand([
+    "--format",
+    "json",
+    "--repo",
+    "repos/fawxzzy-fitness",
+    "--proof-ref",
+    "repos/fawxzzy-fitness/docs/releases/fitness/2026/mock.md",
+    "--ledger-ref",
+    "repos/fawxzzy-fitness/docs/releases/RELEASE_LEDGER.jsonl",
+    "--receipt-context",
+    "receipts/missing.md"
+  ], { workspaceRoot });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.report.failure_code, "invalid-input");
+  assert.equal(result.report.failure_scope, "input");
+  assert.equal("contradiction_note" in result.report, false);
+  assertExactKeys(result.report, [
+    "command",
+    "failure_code",
+    "failure_scope",
+    "message",
+    "routing_note"
+  ]);
+
+  await fs.rm(workspaceRoot, { recursive: true, force: true });
+});
+
 test("unsupported invocation fails closed as invalid input", async () => {
   const result = await runUpdateDraftCommand([
     "--format",
@@ -310,6 +418,25 @@ test("unsupported invocation fails closed as invalid input", async () => {
     "repos/fawxzzy-fitness/docs/releases/fitness/2026/mock.md",
     "--ledger-ref",
     "repos/fawxzzy-fitness/docs/releases/RELEASE_LEDGER.jsonl"
+  ]);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.report.failure_code, "invalid-input");
+  assert.equal(result.report.failure_scope, "input");
+});
+
+test("receipt-context path discipline fails before any file loading", async () => {
+  const result = await runUpdateDraftCommand([
+    "--format",
+    "json",
+    "--repo",
+    "repos/fawxzzy-fitness",
+    "--proof-ref",
+    "repos/fawxzzy-fitness/docs/releases/fitness/2026/mock.md",
+    "--ledger-ref",
+    "repos/fawxzzy-fitness/docs/releases/RELEASE_LEDGER.jsonl",
+    "--receipt-context",
+    "C:\\outside\\receipt.md"
   ]);
 
   assert.equal(result.ok, false);
