@@ -34,6 +34,7 @@ Use for workflow commands and shared operator tooling executed from `_stack`.
   - `route`
   - `verify`
   - `deploy`
+  - bounded explicit-input packaging commands such as the queue-or-registry wrappers
   - shared Codex inbox and task runs for `_stack` operator surfaces
 - Constraint:
   - Prefer `_stack/package.json` scripts and `_stack/.vscode/tasks.json` tasks before inventing ad hoc workspace commands.

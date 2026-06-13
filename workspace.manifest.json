@@ -4,6 +4,12 @@
       "path": ".",
       "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-StackOperatorSurface.ps1 && git diff --check",
       "deployModel": "operator-layer",
+      "queueOrRegistryCommands": [
+        "pnpm run stack:queue-or-registry:follow-on",
+        "pnpm run stack:queue-or-registry:live-direct-json-read-follow-on",
+        "pnpm run stack:queue-or-registry:live-directory-read-follow-on",
+        "pnpm run stack:queue-or-registry:broader-execution-behavior"
+      ],
       "codexLocalLanding": "ff-only-local-main",
       "codexBaseRefRule": "prefer-origin-main-else-local-main"
     },

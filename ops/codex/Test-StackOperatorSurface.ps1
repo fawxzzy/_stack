@@ -42,6 +42,8 @@ $requiredFiles = @(
     "config/trove-deploy.identity.json",
     "scripts/command-runner.mjs",
     "scripts/command-runner.test.mjs",
+    "scripts/queue-or-registry-broader-execution-behavior.mjs",
+    "scripts/queue-or-registry-broader-execution-behavior.test.mjs",
     "scripts/release-launcher.test.mjs",
     "scripts/release-launcher.mjs",
     "scripts/atlas-topology.mjs",
@@ -73,6 +75,8 @@ $requiredScripts = @(
     "codex:stack:inbox:once",
     "codex:stack:task",
     "codex:stack:verify",
+    "stack:queue-or-registry:broader-execution-behavior",
+    "stack:queue-or-registry:broader-execution-behavior:test",
     "trove:deploy:preflight"
 )
 $missingScripts = @(
@@ -108,6 +112,11 @@ if ($LASTEXITCODE -ne 0) {
 & node --test ".\scripts\command-runner.test.mjs" ".\scripts\release-launcher.test.mjs" | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw "_stack launcher regression coverage failed."
+}
+
+& node --test ".\scripts\queue-or-registry-broader-execution-behavior.test.mjs" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack broader execution behavior wrapper regression coverage failed."
 }
 
 $launcherListOutput = & node ".\scripts\release-launcher.mjs" --list
@@ -288,6 +297,20 @@ if ($stackAdapter.exports.formatPatchBaseRef -ne "origin/main") {
 }
 if ($stackAdapter.localLandingPolicy.mode -ne "ff-only" -or $stackAdapter.localLandingPolicy.targetBranch -ne "main") {
     throw "_stack adapter localLandingPolicy must be ff-only on local main."
+}
+
+$workspaceManifest = Get-Content -LiteralPath "workspace.manifest.json" -Raw | ConvertFrom-Json
+$queueOrRegistryCommands = @($workspaceManifest.repos.stack.queueOrRegistryCommands)
+$requiredQueueOrRegistryCommands = @(
+    "pnpm run stack:queue-or-registry:follow-on",
+    "pnpm run stack:queue-or-registry:live-direct-json-read-follow-on",
+    "pnpm run stack:queue-or-registry:live-directory-read-follow-on",
+    "pnpm run stack:queue-or-registry:broader-execution-behavior"
+)
+foreach ($requiredCommand in $requiredQueueOrRegistryCommands) {
+    if ($requiredCommand -notin $queueOrRegistryCommands) {
+        throw ("workspace.manifest.json is missing the queue-or-registry command inventory entry: {0}" -f $requiredCommand)
+    }
 }
 
 $disabledLandingAdapters = @(

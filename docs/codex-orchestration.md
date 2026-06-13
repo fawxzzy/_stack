@@ -139,6 +139,7 @@ Lifeline stays intentionally repo-local:
 - repo-local inbox/archive/log/worktree/export paths resolve under `_stack/.codex/`
 - verification stays lightweight and checks required operator files, `_stack` Codex scripts/tasks, and whitespace safety with `git diff --check`
 - `git diff --check` remains hygiene only; it is not proof that the requested source edits were applied
+- bounded queue-or-registry helper commands remain explicit-input and read-only; they may package admitted helper results but must not emit queue state or launch behavior
 - mutation scope stays limited to `_stack` operator surfaces such as `ops/**`, `docs/**`, `.vscode/**`, templates, queue, receipts scaffolding, and repo metadata
 - docs rules keep README, orchestration docs, dispatcher docs, workspace manifest, and handoff templates aligned when `_stack` runner behavior or workflow boundaries change
 - push remains manual-only

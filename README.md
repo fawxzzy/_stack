@@ -33,6 +33,7 @@
 - `pnpm run stack:queue-or-registry:follow-on` packages one bounded retained-state follow-on posture from the authoritative ATLAS execution-transition classifier.
 - `pnpm run stack:queue-or-registry:live-direct-json-read-follow-on` rechecks the authoritative ATLAS execution-transition classifier and performs one bounded direct-json read for one admitted retained-state candidate path only.
 - `pnpm run stack:queue-or-registry:live-directory-read-follow-on` rechecks the authoritative ATLAS execution-transition classifier and performs one bounded shallow directory read for one admitted retained-state candidate path only.
+- `pnpm run stack:queue-or-registry:broader-execution-behavior` packages one explicit local broader-execution-behavior report by delegating to one admitted ATLAS helper only.
 - `codex:stack:verify` now checks operator surfaces, worker artifacts, and the `_stack` owner-contract adoption map.
 - Shared engine scripts live in `ops/codex`.
 - Playbook remains the first adapter example through `ops/codex/repos/playbook`.
