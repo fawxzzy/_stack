@@ -15,6 +15,8 @@
     "stack:update:draft:test": "node --test .\\scripts\\update-draft.test.mjs",
     "stack:validate:summary": "node .\\scripts\\validation-summary.mjs",
     "stack:validate:summary:test": "node --test .\\scripts\\validation-summary.test.mjs",
+    "stack:queue-or-registry:follow-on": "node .\\scripts\\queue-or-registry-follow-on.mjs",
+    "stack:queue-or-registry:follow-on:test": "node --test .\\scripts\\queue-or-registry-follow-on.test.mjs",
     "data-gateway:packet:emit:dry-run": "node .\\scripts\\data-gateway-packet-emitter.mjs",
     "data-gateway:packet:emit:dry-run:test": "node --test .\\scripts\\data-gateway-packet-emitter.test.mjs",
     "data-gateway:packet:proof-package": "node .\\scripts\\data-gateway-packet-proof-packager.mjs",

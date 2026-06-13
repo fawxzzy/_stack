@@ -20,9 +20,9 @@ $workspaceRoot = (Resolve-Path -LiteralPath (Join-Path -Path $repoRoot -ChildPat
 $adoptionDocPath = Join-Path -Path $repoRoot -ChildPath "docs\STACK-ORCHESTRATION-ADOPTION.md"
 $runbookPath = Join-Path -Path $repoRoot -ChildPath "docs\runbooks\STACK-WORKER-FLOW.md"
 $readmePath = Join-Path -Path $repoRoot -ChildPath "README.md"
-$playbookWorkflowPackPath = Join-Path -Path $workspaceRoot -ChildPath "repos\fawxzzy-playbook\docs\contracts\WORKFLOW_PACK_REUSE_CONTRACT.md"
-$playbookConsumerPath = Join-Path -Path $workspaceRoot -ChildPath "repos\fawxzzy-playbook\docs\CONSUMER_INTEGRATION_CONTRACT.md"
-$lifelineContractPath = Join-Path -Path $workspaceRoot -ChildPath "repos\fawxzzy-lifeline\docs\contracts\privileged-execution-contract.md"
+$playbookWorkflowPackPath = Join-Path -Path $workspaceRoot -ChildPath "repos\playbook\docs\contracts\WORKFLOW_PACK_REUSE_CONTRACT.md"
+$playbookConsumerPath = Join-Path -Path $workspaceRoot -ChildPath "repos\playbook\docs\CONSUMER_INTEGRATION_CONTRACT.md"
+$lifelineContractPath = Join-Path -Path $workspaceRoot -ChildPath "repos\lifeline\docs\contracts\privileged-execution-contract.md"
 $fitnessContractPath = Join-Path -Path $workspaceRoot -ChildPath "repos\fawxzzy-fitness\src\lib\ecosystem\fitness-integration-contract.ts"
 
 $requiredPaths = @(
