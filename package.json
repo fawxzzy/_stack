@@ -19,6 +19,8 @@
     "stack:queue-or-registry:follow-on:test": "node --test .\\scripts\\queue-or-registry-follow-on.test.mjs",
     "stack:queue-or-registry:live-direct-json-read-follow-on": "node .\\scripts\\queue-or-registry-live-direct-json-read-follow-on.mjs",
     "stack:queue-or-registry:live-direct-json-read-follow-on:test": "node --test .\\scripts\\queue-or-registry-live-direct-json-read-follow-on.test.mjs",
+    "stack:queue-or-registry:live-directory-read-follow-on": "node .\\scripts\\queue-or-registry-live-directory-read-follow-on.mjs",
+    "stack:queue-or-registry:live-directory-read-follow-on:test": "node --test .\\scripts\\queue-or-registry-live-directory-read-follow-on.test.mjs",
     "data-gateway:packet:emit:dry-run": "node .\\scripts\\data-gateway-packet-emitter.mjs",
     "data-gateway:packet:emit:dry-run:test": "node --test .\\scripts\\data-gateway-packet-emitter.test.mjs",
     "data-gateway:packet:proof-package": "node .\\scripts\\data-gateway-packet-proof-packager.mjs",
