@@ -39,7 +39,7 @@ function Get-DisplayValue {
 $stackRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 
 if ([string]::IsNullOrWhiteSpace($RepoPath)) {
-  $RepoPath = Join-Path $PSScriptRoot '..\..\fawxzzy-mazer'
+  $RepoPath = Join-Path $PSScriptRoot '..\..\mazer'
 }
 
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {

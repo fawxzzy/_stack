@@ -119,16 +119,16 @@
 
 ### Mazer deploy author preflight
 - Mazer deploy wrappers now stop before Vercel if the repo Git identity does not match the required owner identity for private Hobby-team deploys.
-- The preflight checks `git config user.name`, `git config user.email`, and the latest commit author on `..\fawxzzy-mazer`.
+- The preflight checks `git config user.name`, `git config user.email`, and the latest commit author on `..\mazer`.
 - This exists because private Hobby-team deploys can fail at Vercel when the latest commit author is not the owner identity. Catching that locally avoids running a deploy that will be rejected upstream.
 - Required owner identity: `Zachariah Redfield <zjhredfield@icloud.com>`.
 - Fix commands from `_stack`:
-  - `git -C "..\fawxzzy-mazer" config user.name "Zachariah Redfield"`
-  - `git -C "..\fawxzzy-mazer" config user.email "zjhredfield@icloud.com"`
-  - `git -C "..\fawxzzy-mazer" commit --amend --reset-author --no-edit`
+  - `git -C "..\mazer" config user.name "Zachariah Redfield"`
+  - `git -C "..\mazer" config user.email "zjhredfield@icloud.com"`
+  - `git -C "..\mazer" commit --amend --reset-author --no-edit`
 
 ### Mazer deploy identity preflight
-- Mazer deploy wrappers now also stop before Vercel if `..\fawxzzy-mazer\.vercel\project.json` does not match the pinned canonical project identity in `config/mazer-deploy.identity.json`.
+- Mazer deploy wrappers now also stop before Vercel if `..\mazer\.vercel\project.json` does not match the pinned canonical project identity in `config/mazer-deploy.identity.json`.
 - Required Mazer Vercel identity:
   - `team_CMJn7MvzFZZBnhNnjVUZF2RD`
   - `prj_t3zothbtj9DExrh3FjMsH98hwwSZ`
@@ -198,13 +198,13 @@
 
 ## Vercel notes
 - Use `pnpm dlx vercel --cwd ../fawxzzy-fitness ...` for Fitness Vercel operations.
-- Use `pnpm dlx vercel --cwd ../fawxzzy-mazer ...` for Mazer Vercel operations.
-- Use `pnpm dlx vercel --cwd ../fawxzzy-trove ...` for Trove Vercel operations.
+- Use `pnpm dlx vercel --cwd ../mazer ...` for Mazer Vercel operations.
+- Use `pnpm dlx vercel --cwd ../trove ...` for Trove Vercel operations.
 - `fitness:build:vercel` uses `vercel build --yes` so the CLI can pull local project settings on the first local Vercel build.
 - Mazer deploys run the owner-author preflight, verify locally, and then deploy from the local repo path; no GitHub-triggered deploy flow is assumed.
 - Mazer deploys now fail closed before Vercel if the local `.vercel/project.json` link does not match the pinned canonical Mazer project identity.
 - Trove deploys currently use repo-local verification and the standard Vercel CLI path, but this pass does not perform live project binding.
-- Trove deploy wrappers now fail closed before Vercel if `..\fawxzzy-trove\.vercel\project.json` does not match the pinned canonical project identity in `config/trove-deploy.identity.json`.
+- Trove deploy wrappers now fail closed before Vercel if `..\trove\.vercel\project.json` does not match the pinned canonical project identity in `config/trove-deploy.identity.json`.
 - Do not use untargeted env listing; use explicit targets:
   - `vercel env ls preview`
   - `vercel env ls production`

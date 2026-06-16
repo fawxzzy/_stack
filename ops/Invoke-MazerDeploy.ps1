@@ -134,7 +134,7 @@ if ([string]::IsNullOrWhiteSpace($StackRoot)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($RepoPath)) {
-  $RepoPath = Join-Path $PSScriptRoot '..\..\fawxzzy-mazer'
+  $RepoPath = Join-Path $PSScriptRoot '..\..\mazer'
 }
 
 $resolvedStackRoot = (Resolve-Path -LiteralPath $StackRoot).Path

@@ -49,8 +49,8 @@ Use for application code, tests, config, migrations, content, or repo-specific d
   - repo code changes must be performed by a repo-local runner inside that repo
 - Current named repos:
   - `fitness` -> `repos/fawxzzy-fitness`
-  - `mazer` -> `repos/fawxzzy-mazer`
-  - `trove` -> `repos/fawxzzy-trove`
+  - `mazer` -> `repos/mazer`
+  - `trove` -> `repos/trove`
   - `playbook` -> `repos/fawxzzy-playbook`
   - `lifeline` -> `repos/fawxzzy-lifeline`
 - `atlas` -> `.` (ATLAS root coordination layer)

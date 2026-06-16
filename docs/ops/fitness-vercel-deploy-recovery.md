@@ -5,6 +5,7 @@
 This runbook is the canonical recovery lane for Fitness production deploys when Vercel identity, repo linkage, or deployment plumbing drifts.
 
 Fitness deploys are manual-only from `_stack`. Git/Vercel auto-deploy creation must remain disabled unless the owner explicitly requests re-enabling it.
+The admitted local Fitness repo boundary is either a standalone `repos/fawxzzy-fitness` clone or the canonical `repos/fawxzzy-fitness` path mounted under the ATLAS workspace git root.
 
 ## Canonical hosting identity
 
@@ -30,7 +31,7 @@ Pattern: Use connector-confirmed project identity as source of truth, then mirro
 3. Run the `_stack` guard before any production deploy.
 
 ```powershell
-cd C:\ATLAS\repos\_stack
+cd repos\_stack
 pnpm run fitness:deploy:preflight
 ```
 
@@ -59,7 +60,7 @@ npm run verify:strict
 8. Deploy production from the canonical linked project.
 
 ```powershell
-cd C:\ATLAS\repos\_stack
+cd repos\_stack
 pnpm run fitness:deploy:prod
 ```
 
@@ -102,7 +103,7 @@ If a Windows prebuilt deploy fails after local verify/build succeeds, classify t
 
 Failure Mode: A mounted app folder under ATLAS inherits the parent repo boundary and poisons git recovery unless recloned as a real standalone repo.
 
-- Fake repo boundary under `C:\ATLAS` made the app look recoverable in-place when it was not.
+- Fake repo boundary under the ATLAS root made the app look recoverable in-place when it was not.
 - Wrong Git origin history compounded the lane replay until the repo was recloned as a real standalone repo.
 - Shared UI/type drift surfaced while replaying the release lane and had to be cleaned before deploy verification was trustworthy.
 - Vercel owner/slug confusion obscured the real issue because old owner strings remained visible in deployment URLs after the rename.

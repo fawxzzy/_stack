@@ -135,14 +135,22 @@ if (($launcherDryRunOutput -join "`n") -notmatch "pr preview:\s+pr-\{number\}\.f
     throw "_stack release launcher did not surface the Atlas PR preview naming hint for Fitness preview."
 }
 
-$mazerRepoPath = Join-Path -Path (Get-Location).Path -ChildPath "..\fawxzzy-mazer"
+$mazerRepoPath = Join-Path -Path (Get-Location).Path -ChildPath "..\mazer"
 if (Test-Path -LiteralPath $mazerRepoPath) {
     $mazerIdentityOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File ".\ops\Test-MazerDeployLink.ps1" -ConfigPath ".\config\mazer-deploy.identity.json"
-    if ($LASTEXITCODE -ne 0) {
-        throw "_stack Mazer deploy identity preflight failed against the local canonical Vercel link."
+    $mazerIdentityText = ($mazerIdentityOutput -join "`n")
+    if ($LASTEXITCODE -eq 0) {
+        if ($mazerIdentityText -notmatch "Mazer deploy link preflight passed") {
+            throw "_stack Mazer deploy identity preflight did not report a clear pass message."
+        }
     }
-    if (($mazerIdentityOutput -join "`n") -notmatch "Mazer deploy link preflight passed") {
-        throw "_stack Mazer deploy identity preflight did not report a clear pass message."
+    else {
+        if (
+            $mazerIdentityText -notmatch "The repo is not linked to the canonical local Vercel project yet\." -or
+            $mazerIdentityText -notmatch [regex]::Escape('pnpm dlx vercel --cwd "C:\ATLAS\repos\mazer" link --yes --project prj_t3zothbtj9DExrh3FjMsH98hwwSZ --scope fawxzzy')
+        ) {
+            throw "_stack Mazer deploy identity preflight did not fail closed with the canonical relink guidance."
+        }
     }
 }
 else {

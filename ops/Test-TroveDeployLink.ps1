@@ -39,7 +39,7 @@ function Get-DisplayValue {
 $stackRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 
 if ([string]::IsNullOrWhiteSpace($RepoPath)) {
-  $RepoPath = Join-Path $PSScriptRoot '..\..\fawxzzy-trove'
+  $RepoPath = Join-Path $PSScriptRoot '..\..\trove'
 }
 
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {

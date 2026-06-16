@@ -179,19 +179,25 @@ $expectedProjectId = $expectedProjectIdInfo.Value
 $expectedProject = $expectedProjectInfo.Value
 $expectedCreateDeployments = if (-not [string]::IsNullOrWhiteSpace($configCreateDeployments)) { $configCreateDeployments.Trim() } else { 'disabled' }
 $pnpmCommand = Get-PnpmCommand
+$workspaceRoot = (Resolve-Path -LiteralPath (Join-Path $stackRoot '..\..')).Path
 
 $repoGitTopLevel = (& git -C $resolvedRepoPath rev-parse --show-toplevel 2>$null)
 $repoGitExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
 $normalizedRepoGitTopLevel = if ([string]::IsNullOrWhiteSpace($repoGitTopLevel)) { $null } else { [System.IO.Path]::GetFullPath($repoGitTopLevel.Trim()) }
 $normalizedRepoPath = [System.IO.Path]::GetFullPath($resolvedRepoPath)
+$normalizedWorkspaceRoot = [System.IO.Path]::GetFullPath($workspaceRoot)
+$normalizedCanonicalWorkspaceRepoPath = [System.IO.Path]::GetFullPath((Join-Path $workspaceRoot 'repos\fawxzzy-fitness'))
+$isStandaloneRepoBoundary = $normalizedRepoGitTopLevel -eq $normalizedRepoPath
+$isCanonicalWorkspaceRepoBoundary = $normalizedRepoGitTopLevel -eq $normalizedWorkspaceRoot -and $normalizedRepoPath -eq $normalizedCanonicalWorkspaceRepoPath
 
-if ($repoGitExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($normalizedRepoGitTopLevel) -or $normalizedRepoGitTopLevel -ne $normalizedRepoPath) {
+if ($repoGitExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($normalizedRepoGitTopLevel) -or (-not $isStandaloneRepoBoundary -and -not $isCanonicalWorkspaceRepoBoundary)) {
   Write-Host 'Fitness deploy blocked before Vercel.' -ForegroundColor Red
-  Write-Host 'The target path is not a real standalone Fitness repo boundary.' -ForegroundColor Yellow
+  Write-Host 'The target path is not an admitted Fitness repo boundary.' -ForegroundColor Yellow
   Write-Host ''
   Write-Host ("Repo path: {0}" -f $resolvedRepoPath)
   Write-Host ("git rev-parse --show-toplevel: {0}" -f (Get-DisplayValue -Value $normalizedRepoGitTopLevel))
-  Write-Host 'Expected: the Fitness repo path must be its own git toplevel before any deploy lane can run.'
+  Write-Host ("Admitted standalone boundary: {0}" -f $normalizedRepoPath)
+  Write-Host ("Admitted ATLAS-rooted boundary: {0} under workspace git toplevel {1}" -f $normalizedCanonicalWorkspaceRepoPath, $normalizedWorkspaceRoot)
   exit 1
 }
 

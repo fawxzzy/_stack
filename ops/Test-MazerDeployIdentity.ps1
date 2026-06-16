@@ -7,7 +7,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($RepoPath)) {
-  $RepoPath = Join-Path $PSScriptRoot '..\..\fawxzzy-mazer'
+  $RepoPath = Join-Path $PSScriptRoot '..\..\mazer'
 }
 
 $resolvedRepoPath = (Resolve-Path -LiteralPath $RepoPath).Path

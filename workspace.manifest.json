@@ -23,24 +23,24 @@
       "deployProdPrebuilt": "pnpm dlx vercel@51.6.1 --cwd ../fawxzzy-fitness deploy --prebuilt --prod"
     },
     "mazer": {
-      "path": "../fawxzzy-mazer",
+      "path": "../mazer",
       "verify": "npm run lint && npm run test && npm run build",
       "localDev": "npm run dev -- --host 0.0.0.0",
-      "localPreview": "npm run build && pnpm --dir ../fawxzzy-mazer exec vite preview --host 0.0.0.0 --port 4173 --strictPort",
+      "localPreview": "npm run build && pnpm --dir ../mazer exec vite preview --host 0.0.0.0 --port 4173 --strictPort",
       "deployModel": "vercel-cli",
-      "deployPreview": "pnpm dlx vercel --cwd ../fawxzzy-mazer deploy",
-      "deployProd": "pnpm dlx vercel --cwd ../fawxzzy-mazer deploy --prod"
+      "deployPreview": "pnpm dlx vercel --cwd ../mazer deploy",
+      "deployProd": "pnpm dlx vercel --cwd ../mazer deploy --prod"
     },
     "trove": {
-      "path": "../fawxzzy-trove",
+      "path": "../trove",
       "verify": "npm run verify",
       "localDev": "npm run dev",
       "localPreview": "npm run build && npm run start",
       "deployModel": "vercel-cli",
-      "deployPreview": "pnpm dlx vercel --cwd ../fawxzzy-trove deploy",
-      "deployPreviewPrebuilt": "pnpm dlx vercel --cwd ../fawxzzy-trove deploy --prebuilt",
-      "deployProd": "pnpm dlx vercel --cwd ../fawxzzy-trove deploy --prod",
-      "deployProdPrebuilt": "pnpm dlx vercel --cwd ../fawxzzy-trove deploy --prebuilt --prod"
+      "deployPreview": "pnpm dlx vercel --cwd ../trove deploy",
+      "deployPreviewPrebuilt": "pnpm dlx vercel --cwd ../trove deploy --prebuilt",
+      "deployProd": "pnpm dlx vercel --cwd ../trove deploy --prod",
+      "deployProdPrebuilt": "pnpm dlx vercel --cwd ../trove deploy --prebuilt --prod"
     },
     "playbook": {
       "path": "../fawxzzy-playbook",

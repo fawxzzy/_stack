@@ -21,7 +21,7 @@ pnpm run fitness:deploy:preflight
 ```
 
 `fitness:verify` is the standard workflow entrypoint and currently delegates to the Fitness repo's strict verify command. Use `fitness:verify:clean` when you need a fresh `.next` state before verifying or deploying.
-`fitness:deploy:preflight` is the required deploy-link guard for preview and production. It validates the real repo boundary, immutable Vercel `teamId` and `projectId`, current slug/name rename drift, and that Vercel Git auto-deploy creation remains disabled.
+`fitness:deploy:preflight` is the required deploy-link guard for preview and production. It validates the admitted local Fitness repo boundary, immutable Vercel `teamId` and `projectId`, current slug/name rename drift, and that Vercel Git auto-deploy creation remains disabled.
 
 Run code/test/build checks from the Fitness repo root:
 
