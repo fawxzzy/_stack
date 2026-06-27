@@ -5,6 +5,14 @@ import path from "node:path";
 import test from "node:test";
 import { runPacketValidation, validateGatewayPacket } from "./data-gateway-packet-validator.mjs";
 
+function toPosixAbsolute(...segments) {
+  return path.resolve(...segments).replace(/\\/g, "/");
+}
+
+function toFileUrl(...segments) {
+  return new URL(`file:///${toPosixAbsolute(...segments)}`).href;
+}
+
 function buildValidPacket(overrides = {}) {
   return {
     packet_purpose: "supabase-review",
@@ -66,6 +74,42 @@ test("malformed field value fails validation", () => {
 
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /sensitivity_label must be one of/);
+});
+
+test("absolute packet refs fail validation", () => {
+  const result = validateGatewayPacket(buildValidPacket({
+    source_provenance: {
+      owner_surface: toPosixAbsolute("..", "fawxzzy-fitness"),
+      source_type: "export",
+      source_refs: [toPosixAbsolute("..", "..", "runtime", "exports", "example.json")],
+      captured_at: "2026-05-27T00:00:00Z",
+      capture_method: "local-script"
+    },
+    receipt_or_proof_ref: toFileUrl("..", "..", "docs", "ops", "example.md")
+  }));
+
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /source_provenance\.owner_surface must not be absolute or protocol-qualified/);
+  assert.match(result.errors.join("\n"), /source_provenance\.source_refs\[0\] must not be absolute or protocol-qualified/);
+  assert.match(result.errors.join("\n"), /receipt_or_proof_ref must not be absolute or protocol-qualified/);
+});
+
+test("non-normalized packet refs fail validation", () => {
+  const result = validateGatewayPacket(buildValidPacket({
+    source_provenance: {
+      owner_surface: "repos/../repos/fawxzzy-fitness",
+      source_type: "export",
+      source_refs: ["runtime/../runtime/exports/example.json"],
+      captured_at: "2026-05-27T00:00:00Z",
+      capture_method: "local-script"
+    },
+    receipt_or_proof_ref: "./docs/ops/example.md"
+  }));
+
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /source_provenance\.owner_surface must be a normalized ATLAS-root-relative path without dot segments/);
+  assert.match(result.errors.join("\n"), /source_provenance\.source_refs\[0\] must be a normalized ATLAS-root-relative path without dot segments/);
+  assert.match(result.errors.join("\n"), /receipt_or_proof_ref must be a normalized ATLAS-root-relative path without dot segments/);
 });
 
 test("validator can read an explicit packet file path", async () => {

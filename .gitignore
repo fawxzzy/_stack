@@ -9,4 +9,6 @@
 !.codex/inbox/.gitkeep
 !.codex/inbox/README*
 
+node_modules/
+pnpm-lock.yaml
 .vercel

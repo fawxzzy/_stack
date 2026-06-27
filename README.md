@@ -34,6 +34,17 @@
 - `pnpm run stack:queue-or-registry:live-direct-json-read-follow-on` rechecks the authoritative ATLAS execution-transition classifier and performs one bounded direct-json read for one admitted retained-state candidate path only.
 - `pnpm run stack:queue-or-registry:live-directory-read-follow-on` rechecks the authoritative ATLAS execution-transition classifier and performs one bounded shallow directory read for one admitted retained-state candidate path only.
 - `pnpm run stack:queue-or-registry:broader-execution-behavior` packages one explicit local broader-execution-behavior report by delegating to one admitted ATLAS helper only.
+- `pnpm run stack:queue-or-registry:worker-artifact-emission` emits one explicit-input assignment or running/completed status artifact into one admitted `_stack` repo-local Codex log directory only.
+- `pnpm run stack:queue-or-registry:execution-bridge-artifacts` bridges one explicit worker assignment/status plus capability/request/approval chain into one admitted receipt-backed execution status update, bridge record, and receipt output root only.
+- `pnpm run stack:queue-or-registry:queue-drop-emission` emits one explicit Markdown queue drop into one admitted `_stack` `queue/pending/` home only, without claim-state or dispatch behavior.
+- `pnpm run stack:queue-or-registry:launch-or-dispatch` stages one explicit pending queue drop into one bounded `_stack` repo-local inbox home and proves one worker assignment plus running-status start seam only, without claim-state movement or completion behavior.
+- `pnpm run stack:queue-or-registry:claim-state-movement` moves one explicit pending queue drop into one admitted `_stack` `queue/claimed/` home for one already-running worker only, without completion or done-state advancement behavior.
+- `pnpm run stack:queue-or-registry:done-state-closure` moves one explicit claimed queue drop into one admitted `_stack` `queue/done/` home for one already-completed worker only, without merge-closure, resume-closure, or publication-proof behavior.
+- `pnpm run stack:queue-or-registry:merge-request-artifact-behavior` emits one explicit merge-request artifact into one admitted `_stack` repo-local Codex log directory only, without paused-status, merger-assignment, or resume-ready behavior.
+- `pnpm run stack:queue-or-registry:paused-status-artifact-behavior` emits paused worker status artifacts for one explicit merge request only, without merger-assignment or resume-ready behavior.
+- `pnpm run stack:queue-or-registry:merger-assignment-artifact-behavior` emits one merger worker assignment plus its bounded merge prompt/context artifacts for one explicit merge request only after paused statuses already exist, without resume-ready behavior.
+- `pnpm run stack:queue-or-registry:resume-context-artifact-behavior` emits per-worker resume-context artifacts for one explicit merge request only after paused statuses and merger assignment already exist, without merge-completion or root-resume behavior.
+- `pnpm run stack:queue-or-registry:merge-completion-behavior` emits one merge completion artifact for one explicit merge request only after paused statuses, merger assignment, and resume-context artifacts already exist, without root-resume behavior.
 - `codex:stack:verify` now checks operator surfaces, worker artifacts, and the `_stack` owner-contract adoption map.
 - Shared engine scripts live in `ops/codex`.
 - Playbook remains the first adapter example through `ops/codex/repos/playbook`.

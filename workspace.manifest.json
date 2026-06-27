@@ -8,7 +8,18 @@
         "pnpm run stack:queue-or-registry:follow-on",
         "pnpm run stack:queue-or-registry:live-direct-json-read-follow-on",
         "pnpm run stack:queue-or-registry:live-directory-read-follow-on",
-        "pnpm run stack:queue-or-registry:broader-execution-behavior"
+        "pnpm run stack:queue-or-registry:broader-execution-behavior",
+        "pnpm run stack:queue-or-registry:execution-bridge-artifacts",
+        "pnpm run stack:queue-or-registry:worker-artifact-emission",
+        "pnpm run stack:queue-or-registry:queue-drop-emission",
+        "pnpm run stack:queue-or-registry:launch-or-dispatch",
+        "pnpm run stack:queue-or-registry:claim-state-movement",
+        "pnpm run stack:queue-or-registry:done-state-closure",
+        "pnpm run stack:queue-or-registry:merge-request-artifact-behavior",
+        "pnpm run stack:queue-or-registry:paused-status-artifact-behavior",
+        "pnpm run stack:queue-or-registry:merger-assignment-artifact-behavior",
+        "pnpm run stack:queue-or-registry:resume-context-artifact-behavior",
+        "pnpm run stack:queue-or-registry:merge-completion-behavior"
       ],
       "codexLocalLanding": "ff-only-local-main",
       "codexBaseRefRule": "prefer-origin-main-else-local-main"

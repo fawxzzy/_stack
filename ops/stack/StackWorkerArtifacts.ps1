@@ -1226,6 +1226,699 @@ function New-StackMergePromptText {
     ) -join "`r`n"
 }
 
+function Invoke-StackMergeRequestPauseStatusConsumer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$ArtifactSearchRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$MergeRequestPath
+    )
+
+    $stackLockContext = Get-StackLockContext -RepoRoot $RepoRoot
+    $artifactIndex = Get-StackWorkerArtifactIndex -ArtifactRoot $ArtifactSearchRoot
+    $resolvedMergeRequestPath = [System.IO.Path]::GetFullPath($MergeRequestPath)
+    $mergeRequest = Read-StackJsonArtifact -Path $resolvedMergeRequestPath
+    if ([string]$mergeRequest.contract_version -ne "atlas.worker.merge-request.v1") {
+        throw ("Merge-request artifact must satisfy atlas.worker.merge-request.v1: {0}" -f $resolvedMergeRequestPath)
+    }
+    if ([string]$mergeRequest.stack_lock_digest -ne [string]$stackLockContext.stackLockDigest) {
+        throw ("Merge-request stack_lock_digest does not match the current root lock digest: {0}" -f $resolvedMergeRequestPath)
+    }
+
+    $mergeRequestRef = Get-StackRelativePath -RepoRoot $RepoRoot -Path $resolvedMergeRequestPath
+    $mergeSessionId = Resolve-AtlasObservationSessionId `
+        -WorkerId ([string]($mergeRequest.conflicting_workers | Select-Object -First 1)) `
+        -AssignmentId "" `
+        -SourceArtifactRefs @($mergeRequestRef)
+
+    if (
+        -not [string]::IsNullOrWhiteSpace($mergeSessionId) -and
+        -not [string]::IsNullOrWhiteSpace([string]$mergeRequest.tool_id) -and
+        -not [string]::IsNullOrWhiteSpace([string]$mergeRequest.registry_digest)
+    ) {
+        [void](Publish-AtlasObservation `
+            -RepoRoot $RepoRoot `
+            -Owner "_stack" `
+            -ObservationType "merge_requested" `
+            -SourceKind "worker_merge_request" `
+            -Status "open" `
+            -SourceRef $mergeRequestRef `
+            -ObservedAt ((Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")) `
+            -ScopeRef $mergeSessionId `
+            -Details (New-AtlasGovernedObservationDetails `
+                -SessionId $mergeSessionId `
+                -StackLockDigest ([string]$mergeRequest.stack_lock_digest) `
+                -ToolId ([string]$mergeRequest.tool_id) `
+                -ExtensionId ([string]$mergeRequest.extension_id) `
+                -RegistryDigest ([string]$mergeRequest.registry_digest) `
+                -SourceArtifactRefs @($mergeRequestRef) `
+                -AdditionalDetails @{
+                    conflicting_workers = @($mergeRequest.conflicting_workers)
+                    merge_request_id = [string]$mergeRequest.merge_request_id
+                }))
+    }
+
+    $pauseStatusRefs = New-Object System.Collections.Generic.List[string]
+    $pauseStatusOutputs = New-Object System.Collections.Generic.List[object]
+    $assignmentEntries = New-Object System.Collections.Generic.List[object]
+
+    foreach ($workerId in @($mergeRequest.conflicting_workers)) {
+        if (-not $artifactIndex.assignmentsByWorker.ContainsKey([string]$workerId)) {
+            throw ("No worker assignment was found for merge-request worker '{0}'." -f [string]$workerId)
+        }
+        if (-not $artifactIndex.statusesByWorker.ContainsKey([string]$workerId)) {
+            throw ("No worker status artifacts were found for merge-request worker '{0}'." -f [string]$workerId)
+        }
+
+        $assignmentEntry = $artifactIndex.assignmentsByWorker[[string]$workerId]
+        $latestStatusEntry = Get-StackLatestWorkerStatusEntry -Entries @($artifactIndex.statusesByWorker[[string]$workerId].ToArray())
+        [void]$assignmentEntries.Add($assignmentEntry)
+
+        $pauseStatusPath = Join-Path -Path (Split-Path -Parent $latestStatusEntry.path) -ChildPath ("worker.status.paused.{0}.{1}.json" -f [string]$workerId, [string]$mergeRequest.merge_request_id)
+        $blockedReason = "paused_by_merge_request:{0}" -f [string]$mergeRequest.merge_request_id
+        $pauseStatus = New-StackWorkerStatus `
+            -WorkerId ([string]$workerId) `
+            -AssignmentId ([string]$assignmentEntry.artifact.assignment_id) `
+            -State "paused" `
+            -HeartbeatAt ([string](Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")) `
+            -TouchedRanges @($latestStatusEntry.artifact.touched_ranges) `
+            -OutputRefs @($latestStatusEntry.artifact.output_refs) `
+            -BlockedReason $blockedReason `
+            -MergeRequestRef $mergeRequestRef `
+            -ToolId ([string]$latestStatusEntry.artifact.tool_id) `
+            -ExtensionId ([string]$latestStatusEntry.artifact.extension_id) `
+            -RegistryDigest ([string]$latestStatusEntry.artifact.registry_digest)
+        [void](Write-StackWorkerArtifact -Artifact $pauseStatus -Path $pauseStatusPath)
+        $pauseStatusRel = Get-StackRelativePath -RepoRoot $RepoRoot -Path $pauseStatusPath
+        [void]$pauseStatusRefs.Add($pauseStatusRel)
+        [void]$pauseStatusOutputs.Add([ordered]@{
+            worker_id = [string]$workerId
+            assignment_id = [string]$assignmentEntry.artifact.assignment_id
+            path = $pauseStatusRel
+        })
+        if (
+            -not [string]::IsNullOrWhiteSpace($mergeSessionId) -and
+            -not [string]::IsNullOrWhiteSpace([string]$pauseStatus.tool_id) -and
+            -not [string]::IsNullOrWhiteSpace([string]$pauseStatus.registry_digest)
+        ) {
+            [void](Publish-AtlasObservation `
+                -RepoRoot $RepoRoot `
+                -Owner "_stack" `
+                -ObservationType "paused" `
+                -SourceKind "worker_status" `
+                -Status "paused" `
+                -SourceRef $pauseStatusRel `
+                -ObservedAt ([string]$pauseStatus.heartbeat_at) `
+                -ScopeRef $mergeSessionId `
+                -Details (New-AtlasGovernedObservationDetails `
+                    -SessionId $mergeSessionId `
+                    -WorkerId ([string]$pauseStatus.worker_id) `
+                    -AssignmentId ([string]$pauseStatus.assignment_id) `
+                    -StackLockDigest ([string]$mergeRequest.stack_lock_digest) `
+                    -ToolId ([string]$pauseStatus.tool_id) `
+                    -ExtensionId ([string]$pauseStatus.extension_id) `
+                    -RegistryDigest ([string]$pauseStatus.registry_digest) `
+                    -SourceArtifactRefs @($mergeRequestRef, $pauseStatusRel) `
+                    -AdditionalDetails @{
+                        merge_request_ref = $mergeRequestRef
+                    }))
+        }
+    }
+
+    return [ordered]@{
+        merge_request_id = [string]$mergeRequest.merge_request_id
+        merge_request_ref = $mergeRequestRef
+        merge_session_id = $mergeSessionId
+        stack_lock_digest = [string]$stackLockContext.stackLockDigest
+        tool_id = [string]$mergeRequest.tool_id
+        extension_id = [string]$mergeRequest.extension_id
+        registry_digest = [string]$mergeRequest.registry_digest
+        pause_status_refs = @($pauseStatusRefs.ToArray())
+        pause_statuses = @($pauseStatusOutputs.ToArray())
+        assignment_entries = @($assignmentEntries.ToArray())
+    }
+}
+
+function Invoke-StackMergeRequestMergerAssignmentConsumer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$ArtifactSearchRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$MergeRequestPath
+    )
+
+    $stackLockContext = Get-StackLockContext -RepoRoot $RepoRoot
+    $artifactIndex = Get-StackWorkerArtifactIndex -ArtifactRoot $ArtifactSearchRoot
+    $resolvedMergeRequestPath = [System.IO.Path]::GetFullPath($MergeRequestPath)
+    $mergeRequest = Read-StackJsonArtifact -Path $resolvedMergeRequestPath
+    if ([string]$mergeRequest.contract_version -ne "atlas.worker.merge-request.v1") {
+        throw ("Merge-request artifact must satisfy atlas.worker.merge-request.v1: {0}" -f $resolvedMergeRequestPath)
+    }
+    if ([string]$mergeRequest.stack_lock_digest -ne [string]$stackLockContext.stackLockDigest) {
+        throw ("Merge-request stack_lock_digest does not match the current root lock digest: {0}" -f $resolvedMergeRequestPath)
+    }
+
+    $mergeRequestRef = Get-StackRelativePath -RepoRoot $RepoRoot -Path $resolvedMergeRequestPath
+    $mergeSessionId = Resolve-AtlasObservationSessionId `
+        -WorkerId ([string]($mergeRequest.conflicting_workers | Select-Object -First 1)) `
+        -AssignmentId "" `
+        -SourceArtifactRefs @($mergeRequestRef)
+
+    $pauseStatusRefs = New-Object System.Collections.Generic.List[string]
+    $pauseStatusOutputs = New-Object System.Collections.Generic.List[object]
+    $assignmentEntries = New-Object System.Collections.Generic.List[object]
+
+    foreach ($workerId in @($mergeRequest.conflicting_workers)) {
+        if (-not $artifactIndex.assignmentsByWorker.ContainsKey([string]$workerId)) {
+            throw ("No worker assignment was found for merge-request worker '{0}'." -f [string]$workerId)
+        }
+        if (-not $artifactIndex.statusesByWorker.ContainsKey([string]$workerId)) {
+            throw ("No worker status artifacts were found for merge-request worker '{0}'." -f [string]$workerId)
+        }
+
+        $assignmentEntry = $artifactIndex.assignmentsByWorker[[string]$workerId]
+        $latestStatusEntry = Get-StackLatestWorkerStatusEntry -Entries @($artifactIndex.statusesByWorker[[string]$workerId].ToArray())
+        if ([string]$latestStatusEntry.artifact.state -ne "paused") {
+            throw ("Latest worker status for merge-request worker '{0}' is not paused." -f [string]$workerId)
+        }
+        if ([string]$latestStatusEntry.artifact.merge_request_ref -ne $mergeRequestRef) {
+            throw ("Paused worker status for merge-request worker '{0}' does not reference the exact merge-request artifact." -f [string]$workerId)
+        }
+
+        $expectedBlockedReason = "paused_by_merge_request:{0}" -f [string]$mergeRequest.merge_request_id
+        if ([string]$latestStatusEntry.artifact.blocked_reason -ne $expectedBlockedReason) {
+            throw ("Paused worker status for merge-request worker '{0}' does not preserve the admitted blocked_reason." -f [string]$workerId)
+        }
+
+        [void]$assignmentEntries.Add($assignmentEntry)
+        $pauseStatusRel = Get-StackRelativePath -RepoRoot $RepoRoot -Path $latestStatusEntry.path
+        [void]$pauseStatusRefs.Add($pauseStatusRel)
+        [void]$pauseStatusOutputs.Add([ordered]@{
+            worker_id = [string]$workerId
+            assignment_id = [string]$assignmentEntry.artifact.assignment_id
+            path = $pauseStatusRel
+        })
+    }
+
+    $mergeOutputRoot = Join-Path -Path $ArtifactSearchRoot -ChildPath ("merge\{0}" -f [string]$mergeRequest.merge_request_id)
+    $mergeWorkerId = [string]$mergeRequest.merge_worker_handoff.worker_id
+    $mergeAssignmentId = [string]$mergeRequest.merge_worker_handoff.assignment_id
+    $mergeTaskId = [string]$mergeRequest.merge_worker_handoff.task_id
+    $mergeContextBuild = Invoke-StackWorkerContextBuild `
+        -RepoRoot $RepoRoot `
+        -AssignmentId $mergeAssignmentId `
+        -WorkerId $mergeWorkerId `
+        -TaskId $mergeTaskId `
+        -StackLockDigest $stackLockContext.stackLockDigest `
+        -QueryTerms @($mergeRequest.overlaps | ForEach-Object { [System.IO.Path]::GetFileNameWithoutExtension([string]$_.path) }) `
+        -TaskTags @("merge", "conflict", "supervisor")
+    $mergeContextRef = [string]$mergeContextBuild.relativePath
+
+    $mergePromptPath = Join-Path -Path $mergeOutputRoot -ChildPath "merge.prompt.md"
+    $mergePromptText = New-StackMergePromptText `
+        -MergeRequest $mergeRequest `
+        -MergeRequestRef $mergeRequestRef `
+        -MergedHandoffRef ([string]$mergeRequest.merge_worker_handoff.handoff_ref) `
+        -ContextRef $mergeContextRef
+    Write-TextFile -Path $mergePromptPath -Content ($mergePromptText + "`r`n")
+    $mergePromptRef = Get-StackRelativePath -RepoRoot $RepoRoot -Path $mergePromptPath
+
+    $mergeAssignmentPath = Join-Path -Path $mergeOutputRoot -ChildPath "worker.assignment.merge.json"
+    $mergeAssignment = New-StackWorkerAssignment `
+        -AssignmentId $mergeAssignmentId `
+        -WorkerId $mergeWorkerId `
+        -TaskId $mergeTaskId `
+        -StackLockDigest $stackLockContext.stackLockDigest `
+        -AllowedGlobs @($assignmentEntries | ForEach-Object { @($_.artifact.allowed_globs) } | Select-Object -Unique) `
+        -ForbiddenGlobs @($assignmentEntries | ForEach-Object { @($_.artifact.forbidden_globs) } | Select-Object -Unique) `
+        -InputHandoffRefs @(@($mergeRequest.paused_handoff_refs) + @($mergeRequestRef, $mergeContextRef)) `
+        -ExpectedOutputs @([string]$mergeRequest.merge_worker_handoff.handoff_ref, $mergePromptRef) `
+        -ToolId ([string]$mergeRequest.merge_worker_handoff.tool_id) `
+        -ExtensionId ([string]$mergeRequest.merge_worker_handoff.extension_id) `
+        -RegistryDigest ([string]$mergeRequest.merge_worker_handoff.registry_digest) `
+        -Notes ("Supervisor-consumed merge assignment for {0}." -f [string]$mergeRequest.merge_request_id)
+    [void](Write-StackWorkerArtifact -Artifact $mergeAssignment -Path $mergeAssignmentPath)
+    $mergeAssignmentRef = Get-StackRelativePath -RepoRoot $RepoRoot -Path $mergeAssignmentPath
+
+    if (
+        -not [string]::IsNullOrWhiteSpace($mergeSessionId) -and
+        -not [string]::IsNullOrWhiteSpace([string]$mergeAssignment.tool_id) -and
+        -not [string]::IsNullOrWhiteSpace([string]$mergeAssignment.registry_digest)
+    ) {
+        [void](Publish-AtlasObservation `
+            -RepoRoot $RepoRoot `
+            -Owner "_stack" `
+            -ObservationType "merger_assigned" `
+            -SourceKind "worker_assignment" `
+            -Status "assigned" `
+            -SourceRef $mergeAssignmentRef `
+            -ObservedAt ((Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")) `
+            -ScopeRef $mergeSessionId `
+            -Details (New-AtlasGovernedObservationDetails `
+                -SessionId $mergeSessionId `
+                -WorkerId ([string]$mergeAssignment.worker_id) `
+                -AssignmentId ([string]$mergeAssignment.assignment_id) `
+                -StackLockDigest ([string]$mergeRequest.stack_lock_digest) `
+                -ToolId ([string]$mergeAssignment.tool_id) `
+                -ExtensionId ([string]$mergeAssignment.extension_id) `
+                -RegistryDigest ([string]$mergeAssignment.registry_digest) `
+                -SourceArtifactRefs @($mergeRequestRef, $mergeAssignmentRef, $mergeContextRef, $mergePromptRef) `
+                -AdditionalDetails @{
+                    merge_request_ref = $mergeRequestRef
+                }))
+    }
+
+    return [ordered]@{
+        merge_request_id = [string]$mergeRequest.merge_request_id
+        merge_request_ref = $mergeRequestRef
+        merge_session_id = $mergeSessionId
+        stack_lock_digest = [string]$stackLockContext.stackLockDigest
+        tool_id = [string]$mergeRequest.tool_id
+        extension_id = [string]$mergeRequest.extension_id
+        registry_digest = [string]$mergeRequest.registry_digest
+        pause_status_refs = @($pauseStatusRefs.ToArray())
+        pause_statuses = @($pauseStatusOutputs.ToArray())
+        assignment_entries = @($assignmentEntries.ToArray())
+        merge_context_ref = $mergeContextRef
+        merge_prompt_ref = $mergePromptRef
+        merge_assignment_ref = $mergeAssignmentRef
+    }
+}
+
+function Invoke-StackMergeRequestResumeContextConsumer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$ArtifactSearchRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$MergeRequestPath
+    )
+
+    $stackLockContext = Get-StackLockContext -RepoRoot $RepoRoot
+    $artifactIndex = Get-StackWorkerArtifactIndex -ArtifactRoot $ArtifactSearchRoot
+    $resolvedMergeRequestPath = [System.IO.Path]::GetFullPath($MergeRequestPath)
+    $mergeRequest = Read-StackJsonArtifact -Path $resolvedMergeRequestPath
+    if ([string]$mergeRequest.contract_version -ne "atlas.worker.merge-request.v1") {
+        throw ("Merge-request artifact must satisfy atlas.worker.merge-request.v1: {0}" -f $resolvedMergeRequestPath)
+    }
+    if ([string]$mergeRequest.stack_lock_digest -ne [string]$stackLockContext.stackLockDigest) {
+        throw ("Merge-request stack_lock_digest does not match the current root lock digest: {0}" -f $resolvedMergeRequestPath)
+    }
+
+    $mergeRequestRef = Get-StackRelativePath -RepoRoot $RepoRoot -Path $resolvedMergeRequestPath
+    $mergeSessionId = Resolve-AtlasObservationSessionId `
+        -WorkerId ([string]($mergeRequest.conflicting_workers | Select-Object -First 1)) `
+        -AssignmentId "" `
+        -SourceArtifactRefs @($mergeRequestRef)
+
+    $pauseStatusRefs = New-Object System.Collections.Generic.List[string]
+    $pauseStatusOutputs = New-Object System.Collections.Generic.List[object]
+    $assignmentEntries = New-Object System.Collections.Generic.List[object]
+
+    foreach ($workerId in @($mergeRequest.conflicting_workers)) {
+        if (-not $artifactIndex.assignmentsByWorker.ContainsKey([string]$workerId)) {
+            throw ("No worker assignment was found for merge-request worker '{0}'." -f [string]$workerId)
+        }
+        if (-not $artifactIndex.statusesByWorker.ContainsKey([string]$workerId)) {
+            throw ("No worker status artifacts were found for merge-request worker '{0}'." -f [string]$workerId)
+        }
+
+        $assignmentEntry = $artifactIndex.assignmentsByWorker[[string]$workerId]
+        $latestStatusEntry = Get-StackLatestWorkerStatusEntry -Entries @($artifactIndex.statusesByWorker[[string]$workerId].ToArray())
+        if ([string]$latestStatusEntry.artifact.state -ne "paused") {
+            throw ("Latest worker status for merge-request worker '{0}' is not paused." -f [string]$workerId)
+        }
+        if ([string]$latestStatusEntry.artifact.merge_request_ref -ne $mergeRequestRef) {
+            throw ("Paused worker status for merge-request worker '{0}' does not reference the exact merge-request artifact." -f [string]$workerId)
+        }
+
+        $expectedBlockedReason = "paused_by_merge_request:{0}" -f [string]$mergeRequest.merge_request_id
+        if ([string]$latestStatusEntry.artifact.blocked_reason -ne $expectedBlockedReason) {
+            throw ("Paused worker status for merge-request worker '{0}' does not preserve the admitted blocked_reason." -f [string]$workerId)
+        }
+
+        [void]$assignmentEntries.Add($assignmentEntry)
+        $pauseStatusRel = Get-StackRelativePath -RepoRoot $RepoRoot -Path $latestStatusEntry.path
+        [void]$pauseStatusRefs.Add($pauseStatusRel)
+        [void]$pauseStatusOutputs.Add([ordered]@{
+            worker_id = [string]$workerId
+            assignment_id = [string]$assignmentEntry.artifact.assignment_id
+            path = $pauseStatusRel
+        })
+    }
+
+    $mergeAssignmentId = [string]$mergeRequest.merge_worker_handoff.assignment_id
+    if (-not $artifactIndex.assignmentsById.ContainsKey($mergeAssignmentId)) {
+        throw ("No merger assignment artifact was found for merge-request '{0}'." -f [string]$mergeRequest.merge_request_id)
+    }
+    $mergeAssignmentEntry = $artifactIndex.assignmentsById[$mergeAssignmentId]
+    if ([string]$mergeAssignmentEntry.artifact.worker_id -ne [string]$mergeRequest.merge_worker_handoff.worker_id) {
+        throw ("Merger assignment artifact for merge-request '{0}' does not preserve the admitted merge worker id." -f [string]$mergeRequest.merge_request_id)
+    }
+    if ([string]$mergeAssignmentEntry.artifact.stack_lock_digest -ne [string]$stackLockContext.stackLockDigest) {
+        throw ("Merger assignment artifact for merge-request '{0}' does not preserve the current root lock digest." -f [string]$mergeRequest.merge_request_id)
+    }
+
+    $mergeAssignmentRef = Get-StackRelativePath -RepoRoot $RepoRoot -Path $mergeAssignmentEntry.path
+    $mergeOutputRoot = Split-Path -Parent $mergeAssignmentEntry.path
+    $mergePromptPath = Join-Path -Path $mergeOutputRoot -ChildPath "merge.prompt.md"
+    if (-not (Test-Path -LiteralPath $mergePromptPath)) {
+        throw ("Merge prompt artifact was not found for merge-request '{0}'." -f [string]$mergeRequest.merge_request_id)
+    }
+    $mergePromptRef = Get-StackRelativePath -RepoRoot $RepoRoot -Path $mergePromptPath
+
+    $mergeContextRef = ""
+    foreach ($inputRef in @($mergeAssignmentEntry.artifact.input_handoff_refs)) {
+        $candidateRef = [string]$inputRef
+        if ([string]::IsNullOrWhiteSpace($candidateRef)) {
+            continue
+        }
+        if ($candidateRef -eq $mergeRequestRef) {
+            continue
+        }
+        if (@($mergeRequest.paused_handoff_refs) -contains $candidateRef) {
+            continue
+        }
+        $mergeContextRef = $candidateRef
+        break
+    }
+    if ([string]::IsNullOrWhiteSpace($mergeContextRef)) {
+        throw ("Merger assignment artifact for merge-request '{0}' does not expose the admitted merge context ref." -f [string]$mergeRequest.merge_request_id)
+    }
+
+    $resumeContextRefs = New-Object System.Collections.Generic.List[string]
+    $resumeContextOutputs = New-Object System.Collections.Generic.List[object]
+    $mergeHandoffRef = [string]$mergeRequest.merge_worker_handoff.handoff_ref
+
+    foreach ($workerId in @($mergeRequest.conflicting_workers)) {
+        $assignmentEntry = @($assignmentEntries | Where-Object { [string]$_.artifact.worker_id -eq [string]$workerId } | Select-Object -First 1)[0]
+        $pauseStatusEntry = @($pauseStatusOutputs | Where-Object { [string]$_.worker_id -eq [string]$workerId } | Select-Object -First 1)[0]
+        $pauseStatusRel = [string]$pauseStatusEntry.path
+
+        $resumeContextPath = Join-Path -Path $mergeOutputRoot -ChildPath ("resume-context.{0}.json" -f [string]$workerId)
+        $resumeContext = [ordered]@{
+            schema_version = "atlas.stack.resume-context.v1"
+            merge_request_id = [string]$mergeRequest.merge_request_id
+            worker_id = [string]$workerId
+            assignment_id = [string]$assignmentEntry.artifact.assignment_id
+            stack_lock_digest = [string]$stackLockContext.stackLockDigest
+            tool_id = [string]$mergeRequest.tool_id
+            extension_id = [string]$mergeRequest.extension_id
+            registry_digest = [string]$mergeRequest.registry_digest
+            merge_request_ref = $mergeRequestRef
+            paused_status_ref = $pauseStatusRel
+            paused_handoff_refs = @($mergeRequest.paused_handoff_refs)
+            merge_handoff_ref = $mergeHandoffRef
+            transcript_dependency = $false
+        }
+        [void](Write-StackJsonArtifact -Artifact $resumeContext -Path $resumeContextPath)
+        $resumeContextRel = Get-StackRelativePath -RepoRoot $RepoRoot -Path $resumeContextPath
+        [void]$resumeContextRefs.Add($resumeContextRel)
+        [void]$resumeContextOutputs.Add([ordered]@{
+            worker_id = [string]$workerId
+            assignment_id = [string]$assignmentEntry.artifact.assignment_id
+            path = $resumeContextRel
+        })
+    }
+
+    if (
+        -not [string]::IsNullOrWhiteSpace($mergeSessionId) -and
+        -not [string]::IsNullOrWhiteSpace([string]$mergeRequest.tool_id) -and
+        -not [string]::IsNullOrWhiteSpace([string]$mergeRequest.registry_digest)
+    ) {
+        foreach ($resumeContextOutput in @($resumeContextOutputs.ToArray())) {
+            [void](Publish-AtlasObservation `
+                -RepoRoot $RepoRoot `
+                -Owner "_stack" `
+                -ObservationType "resume_ready" `
+                -SourceKind "resume_context" `
+                -Status "ready" `
+                -SourceRef ([string]$resumeContextOutput.path) `
+                -ObservedAt ((Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")) `
+                -ScopeRef $mergeSessionId `
+                -Details (New-AtlasGovernedObservationDetails `
+                    -SessionId $mergeSessionId `
+                    -WorkerId ([string]$resumeContextOutput.worker_id) `
+                    -AssignmentId ([string]$resumeContextOutput.assignment_id) `
+                    -StackLockDigest ([string]$mergeRequest.stack_lock_digest) `
+                    -ToolId ([string]$mergeRequest.tool_id) `
+                    -ExtensionId ([string]$mergeRequest.extension_id) `
+                    -RegistryDigest ([string]$mergeRequest.registry_digest) `
+                    -SourceArtifactRefs @(
+                        $mergeRequestRef,
+                        $mergeAssignmentRef,
+                        [string]$resumeContextOutput.path,
+                        $mergeHandoffRef
+                    ) `
+                    -AdditionalDetails @{
+                        merge_context_ref = $mergeContextRef
+                        merge_prompt_ref = $mergePromptRef
+                    }))
+        }
+    }
+
+    return [ordered]@{
+        merge_request_id = [string]$mergeRequest.merge_request_id
+        merge_request_ref = $mergeRequestRef
+        merge_session_id = $mergeSessionId
+        stack_lock_digest = [string]$stackLockContext.stackLockDigest
+        tool_id = [string]$mergeRequest.tool_id
+        extension_id = [string]$mergeRequest.extension_id
+        registry_digest = [string]$mergeRequest.registry_digest
+        pause_status_refs = @($pauseStatusRefs.ToArray())
+        pause_statuses = @($pauseStatusOutputs.ToArray())
+        assignment_entries = @($assignmentEntries.ToArray())
+        merge_context_ref = $mergeContextRef
+        merge_prompt_ref = $mergePromptRef
+        merge_assignment_ref = $mergeAssignmentRef
+        merge_handoff_ref = $mergeHandoffRef
+        resume_context_refs = @($resumeContextRefs.ToArray())
+        resume_contexts = @($resumeContextOutputs.ToArray())
+    }
+}
+
+function Invoke-StackMergeRequestMergeCompletionConsumer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$ArtifactSearchRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$MergeRequestPath
+    )
+
+    $stackLockContext = Get-StackLockContext -RepoRoot $RepoRoot
+    $artifactIndex = Get-StackWorkerArtifactIndex -ArtifactRoot $ArtifactSearchRoot
+    $resolvedMergeRequestPath = [System.IO.Path]::GetFullPath($MergeRequestPath)
+    $mergeRequest = Read-StackJsonArtifact -Path $resolvedMergeRequestPath
+    if ([string]$mergeRequest.contract_version -ne "atlas.worker.merge-request.v1") {
+        throw ("Merge-request artifact must satisfy atlas.worker.merge-request.v1: {0}" -f $resolvedMergeRequestPath)
+    }
+    if ([string]$mergeRequest.stack_lock_digest -ne [string]$stackLockContext.stackLockDigest) {
+        throw ("Merge-request stack_lock_digest does not match the current root lock digest: {0}" -f $resolvedMergeRequestPath)
+    }
+
+    $mergeRequestRef = Get-StackRelativePath -RepoRoot $RepoRoot -Path $resolvedMergeRequestPath
+    $mergeSessionId = Resolve-AtlasObservationSessionId `
+        -WorkerId ([string]($mergeRequest.conflicting_workers | Select-Object -First 1)) `
+        -AssignmentId "" `
+        -SourceArtifactRefs @($mergeRequestRef)
+
+    $pauseStatusRefs = New-Object System.Collections.Generic.List[string]
+    $pauseStatusOutputs = New-Object System.Collections.Generic.List[object]
+    $assignmentEntries = New-Object System.Collections.Generic.List[object]
+
+    foreach ($workerId in @($mergeRequest.conflicting_workers)) {
+        if (-not $artifactIndex.assignmentsByWorker.ContainsKey([string]$workerId)) {
+            throw ("No worker assignment was found for merge-request worker '{0}'." -f [string]$workerId)
+        }
+        if (-not $artifactIndex.statusesByWorker.ContainsKey([string]$workerId)) {
+            throw ("No worker status artifacts were found for merge-request worker '{0}'." -f [string]$workerId)
+        }
+
+        $assignmentEntry = $artifactIndex.assignmentsByWorker[[string]$workerId]
+        $latestStatusEntry = Get-StackLatestWorkerStatusEntry -Entries @($artifactIndex.statusesByWorker[[string]$workerId].ToArray())
+        if ([string]$latestStatusEntry.artifact.state -ne "paused") {
+            throw ("Latest worker status for merge-request worker '{0}' is not paused." -f [string]$workerId)
+        }
+        if ([string]$latestStatusEntry.artifact.merge_request_ref -ne $mergeRequestRef) {
+            throw ("Paused worker status for merge-request worker '{0}' does not reference the exact merge-request artifact." -f [string]$workerId)
+        }
+
+        $expectedBlockedReason = "paused_by_merge_request:{0}" -f [string]$mergeRequest.merge_request_id
+        if ([string]$latestStatusEntry.artifact.blocked_reason -ne $expectedBlockedReason) {
+            throw ("Paused worker status for merge-request worker '{0}' does not preserve the admitted blocked_reason." -f [string]$workerId)
+        }
+
+        [void]$assignmentEntries.Add($assignmentEntry)
+        $pauseStatusRel = Get-StackRelativePath -RepoRoot $RepoRoot -Path $latestStatusEntry.path
+        [void]$pauseStatusRefs.Add($pauseStatusRel)
+        [void]$pauseStatusOutputs.Add([ordered]@{
+            worker_id = [string]$workerId
+            assignment_id = [string]$assignmentEntry.artifact.assignment_id
+            path = $pauseStatusRel
+        })
+    }
+
+    $mergeAssignmentId = [string]$mergeRequest.merge_worker_handoff.assignment_id
+    if (-not $artifactIndex.assignmentsById.ContainsKey($mergeAssignmentId)) {
+        throw ("No merger assignment artifact was found for merge-request '{0}'." -f [string]$mergeRequest.merge_request_id)
+    }
+    $mergeAssignmentEntry = $artifactIndex.assignmentsById[$mergeAssignmentId]
+    if ([string]$mergeAssignmentEntry.artifact.worker_id -ne [string]$mergeRequest.merge_worker_handoff.worker_id) {
+        throw ("Merger assignment artifact for merge-request '{0}' does not preserve the admitted merge worker id." -f [string]$mergeRequest.merge_request_id)
+    }
+    if ([string]$mergeAssignmentEntry.artifact.stack_lock_digest -ne [string]$stackLockContext.stackLockDigest) {
+        throw ("Merger assignment artifact for merge-request '{0}' does not preserve the current root lock digest." -f [string]$mergeRequest.merge_request_id)
+    }
+
+    $mergeAssignmentRef = Get-StackRelativePath -RepoRoot $RepoRoot -Path $mergeAssignmentEntry.path
+    $mergeOutputRoot = Split-Path -Parent $mergeAssignmentEntry.path
+    $mergePromptPath = Join-Path -Path $mergeOutputRoot -ChildPath "merge.prompt.md"
+    if (-not (Test-Path -LiteralPath $mergePromptPath)) {
+        throw ("Merge prompt artifact was not found for merge-request '{0}'." -f [string]$mergeRequest.merge_request_id)
+    }
+    $mergePromptRef = Get-StackRelativePath -RepoRoot $RepoRoot -Path $mergePromptPath
+
+    $mergeContextRef = ""
+    foreach ($inputRef in @($mergeAssignmentEntry.artifact.input_handoff_refs)) {
+        $candidateRef = [string]$inputRef
+        if ([string]::IsNullOrWhiteSpace($candidateRef)) {
+            continue
+        }
+        if ($candidateRef -eq $mergeRequestRef) {
+            continue
+        }
+        if (@($mergeRequest.paused_handoff_refs) -contains $candidateRef) {
+            continue
+        }
+        $mergeContextRef = $candidateRef
+        break
+    }
+    if ([string]::IsNullOrWhiteSpace($mergeContextRef)) {
+        throw ("Merger assignment artifact for merge-request '{0}' does not expose the admitted merge context ref." -f [string]$mergeRequest.merge_request_id)
+    }
+
+    $resumeContextRefs = New-Object System.Collections.Generic.List[string]
+    $resumeContextOutputs = New-Object System.Collections.Generic.List[object]
+    $mergeHandoffRef = [string]$mergeRequest.merge_worker_handoff.handoff_ref
+
+    foreach ($workerId in @($mergeRequest.conflicting_workers)) {
+        $assignmentEntry = @($assignmentEntries | Where-Object { [string]$_.artifact.worker_id -eq [string]$workerId } | Select-Object -First 1)[0]
+        $pauseStatusEntry = @($pauseStatusOutputs | Where-Object { [string]$_.worker_id -eq [string]$workerId } | Select-Object -First 1)[0]
+        $pauseStatusRel = [string]$pauseStatusEntry.path
+
+        $resumeContextPath = Join-Path -Path $mergeOutputRoot -ChildPath ("resume-context.{0}.json" -f [string]$workerId)
+        if (-not (Test-Path -LiteralPath $resumeContextPath)) {
+            throw ("Resume-context artifact was not found for merge-request worker '{0}'." -f [string]$workerId)
+        }
+
+        $resumeContext = Read-StackJsonArtifact -Path $resumeContextPath
+        if ([string]$resumeContext.schema_version -ne "atlas.stack.resume-context.v1") {
+            throw ("Resume-context artifact for merge-request worker '{0}' does not satisfy atlas.stack.resume-context.v1." -f [string]$workerId)
+        }
+        if ([string]$resumeContext.merge_request_id -ne [string]$mergeRequest.merge_request_id) {
+            throw ("Resume-context artifact for merge-request worker '{0}' does not preserve the admitted merge_request_id." -f [string]$workerId)
+        }
+        if ([string]$resumeContext.worker_id -ne [string]$workerId) {
+            throw ("Resume-context artifact for merge-request worker '{0}' does not preserve the admitted worker_id." -f [string]$workerId)
+        }
+        if ([string]$resumeContext.assignment_id -ne [string]$assignmentEntry.artifact.assignment_id) {
+            throw ("Resume-context artifact for merge-request worker '{0}' does not preserve the admitted assignment_id." -f [string]$workerId)
+        }
+        if ([string]$resumeContext.stack_lock_digest -ne [string]$stackLockContext.stackLockDigest) {
+            throw ("Resume-context artifact for merge-request worker '{0}' does not preserve the current root lock digest." -f [string]$workerId)
+        }
+        if ([string]$resumeContext.tool_id -ne [string]$mergeRequest.tool_id) {
+            throw ("Resume-context artifact for merge-request worker '{0}' does not preserve the admitted tool_id." -f [string]$workerId)
+        }
+        if ([string]$resumeContext.extension_id -ne [string]$mergeRequest.extension_id) {
+            throw ("Resume-context artifact for merge-request worker '{0}' does not preserve the admitted extension_id." -f [string]$workerId)
+        }
+        if ([string]$resumeContext.registry_digest -ne [string]$mergeRequest.registry_digest) {
+            throw ("Resume-context artifact for merge-request worker '{0}' does not preserve the admitted registry_digest." -f [string]$workerId)
+        }
+        if ([string]$resumeContext.merge_request_ref -ne $mergeRequestRef) {
+            throw ("Resume-context artifact for merge-request worker '{0}' does not reference the exact merge-request artifact." -f [string]$workerId)
+        }
+        if ([string]$resumeContext.paused_status_ref -ne $pauseStatusRel) {
+            throw ("Resume-context artifact for merge-request worker '{0}' does not reference the exact paused-status artifact." -f [string]$workerId)
+        }
+        if ([string]$resumeContext.merge_handoff_ref -ne $mergeHandoffRef) {
+            throw ("Resume-context artifact for merge-request worker '{0}' does not preserve the admitted merge_handoff_ref." -f [string]$workerId)
+        }
+        if ([bool]$resumeContext.transcript_dependency) {
+            throw ("Resume-context artifact for merge-request worker '{0}' must stay transcript-independent." -f [string]$workerId)
+        }
+
+        $resumePausedRefs = @([string[]]@($resumeContext.paused_handoff_refs))
+        $expectedPausedRefs = @([string[]]@($mergeRequest.paused_handoff_refs))
+        if ($resumePausedRefs.Count -ne $expectedPausedRefs.Count) {
+            throw ("Resume-context artifact for merge-request worker '{0}' does not preserve the admitted paused handoff ref set." -f [string]$workerId)
+        }
+        for ($index = 0; $index -lt $expectedPausedRefs.Count; $index++) {
+            if ([string]$resumePausedRefs[$index] -ne [string]$expectedPausedRefs[$index]) {
+                throw ("Resume-context artifact for merge-request worker '{0}' does not preserve the admitted paused handoff ref set." -f [string]$workerId)
+            }
+        }
+
+        $resumeContextRel = Get-StackRelativePath -RepoRoot $RepoRoot -Path $resumeContextPath
+        [void]$resumeContextRefs.Add($resumeContextRel)
+        [void]$resumeContextOutputs.Add([ordered]@{
+            worker_id = [string]$workerId
+            assignment_id = [string]$assignmentEntry.artifact.assignment_id
+            path = $resumeContextRel
+        })
+    }
+
+    $completionPath = Join-Path -Path $mergeOutputRoot -ChildPath "completion.json"
+    $completion = [ordered]@{
+        schema_version = "atlas.stack.supervisor-consumer.v1"
+        merge_request_id = [string]$mergeRequest.merge_request_id
+        merge_request_ref = $mergeRequestRef
+        stack_lock_digest = [string]$stackLockContext.stackLockDigest
+        tool_id = [string]$mergeRequest.tool_id
+        extension_id = [string]$mergeRequest.extension_id
+        registry_digest = [string]$mergeRequest.registry_digest
+        pause_statuses = @($pauseStatusOutputs.ToArray())
+        resume_contexts = @($resumeContextOutputs.ToArray())
+        merge_assignment_ref = $mergeAssignmentRef
+        merge_prompt_ref = $mergePromptRef
+        merge_context_ref = $mergeContextRef
+        merge_handoff_ref = $mergeHandoffRef
+        transcript_dependency = $false
+    }
+    $completion = $completion + [ordered]@{
+        content_digest = Get-StackArtifactDigest -Artifact $completion
+    }
+    [void](Write-StackJsonArtifact -Artifact $completion -Path $completionPath)
+    $completionRef = Get-StackRelativePath -RepoRoot $RepoRoot -Path $completionPath
+
+    return [ordered]@{
+        merge_request_id = [string]$mergeRequest.merge_request_id
+        merge_request_ref = $mergeRequestRef
+        merge_session_id = $mergeSessionId
+        stack_lock_digest = [string]$stackLockContext.stackLockDigest
+        tool_id = [string]$mergeRequest.tool_id
+        extension_id = [string]$mergeRequest.extension_id
+        registry_digest = [string]$mergeRequest.registry_digest
+        pause_status_refs = @($pauseStatusRefs.ToArray())
+        pause_statuses = @($pauseStatusOutputs.ToArray())
+        resume_context_refs = @($resumeContextRefs.ToArray())
+        resume_contexts = @($resumeContextOutputs.ToArray())
+        merge_context_ref = $mergeContextRef
+        merge_prompt_ref = $mergePromptRef
+        merge_assignment_ref = $mergeAssignmentRef
+        merge_handoff_ref = $mergeHandoffRef
+        completion_ref = $completionRef
+    }
+}
+
 function Invoke-StackSupervisorConsumer {
     param(
         [Parameter(Mandatory = $true)]
@@ -1290,260 +1983,44 @@ function Invoke-StackSupervisorConsumer {
             continue
         }
 
-        if (
-            -not [string]::IsNullOrWhiteSpace($mergeSessionId) -and
-            -not [string]::IsNullOrWhiteSpace([string]$mergeRequest.tool_id) -and
-            -not [string]::IsNullOrWhiteSpace([string]$mergeRequest.registry_digest)
-        ) {
-            [void](Publish-AtlasObservation `
-                -RepoRoot $RepoRoot `
-                -Owner "_stack" `
-                -ObservationType "merge_requested" `
-                -SourceKind "worker_merge_request" `
-                -Status "open" `
-                -SourceRef $mergeRequestRef `
-                -ObservedAt ((Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")) `
-                -ScopeRef $mergeSessionId `
-                -Details (New-AtlasGovernedObservationDetails `
-                    -SessionId $mergeSessionId `
-                    -StackLockDigest ([string]$mergeRequest.stack_lock_digest) `
-                    -ToolId ([string]$mergeRequest.tool_id) `
-                    -ExtensionId ([string]$mergeRequest.extension_id) `
-                    -RegistryDigest ([string]$mergeRequest.registry_digest) `
-                    -SourceArtifactRefs @($mergeRequestRef) `
-                    -AdditionalDetails @{
-                        conflicting_workers = @($mergeRequest.conflicting_workers)
-                        merge_request_id = [string]$mergeRequest.merge_request_id
-                    }))
-        }
-
-        $pauseStatusRefs = New-Object System.Collections.Generic.List[string]
-        $resumeContextRefs = New-Object System.Collections.Generic.List[string]
-        $pauseStatusOutputs = New-Object System.Collections.Generic.List[object]
-        $resumeContextOutputs = New-Object System.Collections.Generic.List[object]
-        $assignmentEntries = New-Object System.Collections.Generic.List[object]
-
-        foreach ($workerId in @($mergeRequest.conflicting_workers)) {
-            if (-not $artifactIndex.assignmentsByWorker.ContainsKey([string]$workerId)) {
-                throw ("No worker assignment was found for merge-request worker '{0}'." -f [string]$workerId)
-            }
-            if (-not $artifactIndex.statusesByWorker.ContainsKey([string]$workerId)) {
-                throw ("No worker status artifacts were found for merge-request worker '{0}'." -f [string]$workerId)
-            }
-
-            $assignmentEntry = $artifactIndex.assignmentsByWorker[[string]$workerId]
-            $latestStatusEntry = Get-StackLatestWorkerStatusEntry -Entries @($artifactIndex.statusesByWorker[[string]$workerId].ToArray())
-            [void]$assignmentEntries.Add($assignmentEntry)
-
-            $pauseStatusPath = Join-Path -Path (Split-Path -Parent $latestStatusEntry.path) -ChildPath ("worker.status.paused.{0}.json" -f [string]$mergeRequest.merge_request_id)
-            $blockedReason = "paused_by_merge_request:{0}" -f [string]$mergeRequest.merge_request_id
-            $pauseStatus = New-StackWorkerStatus `
-                -WorkerId ([string]$workerId) `
-                -AssignmentId ([string]$assignmentEntry.artifact.assignment_id) `
-                -State "paused" `
-                -HeartbeatAt ([string](Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")) `
-                -TouchedRanges @($latestStatusEntry.artifact.touched_ranges) `
-                -OutputRefs @($latestStatusEntry.artifact.output_refs) `
-                -BlockedReason $blockedReason `
-                -MergeRequestRef $mergeRequestRef `
-                -ToolId ([string]$latestStatusEntry.artifact.tool_id) `
-                -ExtensionId ([string]$latestStatusEntry.artifact.extension_id) `
-                -RegistryDigest ([string]$latestStatusEntry.artifact.registry_digest)
-            [void](Write-StackWorkerArtifact -Artifact $pauseStatus -Path $pauseStatusPath)
-            $pauseStatusRel = Get-StackRelativePath -RepoRoot $RepoRoot -Path $pauseStatusPath
-            [void]$pauseStatusRefs.Add($pauseStatusRel)
-            [void]$pauseStatusOutputs.Add([ordered]@{
-                worker_id = [string]$workerId
-                path = $pauseStatusRel
-            })
-            if (
-                -not [string]::IsNullOrWhiteSpace($mergeSessionId) -and
-                -not [string]::IsNullOrWhiteSpace([string]$pauseStatus.tool_id) -and
-                -not [string]::IsNullOrWhiteSpace([string]$pauseStatus.registry_digest)
-            ) {
-                [void](Publish-AtlasObservation `
-                    -RepoRoot $RepoRoot `
-                    -Owner "_stack" `
-                    -ObservationType "paused" `
-                    -SourceKind "worker_status" `
-                    -Status "paused" `
-                    -SourceRef $pauseStatusRel `
-                    -ObservedAt ([string]$pauseStatus.heartbeat_at) `
-                    -ScopeRef $mergeSessionId `
-                    -Details (New-AtlasGovernedObservationDetails `
-                        -SessionId $mergeSessionId `
-                        -WorkerId ([string]$pauseStatus.worker_id) `
-                        -AssignmentId ([string]$pauseStatus.assignment_id) `
-                        -StackLockDigest ([string]$mergeRequest.stack_lock_digest) `
-                        -ToolId ([string]$pauseStatus.tool_id) `
-                        -ExtensionId ([string]$pauseStatus.extension_id) `
-                        -RegistryDigest ([string]$pauseStatus.registry_digest) `
-                        -SourceArtifactRefs @($mergeRequestRef, $pauseStatusRel) `
-                        -AdditionalDetails @{
-                            merge_request_ref = $mergeRequestRef
-                        }))
-            }
-
-            $resumeContextPath = Join-Path -Path $mergeOutputRoot -ChildPath ("resume-context.{0}.json" -f [string]$workerId)
-            $resumeContext = [ordered]@{
-                schema_version = "atlas.stack.resume-context.v1"
-                merge_request_id = [string]$mergeRequest.merge_request_id
-                worker_id = [string]$workerId
-                assignment_id = [string]$assignmentEntry.artifact.assignment_id
-                stack_lock_digest = [string]$stackLockContext.stackLockDigest
-                tool_id = [string]$mergeRequest.tool_id
-                extension_id = [string]$mergeRequest.extension_id
-                registry_digest = [string]$mergeRequest.registry_digest
-                merge_request_ref = $mergeRequestRef
-                paused_status_ref = $pauseStatusRel
-                paused_handoff_refs = @($mergeRequest.paused_handoff_refs)
-                merge_handoff_ref = [string]$mergeRequest.merge_worker_handoff.handoff_ref
-                transcript_dependency = $false
-            }
-            [void](Write-StackJsonArtifact -Artifact $resumeContext -Path $resumeContextPath)
-            $resumeContextRel = Get-StackRelativePath -RepoRoot $RepoRoot -Path $resumeContextPath
-            [void]$resumeContextRefs.Add($resumeContextRel)
-            [void]$resumeContextOutputs.Add([ordered]@{
-                worker_id = [string]$workerId
-                assignment_id = [string]$assignmentEntry.artifact.assignment_id
-                path = $resumeContextRel
-            })
-        }
-
-        $mergeWorkerId = [string]$mergeRequest.merge_worker_handoff.worker_id
-        $mergeAssignmentId = [string]$mergeRequest.merge_worker_handoff.assignment_id
-        $mergeTaskId = [string]$mergeRequest.merge_worker_handoff.task_id
-        $mergeContextBuild = Invoke-StackWorkerContextBuild `
+        $pauseStatusConsumer = Invoke-StackMergeRequestPauseStatusConsumer `
             -RepoRoot $RepoRoot `
-            -AssignmentId $mergeAssignmentId `
-            -WorkerId $mergeWorkerId `
-            -TaskId $mergeTaskId `
-            -StackLockDigest $stackLockContext.stackLockDigest `
-            -QueryTerms @($mergeRequest.overlaps | ForEach-Object { [System.IO.Path]::GetFileNameWithoutExtension([string]$_.path) }) `
-            -TaskTags @("merge", "conflict", "supervisor")
-        $mergeContextRef = [string]$mergeContextBuild.relativePath
+            -ArtifactSearchRoot $ArtifactSearchRoot `
+            -MergeRequestPath $candidatePath
 
-        $mergePromptPath = Join-Path -Path $mergeOutputRoot -ChildPath "merge.prompt.md"
-        $mergePromptText = New-StackMergePromptText `
-            -MergeRequest $mergeRequest `
-            -MergeRequestRef $mergeRequestRef `
-            -MergedHandoffRef ([string]$mergeRequest.merge_worker_handoff.handoff_ref) `
-            -ContextRef $mergeContextRef
-        Write-TextFile -Path $mergePromptPath -Content ($mergePromptText + "`r`n")
-        $mergePromptRef = Get-StackRelativePath -RepoRoot $RepoRoot -Path $mergePromptPath
+        $mergerAssignmentConsumer = Invoke-StackMergeRequestMergerAssignmentConsumer `
+            -RepoRoot $RepoRoot `
+            -ArtifactSearchRoot $ArtifactSearchRoot `
+            -MergeRequestPath $candidatePath
 
-        $mergeAssignmentPath = Join-Path -Path $mergeOutputRoot -ChildPath "worker.assignment.merge.json"
-        $mergeAssignment = New-StackWorkerAssignment `
-            -AssignmentId $mergeAssignmentId `
-            -WorkerId $mergeWorkerId `
-            -TaskId $mergeTaskId `
-            -StackLockDigest $stackLockContext.stackLockDigest `
-            -AllowedGlobs @($assignmentEntries | ForEach-Object { @($_.artifact.allowed_globs) } | Select-Object -Unique) `
-            -ForbiddenGlobs @($assignmentEntries | ForEach-Object { @($_.artifact.forbidden_globs) } | Select-Object -Unique) `
-            -InputHandoffRefs @(@($mergeRequest.paused_handoff_refs) + @($mergeRequestRef, $mergeContextRef)) `
-            -ExpectedOutputs @([string]$mergeRequest.merge_worker_handoff.handoff_ref, $mergePromptRef) `
-            -ToolId ([string]$mergeRequest.merge_worker_handoff.tool_id) `
-            -ExtensionId ([string]$mergeRequest.merge_worker_handoff.extension_id) `
-            -RegistryDigest ([string]$mergeRequest.merge_worker_handoff.registry_digest) `
-            -Notes ("Supervisor-consumed merge assignment for {0}." -f [string]$mergeRequest.merge_request_id)
-        [void](Write-StackWorkerArtifact -Artifact $mergeAssignment -Path $mergeAssignmentPath)
-        $mergeAssignmentRef = Get-StackRelativePath -RepoRoot $RepoRoot -Path $mergeAssignmentPath
+        $resumeContextConsumer = Invoke-StackMergeRequestResumeContextConsumer `
+            -RepoRoot $RepoRoot `
+            -ArtifactSearchRoot $ArtifactSearchRoot `
+            -MergeRequestPath $candidatePath
 
-        if (
-            -not [string]::IsNullOrWhiteSpace($mergeSessionId) -and
-            -not [string]::IsNullOrWhiteSpace([string]$mergeAssignment.tool_id) -and
-            -not [string]::IsNullOrWhiteSpace([string]$mergeAssignment.registry_digest)
-        ) {
-            [void](Publish-AtlasObservation `
-                -RepoRoot $RepoRoot `
-                -Owner "_stack" `
-                -ObservationType "merger_assigned" `
-                -SourceKind "worker_assignment" `
-                -Status "assigned" `
-                -SourceRef $mergeAssignmentRef `
-                -ObservedAt ((Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")) `
-                -ScopeRef $mergeSessionId `
-                -Details (New-AtlasGovernedObservationDetails `
-                    -SessionId $mergeSessionId `
-                    -WorkerId ([string]$mergeAssignment.worker_id) `
-                    -AssignmentId ([string]$mergeAssignment.assignment_id) `
-                    -StackLockDigest ([string]$mergeRequest.stack_lock_digest) `
-                    -ToolId ([string]$mergeAssignment.tool_id) `
-                    -ExtensionId ([string]$mergeAssignment.extension_id) `
-                    -RegistryDigest ([string]$mergeAssignment.registry_digest) `
-                    -SourceArtifactRefs @($mergeRequestRef, $mergeAssignmentRef, $mergeContextRef, $mergePromptRef) `
-                    -AdditionalDetails @{
-                        merge_request_ref = $mergeRequestRef
-                    }))
-        }
+        $mergeCompletionConsumer = Invoke-StackMergeRequestMergeCompletionConsumer `
+            -RepoRoot $RepoRoot `
+            -ArtifactSearchRoot $ArtifactSearchRoot `
+            -MergeRequestPath $candidatePath
 
-        $completion = [ordered]@{
-            schema_version = "atlas.stack.supervisor-consumer.v1"
-            merge_request_id = [string]$mergeRequest.merge_request_id
-            merge_request_ref = $mergeRequestRef
-            stack_lock_digest = [string]$stackLockContext.stackLockDigest
-            tool_id = [string]$mergeRequest.tool_id
-            extension_id = [string]$mergeRequest.extension_id
-            registry_digest = [string]$mergeRequest.registry_digest
-            pause_statuses = @($pauseStatusOutputs.ToArray())
-            resume_contexts = @($resumeContextOutputs.ToArray())
-            merge_assignment_ref = $mergeAssignmentRef
-            merge_prompt_ref = $mergePromptRef
-            merge_context_ref = $mergeContextRef
-            merge_handoff_ref = [string]$mergeRequest.merge_worker_handoff.handoff_ref
-            transcript_dependency = $false
-        }
-        $completion = $completion + [ordered]@{
-            content_digest = Get-StackArtifactDigest -Artifact $completion
-        }
-        [void](Write-StackJsonArtifact -Artifact $completion -Path $completionPath)
-        $completionRef = Get-StackRelativePath -RepoRoot $RepoRoot -Path $completionPath
-
-        if (
-            -not [string]::IsNullOrWhiteSpace($mergeSessionId) -and
-            -not [string]::IsNullOrWhiteSpace([string]$mergeRequest.tool_id) -and
-            -not [string]::IsNullOrWhiteSpace([string]$mergeRequest.registry_digest)
-        ) {
-            foreach ($resumeContextOutput in @($resumeContextOutputs.ToArray())) {
-                [void](Publish-AtlasObservation `
-                    -RepoRoot $RepoRoot `
-                    -Owner "_stack" `
-                    -ObservationType "resume_ready" `
-                    -SourceKind "resume_context" `
-                    -Status "ready" `
-                    -SourceRef ([string]$resumeContextOutput.path) `
-                    -ObservedAt ((Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")) `
-                    -ScopeRef $mergeSessionId `
-                    -Details (New-AtlasGovernedObservationDetails `
-                        -SessionId $mergeSessionId `
-                        -WorkerId ([string]$resumeContextOutput.worker_id) `
-                        -AssignmentId ([string]$resumeContextOutput.assignment_id) `
-                        -StackLockDigest ([string]$mergeRequest.stack_lock_digest) `
-                        -ToolId ([string]$mergeRequest.tool_id) `
-                        -ExtensionId ([string]$mergeRequest.extension_id) `
-                        -RegistryDigest ([string]$mergeRequest.registry_digest) `
-                        -SourceArtifactRefs @(
-                            $mergeRequestRef,
-                            $mergeAssignmentRef,
-                            $completionRef,
-                            [string]$resumeContextOutput.path,
-                            [string]$mergeRequest.merge_worker_handoff.handoff_ref
-                        ) `
-                        -AdditionalDetails @{
-                            merge_completion_ref = $completionRef
-                        }))
-            }
-        }
+        $mergeSessionId = [string]$mergeCompletionConsumer.merge_session_id
+        $pauseStatusOutputs = @($mergeCompletionConsumer.pause_statuses)
+        $resumeContextOutputs = @($mergeCompletionConsumer.resume_contexts)
+        $mergeContextRef = [string]$mergeCompletionConsumer.merge_context_ref
+        $mergePromptRef = [string]$mergeCompletionConsumer.merge_prompt_ref
+        $mergeAssignmentRef = [string]$mergeCompletionConsumer.merge_assignment_ref
+        $mergeHandoffRef = [string]$mergeCompletionConsumer.merge_handoff_ref
+        $completionRef = [string]$mergeCompletionConsumer.completion_ref
 
         [void]$processed.Add([ordered]@{
             merge_request_id = [string]$mergeRequest.merge_request_id
             merge_request_ref = $mergeRequestRef
-            pause_statuses = @($pauseStatusOutputs.ToArray())
-            resume_contexts = @($resumeContextOutputs.ToArray())
+            pause_statuses = @($pauseStatusOutputs)
+            resume_contexts = @($resumeContextOutputs)
             merge_assignment_ref = $mergeAssignmentRef
             merge_prompt_ref = $mergePromptRef
             merge_context_ref = $mergeContextRef
-            merge_handoff_ref = [string]$mergeRequest.merge_worker_handoff.handoff_ref
+            merge_handoff_ref = $mergeHandoffRef
             tool_id = [string]$mergeRequest.tool_id
             extension_id = [string]$mergeRequest.extension_id
             registry_digest = [string]$mergeRequest.registry_digest

@@ -35,6 +35,13 @@ $requiredFiles = @(
     "ops/codex/repos/stack/adapter.json",
     "ops/codex/repos/stack/config.toml",
     "ops/stack/StackWorkerArtifacts.ps1",
+    "ops/stack/Invoke-QueueOrRegistryExecutionBridgeArtifacts.ps1",
+    "ops/stack/Invoke-QueueOrRegistryLaunchOrDispatch.ps1",
+    "ops/stack/Invoke-QueueOrRegistryMergeCompletionBehavior.ps1",
+    "ops/stack/Invoke-QueueOrRegistryMergeRequestArtifactBehavior.ps1",
+    "ops/stack/Invoke-QueueOrRegistryMergerAssignmentArtifactBehavior.ps1",
+    "ops/stack/Invoke-QueueOrRegistryPausedStatusArtifactBehavior.ps1",
+    "ops/stack/Invoke-QueueOrRegistryWorkerArtifactEmission.ps1",
     "ops/stack/Test-StackWorkerArtifacts.ps1",
     "ops/bin/release-launcher.cmd",
     "package.json",
@@ -44,6 +51,28 @@ $requiredFiles = @(
     "scripts/command-runner.test.mjs",
     "scripts/queue-or-registry-broader-execution-behavior.mjs",
     "scripts/queue-or-registry-broader-execution-behavior.test.mjs",
+    "scripts/queue-or-registry-execution-bridge-artifacts.mjs",
+    "scripts/queue-or-registry-execution-bridge-artifacts.test.mjs",
+    "scripts/queue-or-registry-queue-drop-emission.mjs",
+    "scripts/queue-or-registry-queue-drop-emission.test.mjs",
+    "scripts/queue-or-registry-launch-or-dispatch.mjs",
+    "scripts/queue-or-registry-launch-or-dispatch.test.mjs",
+    "scripts/queue-or-registry-merge-completion-behavior.mjs",
+    "scripts/queue-or-registry-merge-completion-behavior.test.mjs",
+    "scripts/queue-or-registry-claim-state-movement.mjs",
+    "scripts/queue-or-registry-claim-state-movement.test.mjs",
+    "scripts/queue-or-registry-done-state-closure.mjs",
+    "scripts/queue-or-registry-done-state-closure.test.mjs",
+    "scripts/queue-or-registry-merge-request-artifact-behavior.mjs",
+    "scripts/queue-or-registry-merge-request-artifact-behavior.test.mjs",
+    "scripts/queue-or-registry-merger-assignment-artifact-behavior.mjs",
+    "scripts/queue-or-registry-merger-assignment-artifact-behavior.test.mjs",
+    "scripts/queue-or-registry-paused-status-artifact-behavior.mjs",
+    "scripts/queue-or-registry-paused-status-artifact-behavior.test.mjs",
+    "scripts/queue-or-registry-resume-context-artifact-behavior.mjs",
+    "scripts/queue-or-registry-resume-context-artifact-behavior.test.mjs",
+    "scripts/queue-or-registry-worker-artifact-emission.mjs",
+    "scripts/queue-or-registry-worker-artifact-emission.test.mjs",
     "scripts/release-launcher.test.mjs",
     "scripts/release-launcher.mjs",
     "scripts/atlas-topology.mjs",
@@ -77,6 +106,28 @@ $requiredScripts = @(
     "codex:stack:verify",
     "stack:queue-or-registry:broader-execution-behavior",
     "stack:queue-or-registry:broader-execution-behavior:test",
+    "stack:queue-or-registry:execution-bridge-artifacts",
+    "stack:queue-or-registry:execution-bridge-artifacts:test",
+    "stack:queue-or-registry:queue-drop-emission",
+    "stack:queue-or-registry:queue-drop-emission:test",
+    "stack:queue-or-registry:launch-or-dispatch",
+    "stack:queue-or-registry:launch-or-dispatch:test",
+    "stack:queue-or-registry:merge-completion-behavior",
+    "stack:queue-or-registry:merge-completion-behavior:test",
+    "stack:queue-or-registry:claim-state-movement",
+    "stack:queue-or-registry:claim-state-movement:test",
+    "stack:queue-or-registry:done-state-closure",
+    "stack:queue-or-registry:done-state-closure:test",
+    "stack:queue-or-registry:merge-request-artifact-behavior",
+    "stack:queue-or-registry:merge-request-artifact-behavior:test",
+    "stack:queue-or-registry:merger-assignment-artifact-behavior",
+    "stack:queue-or-registry:merger-assignment-artifact-behavior:test",
+    "stack:queue-or-registry:paused-status-artifact-behavior",
+    "stack:queue-or-registry:paused-status-artifact-behavior:test",
+    "stack:queue-or-registry:resume-context-artifact-behavior",
+    "stack:queue-or-registry:resume-context-artifact-behavior:test",
+    "stack:queue-or-registry:worker-artifact-emission",
+    "stack:queue-or-registry:worker-artifact-emission:test",
     "trove:deploy:preflight"
 )
 $missingScripts = @(
@@ -119,6 +170,61 @@ if ($LASTEXITCODE -ne 0) {
     throw "_stack broader execution behavior wrapper regression coverage failed."
 }
 
+& node --test ".\scripts\queue-or-registry-execution-bridge-artifacts.test.mjs" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack execution bridge artifacts wrapper regression coverage failed."
+}
+
+& node --test ".\scripts\queue-or-registry-worker-artifact-emission.test.mjs" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack worker artifact emission wrapper regression coverage failed."
+}
+
+& node --test ".\scripts\queue-or-registry-queue-drop-emission.test.mjs" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack queue drop emission wrapper regression coverage failed."
+}
+
+& node --test ".\scripts\queue-or-registry-launch-or-dispatch.test.mjs" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack launch-or-dispatch wrapper regression coverage failed."
+}
+
+& node --test ".\scripts\queue-or-registry-merge-completion-behavior.test.mjs" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack merge-completion-behavior wrapper regression coverage failed."
+}
+
+& node --test ".\scripts\queue-or-registry-claim-state-movement.test.mjs" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack claim-state-movement wrapper regression coverage failed."
+}
+
+& node --test ".\scripts\queue-or-registry-done-state-closure.test.mjs" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack done-state-closure wrapper regression coverage failed."
+}
+
+& node --test ".\scripts\queue-or-registry-merge-request-artifact-behavior.test.mjs" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack merge-request-artifact-behavior wrapper regression coverage failed."
+}
+
+& node --test ".\scripts\queue-or-registry-merger-assignment-artifact-behavior.test.mjs" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack merger-assignment-artifact-behavior wrapper regression coverage failed."
+}
+
+& node --test ".\scripts\queue-or-registry-paused-status-artifact-behavior.test.mjs" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack paused-status-artifact-behavior wrapper regression coverage failed."
+}
+
+& node --test ".\scripts\queue-or-registry-resume-context-artifact-behavior.test.mjs" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "_stack resume-context-artifact-behavior wrapper regression coverage failed."
+}
+
 $launcherListOutput = & node ".\scripts\release-launcher.mjs" --list
 if ($LASTEXITCODE -ne 0) {
     throw "_stack release launcher list command failed."
@@ -145,9 +251,10 @@ if (Test-Path -LiteralPath $mazerRepoPath) {
         }
     }
     else {
+        $expectedMazerRelinkCommand = 'pnpm dlx vercel --cwd "{0}" link --yes --project prj_t3zothbtj9DExrh3FjMsH98hwwSZ --scope fawxzzy' -f ((Resolve-Path -LiteralPath $mazerRepoPath).Path)
         if (
             $mazerIdentityText -notmatch "The repo is not linked to the canonical local Vercel project yet\." -or
-            $mazerIdentityText -notmatch [regex]::Escape('pnpm dlx vercel --cwd "C:\ATLAS\repos\mazer" link --yes --project prj_t3zothbtj9DExrh3FjMsH98hwwSZ --scope fawxzzy')
+            $mazerIdentityText -notmatch [regex]::Escape($expectedMazerRelinkCommand)
         ) {
             throw "_stack Mazer deploy identity preflight did not fail closed with the canonical relink guidance."
         }
@@ -313,7 +420,18 @@ $requiredQueueOrRegistryCommands = @(
     "pnpm run stack:queue-or-registry:follow-on",
     "pnpm run stack:queue-or-registry:live-direct-json-read-follow-on",
     "pnpm run stack:queue-or-registry:live-directory-read-follow-on",
-    "pnpm run stack:queue-or-registry:broader-execution-behavior"
+    "pnpm run stack:queue-or-registry:broader-execution-behavior",
+    "pnpm run stack:queue-or-registry:execution-bridge-artifacts",
+    "pnpm run stack:queue-or-registry:launch-or-dispatch",
+    "pnpm run stack:queue-or-registry:claim-state-movement",
+    "pnpm run stack:queue-or-registry:done-state-closure",
+    "pnpm run stack:queue-or-registry:merge-request-artifact-behavior",
+    "pnpm run stack:queue-or-registry:merger-assignment-artifact-behavior",
+    "pnpm run stack:queue-or-registry:paused-status-artifact-behavior",
+    "pnpm run stack:queue-or-registry:resume-context-artifact-behavior",
+    "pnpm run stack:queue-or-registry:merge-completion-behavior",
+    "pnpm run stack:queue-or-registry:queue-drop-emission",
+    "pnpm run stack:queue-or-registry:worker-artifact-emission"
 )
 foreach ($requiredCommand in $requiredQueueOrRegistryCommands) {
     if ($requiredCommand -notin $queueOrRegistryCommands) {

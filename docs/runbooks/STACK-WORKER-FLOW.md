@@ -209,7 +209,7 @@ The pause, merge, and resume artifacts preserve the same governed surface identi
 | Lifeline | `execution_completed` | `runtime/lifeline/worker-execution/<assignment_id>/receipt.json` |
 | `_stack` | `completed` | `worker.status.completed.json` |
 | `_stack` | `merge_requested` | `worker.merge-request.json` |
-| `_stack` | `paused` | `worker.status.paused.<merge_request_id>.json` |
+| `_stack` | `paused` | `worker.status.paused.<worker_id>.<merge_request_id>.json` |
 | `_stack` | `merger_assigned` | `worker.assignment.merge.json` |
 | `_stack` | `resume_ready` | `resume-context.<worker_id>.json` or merge completion when no per-worker resume context exists |
 | ATLAS root | `resume_requested` | `runtime/atlas/sessions/<session_id>/artifacts/resume.request.json` |

@@ -17,6 +17,18 @@ const VALIDATION_RESULTS = new Set(["pass", "fail"]);
 const REDACTION_STATUSES = new Set(["not_needed", "applied", "required_but_missing"]);
 const DEDUPE_STATUSES = new Set(["not_needed", "applied", "required_but_missing"]);
 const SOURCE_TYPES = new Set(["export", "receipt-chain", "command-output", "local-file-set"]);
+const ADMITTED_ROOT_REF_PREFIXES = new Set([
+  "docs",
+  "ops",
+  "runtime",
+  "data",
+  "packages",
+  "tmp",
+  "repos",
+  "stack.yaml",
+  "README-STACK.md",
+  "AGENTS.md"
+]);
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -48,22 +60,70 @@ function validatePacketSchemaVersion(value, errors) {
   }
 }
 
+function isAbsoluteOrQualifiedRef(value) {
+  return (
+    path.isAbsolute(value) ||
+    /^[a-zA-Z]:[\\/]/.test(value) ||
+    /^\\\\/.test(value) ||
+    /^file:/i.test(value)
+  );
+}
+
+function validateAtlasRootRelativeRef(value, fieldName, errors) {
+  if (!isNonEmptyString(value)) {
+    errors.push(`${fieldName} must be a non-empty string.`);
+    return;
+  }
+
+  const trimmed = value.trim();
+
+  if (trimmed.includes("\\")) {
+    errors.push(`${fieldName} must use forward-slash ATLAS-root-relative paths only.`);
+    return;
+  }
+
+  if (isAbsoluteOrQualifiedRef(trimmed)) {
+    errors.push(`${fieldName} must not be absolute or protocol-qualified.`);
+    return;
+  }
+
+  const normalized = path.posix.normalize(trimmed);
+  const segments = trimmed.split("/");
+  const topLevel = segments[0];
+
+  if (
+    trimmed.startsWith("./") ||
+    trimmed.startsWith("../") ||
+    segments.some((segment) => segment.length === 0 || segment === "." || segment === "..") ||
+    normalized !== trimmed
+  ) {
+    errors.push(`${fieldName} must be a normalized ATLAS-root-relative path without dot segments.`);
+    return;
+  }
+
+  if (!ADMITTED_ROOT_REF_PREFIXES.has(topLevel)) {
+    errors.push(
+      `${fieldName} must stay under an admitted ATLAS-root surface: ${Array.from(ADMITTED_ROOT_REF_PREFIXES).join(", ")}.`
+    );
+  }
+}
+
 function validateSourceProvenance(value, errors) {
   if (!isRecord(value)) {
     errors.push("source_provenance must be an object.");
     return;
   }
 
-  if (!isNonEmptyString(value.owner_surface)) {
-    errors.push("source_provenance.owner_surface must be a non-empty string.");
-  }
+  validateAtlasRootRelativeRef(value.owner_surface, "source_provenance.owner_surface", errors);
 
   validateEnumField(value.source_type, SOURCE_TYPES, "source_provenance.source_type", errors);
 
   if (!Array.isArray(value.source_refs)) {
     errors.push("source_provenance.source_refs must be an array.");
-  } else if (value.source_refs.some((item) => !isNonEmptyString(item))) {
-    errors.push("source_provenance.source_refs entries must be non-empty strings.");
+  } else {
+    value.source_refs.forEach((item, index) => {
+      validateAtlasRootRelativeRef(item, `source_provenance.source_refs[${index}]`, errors);
+    });
   }
 
   if (!isNonEmptyString(value.captured_at)) {
@@ -140,9 +200,7 @@ function validateOptionalReceiptRef(value, errors) {
     return;
   }
 
-  if (!isNonEmptyString(value)) {
-    errors.push("receipt_or_proof_ref must be a non-empty string when provided.");
-  }
+  validateAtlasRootRelativeRef(value, "receipt_or_proof_ref", errors);
 }
 
 export function validateGatewayPacket(packet) {
