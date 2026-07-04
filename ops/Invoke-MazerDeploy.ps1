@@ -129,12 +129,63 @@ function Write-DeployProfile {
   }
 }
 
+function Get-VercelCommand {
+  $installed = Get-Command vercel.cmd -ErrorAction SilentlyContinue
+  if ($null -ne $installed) {
+    return [pscustomobject]@{
+      Command = $installed.Source
+      Prefix  = @()
+      Label   = 'vercel.cmd'
+    }
+  }
+
+  $installed = Get-Command vercel -ErrorAction SilentlyContinue
+  if ($null -ne $installed) {
+    return [pscustomobject]@{
+      Command = $installed.Source
+      Prefix  = @()
+      Label   = 'vercel'
+    }
+  }
+
+  return [pscustomobject]@{
+    Command = 'pnpm'
+    Prefix  = @('dlx', 'vercel')
+    Label   = 'pnpm dlx vercel'
+  }
+}
+
+function Format-CmdArgument {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Value
+  )
+
+  if ($Value -match '[\s"]') {
+    return ('"{0}"' -f ($Value -replace '"', '\"'))
+  }
+
+  return $Value
+}
+
+function Invoke-VercelCommand {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Command,
+
+    [string[]]$Arguments = @()
+  )
+
+  $commandLine = (@($Command) + $Arguments | ForEach-Object { Format-CmdArgument -Value $_ }) -join ' '
+  & cmd /d /c "$commandLine 2>&1"
+}
+
 if ([string]::IsNullOrWhiteSpace($StackRoot)) {
   $StackRoot = Join-Path $PSScriptRoot '..'
 }
 
 if ([string]::IsNullOrWhiteSpace($RepoPath)) {
-  $RepoPath = Join-Path $PSScriptRoot '..\..\fawxzzy-mazer'
+  $RepoPath = Join-Path $PSScriptRoot '..\..\mazer'
 }
 
 $resolvedStackRoot = (Resolve-Path -LiteralPath $StackRoot).Path
@@ -169,20 +220,34 @@ if ($preflightExitCode -ne 0) {
 
 Write-Host ""
 Write-Host "Running Mazer local verify..." -ForegroundColor Cyan
-& pnpm run mazer:verify
+Invoke-VercelCommand -Command 'npm.cmd' -Arguments @('--prefix', $resolvedRepoPath, 'run', 'lint')
 $verifyExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
 if ($verifyExitCode -ne 0) {
   exit $verifyExitCode
 }
 
-$vercelVersion = & cmd /c "pnpm dlx vercel --version 2>&1"
+Invoke-VercelCommand -Command 'npm.cmd' -Arguments @('--prefix', $resolvedRepoPath, 'run', 'test')
+$verifyExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+if ($verifyExitCode -ne 0) {
+  exit $verifyExitCode
+}
+
+Invoke-VercelCommand -Command 'npm.cmd' -Arguments @('--prefix', $resolvedRepoPath, 'run', 'build')
+$verifyExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+if ($verifyExitCode -ne 0) {
+  exit $verifyExitCode
+}
+
+$vercelCommand = Get-VercelCommand
+$vercelVersionArgs = @($vercelCommand.Prefix + @('--version'))
+$vercelVersion = Invoke-VercelCommand -Command $vercelCommand.Command -Arguments $vercelVersionArgs
 $vercelVersionExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
 
 Write-Host ""
 if ($vercelVersionExitCode -eq 0) {
   $versionText = (($vercelVersion | Out-String).Trim())
   if (-not [string]::IsNullOrWhiteSpace($versionText)) {
-    Write-Host ("Vercel CLI version: {0}" -f $versionText) -ForegroundColor DarkCyan
+    Write-Host ("Vercel CLI version: {0} ({1})" -f $versionText, $vercelCommand.Label) -ForegroundColor DarkCyan
   }
 }
 else {
@@ -191,7 +256,7 @@ else {
 
 Write-DeployProfile -RepoPath $resolvedRepoPath
 
-$deployArgs = @('dlx', 'vercel', '--cwd', $resolvedRepoPath, 'deploy')
+$deployArgs = @($vercelCommand.Prefix + @('--cwd', $resolvedRepoPath, 'deploy', '--yes'))
 if ($Target -eq 'prod') {
   $deployArgs += '--prod'
 }
@@ -199,12 +264,12 @@ if ($Target -eq 'prod') {
 Write-Host ""
 if ($DryRun) {
   Write-Host "Dry run enabled. Vercel deploy command not executed." -ForegroundColor Yellow
-  Write-Host ("Would run: pnpm {0}" -f ($deployArgs -join ' '))
+  Write-Host ("Would run: {0} {1}" -f $vercelCommand.Command, ($deployArgs -join ' '))
   exit 0
 }
 
 Write-Host ("Running Mazer {0} deploy..." -f $Target) -ForegroundColor Cyan
-& pnpm @deployArgs
+Invoke-VercelCommand -Command $vercelCommand.Command -Arguments $deployArgs
 $deployExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
 if ($deployExitCode -ne 0) {
   exit $deployExitCode
