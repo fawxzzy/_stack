@@ -6,7 +6,7 @@ personality = "pragmatic"
 
 [windows]
 codex_command = "codex.exe"
-sandbox = "workspace-write"
+sandbox = "elevated"
 approval_policy = "never"
 
 [runner]
