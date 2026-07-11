@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "stack-codex-execution-class",
+  "executionClass": "canonical_workspace",
+  "repoId": "atlas-workspace",
+  "description": "_stack-owned canonical Atlas workspace writer that operates directly against an explicit canonical root without creating a git worktree.",
+  "canonicalRoot": {
+    "expectedLeafName": "ATLAS",
+    "requireGitDirectory": true,
+    "forbidLinkedWorktree": true,
+    "pathMustBeExplicit": true
+  },
+  "artifacts": {
+    "archiveDir": ".codex/archive",
+    "logsDir": ".codex/logs",
+    "exportsDir": ".codex/exports",
+    "lockDir": ".codex/locks"
+  },
+  "lock": {
+    "fileName": "atlas-workspace-writer.lock.json",
+    "staleAfterMinutes": 30
+  },
+  "verification": {
+    "defaultCommands": []
+  },
+  "mutationAdmission": {
+    "defaultMode": "read-only",
+    "metadataKeys": [
+      "Mutation Admission Path",
+      "Mutation Admission Paths",
+      "Admitted Changed Path",
+      "Admitted Changed Paths"
+    ],
+    "requireExactPathMatch": true,
+    "requireCleanStart": true,
+    "stageMode": "exact-paths-only"
+  },
+  "pushPolicy": {
+    "mode": "manual-only",
+    "skipPush": true,
+    "allowAutoPush": false
+  },
+  "autoCommitPolicy": {
+    "enabled": true,
+    "mode": "on-successful-mutation",
+    "skipEmptyCommit": true,
+    "requireVerificationPass": true,
+    "commitMetadata": {
+      "artifactPath": ".codex/commit-meta.json",
+      "allowedTypes": [
+        "feat",
+        "fix",
+        "docs",
+        "refactor",
+        "test",
+        "chore"
+      ],
+      "rejectedSummaries": [
+        "update",
+        "done",
+        "fixes",
+        "misc changes"
+      ],
+      "fallbackScope": "atlas-workspace"
+    }
+  },
+  "localLandingPolicy": {
+    "mode": "disabled",
+    "targetBranch": "main"
+  }
+}

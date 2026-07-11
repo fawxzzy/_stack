@@ -668,6 +668,7 @@ function Parse-PromptFile {
         MergeRequestRefs = New-Object System.Collections.Generic.List[string]
         QueryTerms = New-Object System.Collections.Generic.List[string]
         TaskTags = New-Object System.Collections.Generic.List[string]
+        MutationAdmissionPaths = New-Object System.Collections.Generic.List[string]
     }
 
     $bodyStartIndex = 0
@@ -756,6 +757,36 @@ function Parse-PromptFile {
                         $trimmedEntry = $entry.Trim()
                         if (-not [string]::IsNullOrWhiteSpace($trimmedEntry)) {
                             [void]$metadata.QueryTerms.Add($trimmedEntry)
+                        }
+                    }
+                }
+            }
+            "mutationadmissionpath" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    [void]$metadata.MutationAdmissionPaths.Add($value)
+                }
+            }
+            "mutationadmissionpaths" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    foreach ($entry in ($value -split ',')) {
+                        $trimmedEntry = $entry.Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($trimmedEntry)) {
+                            [void]$metadata.MutationAdmissionPaths.Add($trimmedEntry)
+                        }
+                    }
+                }
+            }
+            "admittedchangedpath" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    [void]$metadata.MutationAdmissionPaths.Add($value)
+                }
+            }
+            "admittedchangedpaths" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    foreach ($entry in ($value -split ',')) {
+                        $trimmedEntry = $entry.Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($trimmedEntry)) {
+                            [void]$metadata.MutationAdmissionPaths.Add($trimmedEntry)
                         }
                     }
                 }
@@ -852,6 +883,7 @@ function Parse-PromptFile {
         MergeRequestRefs = @($metadata.MergeRequestRefs.ToArray())
         QueryTerms = @($metadata.QueryTerms.ToArray())
         TaskTags = @($metadata.TaskTags.ToArray())
+        MutationAdmissionPaths = @(Normalize-RepoRelativePathList -Paths @($metadata.MutationAdmissionPaths.ToArray()))
         DocsUpdateNote = $docsUpdateNote
         ExportPatch = $exportPatch
         ExportBundle = $exportBundle
@@ -900,13 +932,19 @@ function Get-SpecToDiffPromptPolicy {
         @()
     }
 
+    $criteriaList = @($criteria)
+    $expectedChangedPathList = @($expectedChangedPaths)
+    $expectedUnchangedPathList = @($expectedUnchangedPaths)
+    $blockedSkippedRuleList = @($blockedSkippedRules)
+    $criteriaEnabled = ($criteriaList | Measure-Object).Count -gt 0
+
     return [pscustomobject]@{
-        enabled = $criteria.Count -gt 0
+        enabled = $criteriaEnabled
         artifactPath = ".codex/spec-to-diff-proof.json"
-        acceptanceCriteria = $criteria
-        expectedChangedPaths = $expectedChangedPaths
-        expectedUnchangedPaths = $expectedUnchangedPaths
-        blockedSkippedRules = $blockedSkippedRules
+        acceptanceCriteria = $criteriaList
+        expectedChangedPaths = $expectedChangedPathList
+        expectedUnchangedPaths = $expectedUnchangedPathList
+        blockedSkippedRules = $blockedSkippedRuleList
     }
 }
 
@@ -2075,7 +2113,12 @@ function Invoke-Git {
         [hashtable]$Environment = @{}
     )
 
-    return Invoke-ProcessCapture -FilePath "git" -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory -Environment $Environment
+    $gitCommand = [Environment]::GetEnvironmentVariable("STACK_GIT_COMMAND")
+    if ([string]::IsNullOrWhiteSpace($gitCommand)) {
+        $gitCommand = "git"
+    }
+
+    return Invoke-ProcessCapture -FilePath $gitCommand -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory -Environment $Environment
 }
 
 function Get-GitCurrentBranch {

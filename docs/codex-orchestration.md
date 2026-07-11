@@ -2,6 +2,8 @@
 
 `_stack` owns the shared local Codex inbox/worktree orchestration engine. Repo-specific behavior stays in thin adapter and config files so `_stack` remains an operator layer instead of becoming a second implementation surface.
 
+`_stack` also owns one separate canonical Atlas workspace writer execution class for tasks that must operate directly against the real canonical `ATLAS` root without creating a git worktree.
+
 ## Responsibility Split
 
 `_stack` owns:
@@ -20,6 +22,8 @@ Each repo still owns:
 - its own push and auto-commit policy declaration through the adapter and repo config
 
 The shared runner operates inside repo-local worktrees. It does not move repo artifacts into `_stack`.
+
+The canonical Atlas workspace writer is intentionally different: it operates directly in the explicit canonical root, defaults to read-only, and uses exact-path mutation admission instead of broad repo-local worktree staging.
 
 ## Shared Runner Surfaces
 
@@ -103,6 +107,43 @@ This failure mode occurs when the requested model or permission posture differs 
 15. The runner blocks commit if verification fails, proof gating fails, the spec-to-diff gate fails, or changed files exceed `allowedMutationSurfaces`.
 16. Successful mutating tasks auto-commit by default, skip push, export patch and optional bundle artifacts, and archive the prompt.
 17. Failed runs still archive the prompt and keep worktree/log state for inspection.
+
+## Canonical Atlas Workspace Writer
+
+Execution class: `canonical_workspace`
+
+Purpose:
+
+- operate directly against the canonical `ATLAS` root when physical-root-sensitive Atlas scripts or topology truth cannot be reproduced from a worktree
+- keep that path separate from the existing repo-local Atlas adapter
+
+Entry surfaces:
+
+- `pnpm run codex:atlas-workspace:task -- -PromptPath C:\path\to\prompt.md -CanonicalRootPath C:\ATLAS`
+- `ops/codex/Invoke-CodexCanonicalWorkspaceTask.ps1`
+- `ops/codex/execution-classes/atlas-workspace.writer.json`
+
+Execution model:
+
+1. The operator supplies an explicit absolute canonical root path.
+2. The runner validates that the path resolves to a directory named `ATLAS`, is the git toplevel, and uses a real `.git` directory instead of a linked-worktree gitfile. Non-directory `.git` entries fail with `canonical_workspace_git_directory_required`.
+3. The runner acquires `.codex/locks/atlas-workspace-writer.lock.json` with owner metadata and stale-lock diagnostics.
+4. The runner snapshots the initial dirty inventory with digests before Codex execution.
+5. The runner fails closed if any admitted task-owned path is already dirty or if pre-existing dirt is already staged.
+6. Mutation stays read-only unless the prompt or explicit arguments admit exact repo-relative task-owned paths.
+7. Codex runs directly against the canonical root with the shared runtime-policy envelope and the same spec-to-diff and commit metadata contracts used by the worktree runner.
+8. After Codex exits, the runner verifies that pre-existing dirt is unchanged, rejects any unadmitted task-owned changes, stages only exact admitted paths, and keeps push manual-only.
+
+Safety contracts:
+
+- no git worktree creation
+- read-only default
+- exact-path mutation admission only
+- digest-backed dirt preservation
+- exact-path staging only
+- manual-only push
+
+The detailed operator contract, diff-addressable acceptance-criteria guidance, and canonical-topology doctrine live in `docs/canonical-atlas-workspace-writer.md`.
 
 ## Adapter Contract
 
@@ -321,6 +362,12 @@ Run one Atlas prompt directly:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\atlas\config.toml -PromptPath C:\path\to\prompt.md
+```
+
+Run one canonical Atlas workspace prompt directly:
+
+```powershell
+pnpm run codex:atlas-workspace:task -- -PromptPath C:\path\to\prompt.md -CanonicalRootPath C:\ATLAS
 ```
 
 Run the Playbook watcher:

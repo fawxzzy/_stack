@@ -103,9 +103,12 @@ $requiredFiles = @(
     "ops/Test-TroveDeployLink.ps1",
     "ops/codex/Start-CodexInboxRunner.ps1",
     "ops/codex/Invoke-CodexRepoTask.ps1",
+    "ops/codex/Invoke-CodexCanonicalWorkspaceTask.ps1",
     "ops/codex/CodexRunner.Common.ps1",
+    "ops/codex/Test-AtlasWorkspaceWriter.ps1",
     "ops/codex/Test-StackOperatorSurface.ps1",
     "ops/codex/adapter.schema.json",
+    "ops/codex/execution-classes/atlas-workspace.writer.json",
     "ops/codex/repos/stack/adapter.json",
     "ops/codex/repos/stack/config.toml",
     "ops/stack/StackWorkerArtifacts.ps1",
@@ -143,6 +146,7 @@ $packageScripts = @($package.scripts.PSObject.Properties.Name)
 $requiredScripts = @(
     "ops:install-shortcut",
     "release:launcher",
+    "codex:atlas-workspace:task",
     "codex:stack:inbox",
     "codex:stack:inbox:once",
     "codex:stack:inbox:bootstrap:once",
@@ -163,6 +167,7 @@ $tasks = Get-Content -LiteralPath ".vscode/tasks.json" -Raw | ConvertFrom-Json
 $taskLabels = @($tasks.tasks | ForEach-Object { $_.label })
 $requiredTaskLabels = @(
     "Release: Launcher",
+    "Codex: Atlas Workspace Task",
     "Codex: Stack Inbox",
     "Codex: Stack Inbox (Once)",
     "Codex: Stack Task",
@@ -418,6 +423,30 @@ if (
     $null -ne (Get-ObjectPropertyValue -Object $stackAdapter.execution -Name "documentedWindowsFallback" -DefaultValue $null)
 ) {
     throw "_stack adapter execution contract must keep runtime policy defaults out of adapter.json."
+}
+
+$atlasWorkspaceExecutionClass = Get-Content -LiteralPath "ops/codex/execution-classes/atlas-workspace.writer.json" -Raw | ConvertFrom-Json
+if ([string]$atlasWorkspaceExecutionClass.executionClass -ne "canonical_workspace") {
+    throw "Atlas workspace writer execution class must be canonical_workspace."
+}
+if ([string]$atlasWorkspaceExecutionClass.pushPolicy.mode -ne "manual-only" -or -not $atlasWorkspaceExecutionClass.pushPolicy.skipPush -or $atlasWorkspaceExecutionClass.pushPolicy.allowAutoPush) {
+    throw "Atlas workspace writer push policy must stay manual-only with auto-push disabled."
+}
+if ([string]$atlasWorkspaceExecutionClass.mutationAdmission.defaultMode -ne "read-only") {
+    throw "Atlas workspace writer must default to read-only mutation admission."
+}
+if (-not [bool]$atlasWorkspaceExecutionClass.canonicalRoot.requireGitDirectory) {
+    throw "Atlas workspace writer must require a real canonical .git directory."
+}
+$atlasWorkspaceRunnerText = Get-Content -LiteralPath "ops/codex/Invoke-CodexCanonicalWorkspaceTask.ps1" -Raw
+foreach ($requiredSnippet in @(
+    'Join-Path -Path $resolvedPath -ChildPath ".git"',
+    'Test-Path -LiteralPath $gitDirectory -PathType Container',
+    'canonical_workspace_git_directory_required'
+)) {
+    if (-not $atlasWorkspaceRunnerText.Contains($requiredSnippet)) {
+        throw ("Atlas workspace writer must keep the explicit canonical .git guard proof snippet: {0}" -f $requiredSnippet)
+    }
 }
 
 $stackConfig = ConvertFrom-SimpleToml -Path "ops/codex/repos/stack/config.toml"

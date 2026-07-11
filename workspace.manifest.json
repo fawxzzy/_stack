@@ -2,10 +2,30 @@
   "repos": {
     "stack": {
       "path": ".",
-      "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-StackOperatorSurface.ps1 && git diff --check",
+      "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-StackOperatorSurface.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-AtlasWorkspaceWriter.ps1 && git diff --check",
       "deployModel": "operator-layer",
       "codexLocalLanding": "ff-only-local-main",
       "codexBaseRefRule": "prefer-origin-main-else-local-main",
+      "codexExecutionClasses": {
+        "repoLocalWorktree": {
+          "command": "pnpm run codex:stack:task -- -PromptPath C:\\path\\to\\prompt.md",
+          "executionClass": "repo_local_worktree",
+          "rootPolicy": "repo-local-only"
+        },
+        "atlasCanonicalWorkspaceWriter": {
+          "command": "pnpm run codex:atlas-workspace:task -- -PromptPath C:\\path\\to\\prompt.md -CanonicalRootPath C:\\ATLAS",
+          "executionClass": "canonical_workspace",
+          "rootPolicy": "explicit-canonical-root-only",
+          "defaultMode": "read-only",
+          "safetyContracts": [
+            "exclusive writer lock",
+            "dirty-path snapshot with digests",
+            "exact-path mutation admission",
+            "exact-path staging only",
+            "manual-only push"
+          ]
+        }
+      },
       "codexRuntimePolicy": {
         "rule": "explicit-runtime-policy",
         "envelope": "precedence-resolved-and-receipted",

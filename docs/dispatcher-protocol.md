@@ -35,6 +35,7 @@ Use for workflow commands and shared operator tooling executed from `_stack`.
   - `verify`
   - `deploy`
   - shared Codex inbox and task runs for `_stack` operator surfaces
+  - canonical Atlas workspace writer runs that must target the explicit `C:\ATLAS` root without a git worktree
 - Constraint:
   - Prefer `_stack/package.json` scripts and `_stack/.vscode/tasks.json` tasks before inventing ad hoc workspace commands.
 
@@ -79,10 +80,11 @@ Use only when the task explicitly spans more than one repo and coordination is r
 7. Shared runner base-ref resolution stays local-first: prefer `origin/main` when it exists locally, otherwise use local `main`, and record the resolved ref in the run manifest.
 8. Governed Codex jobs must resolve and receipt one runtime-policy envelope before execution; precedence is explicit command argument, prompt metadata, repo config, then shared defaults.
 9. Runtime-policy receipts must record requested versus effective settings plus `codex_version`, `warnings`, and `blockers` so hidden model, speed, or permission drift is observable in the run manifest.
-10. Fitness, Mazer, and Trove currently use Vercel.
-11. Playbook, Lifeline, and Atlas are currently self-hosted and should not be routed through Vercel workflows.
-12. Cross-repo work should produce thin orchestration artifacts in `_stack` and keep repo mutations delegated.
-13. Do not restructure sibling repos from the dispatcher layer.
+10. `codex:atlas-workspace:task` is a separate `_stack` execution class. It must validate an explicit canonical `ATLAS` root, preserve pre-existing dirt, stage only exact admitted paths, and keep push manual-only.
+11. Fitness, Mazer, and Trove currently use Vercel.
+12. Playbook, Lifeline, and Atlas are currently self-hosted and should not be routed through Vercel workflows.
+13. Cross-repo work should produce thin orchestration artifacts in `_stack` and keep repo mutations delegated.
+14. Do not restructure sibling repos from the dispatcher layer.
 
 ## Dispatcher Decision Table
 

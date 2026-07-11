@@ -1,0 +1,1069 @@
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$PromptPath,
+    [Parameter(Mandatory = $true)]
+    [string]$CanonicalRootPath,
+    [string]$RuntimeConfigPath = ".\ops\codex\repos\stack\config.toml",
+    [string]$ExecutionClassPath = ".\ops\codex\execution-classes\atlas-workspace.writer.json",
+    [string]$CodexCommand = "",
+    [string]$Model = "",
+    [string]$Reasoning = "",
+    [string]$Speed = "",
+    [string]$Permissions = "",
+    [string]$PermissionProfile = "",
+    [string]$SandboxMode = "",
+    [string]$ApprovalPolicy = "",
+    [string]$WebSearch = "",
+    [string[]]$AdmittedChangedPath = @(),
+    [switch]$SkipVerification,
+    [switch]$NoCommit
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
+
+. (Join-Path -Path $PSScriptRoot -ChildPath "CodexRunner.Common.ps1")
+
+$script:CanonicalRootValidationState = $null
+
+function Import-CanonicalRuntimeConfiguration {
+    param(
+        [string]$ScriptRoot,
+        [string]$ConfigPath
+    )
+
+    $defaultsPath = Join-Path -Path $ScriptRoot -ChildPath "config.defaults.toml"
+    $defaultsConfig = @{}
+    $repoConfig = @{}
+    $config = @{}
+    if (Test-Path -LiteralPath $defaultsPath) {
+        $defaultsConfig = ConvertFrom-SimpleToml -Path $defaultsPath
+        $config = $defaultsConfig
+    }
+
+    $resolvedConfigPath = $null
+    if (-not [string]::IsNullOrWhiteSpace($ConfigPath)) {
+        $resolvedConfigPath = Resolve-PathFromBase -BasePath (Get-Location).Path -Value $ConfigPath
+        if (-not (Test-Path -LiteralPath $resolvedConfigPath)) {
+            throw ("Runtime config file was not found: {0}" -f $resolvedConfigPath)
+        }
+
+        $repoConfig = ConvertFrom-SimpleToml -Path $resolvedConfigPath
+        $config = Merge-Hashtable -Base $config -Overlay $repoConfig
+    }
+
+    return [pscustomobject]@{
+        Config = $config
+        DefaultsConfig = $defaultsConfig
+        RepoConfig = $repoConfig
+        ConfigPath = $resolvedConfigPath
+        DefaultsPath = $defaultsPath
+    }
+}
+
+function Test-ExactRepoRelativePath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return $false
+    }
+
+    $normalized = ([string]$Path).Trim().Replace("\", "/")
+    if ([string]::IsNullOrWhiteSpace($normalized)) {
+        return $false
+    }
+
+    if (
+        $normalized.StartsWith("/") -or
+        $normalized.StartsWith("./") -or
+        $normalized.StartsWith("../") -or
+        $normalized.Contains("/../") -or
+        $normalized.Contains("/./") -or
+        $normalized -match '[\*\?\[\]]'
+    ) {
+        return $false
+    }
+
+    return $normalized -notlike ".git/*" -and $normalized -ne ".git"
+}
+
+function Resolve-AdmittedChangedPaths {
+    param(
+        [string[]]$ExplicitPaths,
+        $PromptRecord
+    )
+
+    $candidatePaths = New-Object System.Collections.Generic.List[string]
+    foreach ($path in @(Normalize-RepoRelativePathList -Paths $ExplicitPaths)) {
+        if (-not $candidatePaths.Contains($path)) {
+            [void]$candidatePaths.Add($path)
+        }
+    }
+    foreach ($path in @(Get-ObjectPropertyValue -Object $PromptRecord -Name "MutationAdmissionPaths" -DefaultValue @())) {
+        $normalized = @(Normalize-RepoRelativePathList -Paths @($path))
+        foreach ($entry in $normalized) {
+            if (-not $candidatePaths.Contains($entry)) {
+                [void]$candidatePaths.Add($entry)
+            }
+        }
+    }
+
+    $resolved = @($candidatePaths.ToArray())
+    $invalidPaths = @($resolved | Where-Object { -not (Test-ExactRepoRelativePath -Path $_) })
+    if ($invalidPaths.Count -gt 0) {
+        throw ("Mutation admission requires exact repo-relative paths. Invalid entries: {0}" -f ($invalidPaths -join ", "))
+    }
+
+    return $resolved
+}
+
+function Resolve-CanonicalRoot {
+    param(
+        [string]$Path,
+        $ExecutionContract
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw "Canonical workspace root path is required."
+    }
+
+    if (-not [System.IO.Path]::IsPathRooted($Path)) {
+        throw ("Canonical workspace root must be an explicit absolute path. Found: {0}" -f $Path)
+    }
+
+    $resolvedPath = [System.IO.Path]::GetFullPath($Path)
+    if (-not (Test-Path -LiteralPath $resolvedPath -PathType Container)) {
+        throw ("Canonical workspace root does not exist: {0}" -f $resolvedPath)
+    }
+
+    $expectedLeafName = [string](Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $ExecutionContract -Name "canonicalRoot" -DefaultValue $null) -Name "expectedLeafName" -DefaultValue "ATLAS")
+    if (-not [string]::IsNullOrWhiteSpace($expectedLeafName) -and ([System.IO.Path]::GetFileName($resolvedPath) -ine $expectedLeafName)) {
+        throw ("Canonical workspace root must end with '{0}'. Found: {1}" -f $expectedLeafName, $resolvedPath)
+    }
+
+    $canonicalRootConfig = Get-ObjectPropertyValue -Object $ExecutionContract -Name "canonicalRoot" -DefaultValue $null
+    $gitDirectory = Join-Path -Path $resolvedPath -ChildPath ".git"
+    $requireGitDirectory = ConvertTo-RunnerBoolean -Value (Get-ObjectPropertyValue -Object $canonicalRootConfig -Name "requireGitDirectory" -DefaultValue $true) -DefaultValue $true
+    $gitEntryExists = Test-Path -LiteralPath $gitDirectory
+    $gitEntryIsDirectory = Test-Path -LiteralPath $gitDirectory -PathType Container
+    $script:CanonicalRootValidationState = [ordered]@{
+        requestedPath = $Path
+        resolvedPath = $resolvedPath
+        expectedLeafName = $expectedLeafName
+        requireGitDirectory = $requireGitDirectory
+        gitEntryPath = $gitDirectory
+        gitEntryExists = $gitEntryExists
+        gitEntryIsDirectory = $gitEntryIsDirectory
+        reasonCode = $null
+    }
+    if ($requireGitDirectory -and -not (Test-Path -LiteralPath $gitDirectory -PathType Container)) {
+        $script:CanonicalRootValidationState.reasonCode = "canonical_workspace_git_directory_required"
+        throw "canonical_workspace_git_directory_required"
+    }
+
+    if (-not $gitEntryExists) {
+        throw ("Canonical workspace root is not a git repository: {0}" -f $resolvedPath)
+    }
+
+    $topLevelResult = Invoke-Git -Arguments @("rev-parse", "--show-toplevel") -WorkingDirectory $resolvedPath
+    Assert-CommandSucceeded -Result $topLevelResult -Description "git rev-parse --show-toplevel"
+    $topLevel = [System.IO.Path]::GetFullPath($topLevelResult.StdOut.Trim())
+    if ($topLevel -ne $resolvedPath) {
+        throw ("Canonical workspace root must be the repository toplevel. Resolved {0} to {1}." -f $resolvedPath, $topLevel)
+    }
+
+    return $resolvedPath
+}
+
+function Get-CanonicalPathMetadata {
+    param(
+        [string]$RepoRoot,
+        [string]$RelativePath
+    )
+
+    $absolutePath = [System.IO.Path]::GetFullPath((Join-Path -Path $RepoRoot -ChildPath $RelativePath))
+    $repoRootWithSeparator = $RepoRoot.TrimEnd("\", "/") + [System.IO.Path]::DirectorySeparatorChar
+    if ($absolutePath -ne $RepoRoot -and -not $absolutePath.StartsWith($repoRootWithSeparator, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw ("Path escapes canonical workspace root: {0}" -f $RelativePath)
+    }
+
+    return [pscustomobject]@{
+        relativePath = $RelativePath.Replace("\", "/")
+        absolutePath = $absolutePath
+        exists = Test-Path -LiteralPath $absolutePath
+    }
+}
+
+function Resolve-DigestValue {
+    param(
+        [string]$WorkingDirectory,
+        [string]$RelativePath,
+        [bool]$PathExists
+    )
+
+    if ($PathExists) {
+        $bytes = [System.IO.File]::ReadAllBytes((Join-Path -Path $WorkingDirectory -ChildPath $RelativePath))
+        $hash = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $digest = $hash.ComputeHash($bytes)
+        }
+        finally {
+            $hash.Dispose()
+        }
+
+        return [pscustomobject]@{
+            source = "working-tree-file"
+            digest = "sha256:{0}" -f ([System.BitConverter]::ToString($digest).Replace("-", "").ToLowerInvariant())
+        }
+    }
+
+    $headResult = Invoke-Git -Arguments @("rev-parse", ("HEAD:{0}" -f $RelativePath)) -WorkingDirectory $WorkingDirectory
+    if ($headResult.ExitCode -eq 0) {
+        return [pscustomobject]@{
+            source = "head-blob"
+            digest = "git:{0}" -f $headResult.StdOut.Trim()
+        }
+    }
+
+    return [pscustomobject]@{
+        source = "missing"
+        digest = $null
+    }
+}
+
+function Get-DirtySnapshot {
+    param([string]$WorkingDirectory)
+
+    $statusResult = Invoke-Git -Arguments @("status", "--porcelain=v1", "--untracked-files=all") -WorkingDirectory $WorkingDirectory
+    Assert-CommandSucceeded -Result $statusResult -Description "git status --porcelain=v1 --untracked-files=all"
+
+    $entries = New-Object System.Collections.Generic.List[object]
+    $map = @{}
+    foreach ($line in ($statusResult.StdOut -split "`r?`n")) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        $statusCode = if ($line.Length -ge 2) { $line.Substring(0, 2) } else { $line }
+        $pathText = if ($line.Length -ge 4) { $line.Substring(3).Trim() } else { "" }
+        if ($pathText.Contains(" -> ")) {
+            $pathText = ($pathText -split " -> ", 2)[1].Trim()
+        }
+
+        $relativePath = $pathText.Replace("\", "/")
+        $pathMetadata = Get-CanonicalPathMetadata -RepoRoot $WorkingDirectory -RelativePath $relativePath
+        $digestRecord = Resolve-DigestValue -WorkingDirectory $WorkingDirectory -RelativePath $relativePath -PathExists $pathMetadata.exists
+        $entry = [pscustomobject]@{
+            path = $relativePath
+            status = $statusCode
+            indexStatus = $statusCode.Substring(0, 1)
+            worktreeStatus = $statusCode.Substring(1, 1)
+            exists = $pathMetadata.exists
+            digestSource = $digestRecord.source
+            digest = $digestRecord.digest
+        }
+        $entries.Add($entry) | Out-Null
+        $map[$relativePath] = $entry
+    }
+
+    return [pscustomobject]@{
+        entries = @($entries.ToArray())
+        byPath = $map
+    }
+}
+
+function Filter-DirtySnapshot {
+    param(
+        $Snapshot,
+        [string[]]$ExactPaths,
+        [string[]]$Prefixes
+    )
+
+    $entries = @(
+        $Snapshot.entries |
+        Where-Object { -not (Test-InternalArtifactPath -Path ([string]$_.path) -ExactPaths $ExactPaths -Prefixes $Prefixes) }
+    )
+    $map = @{}
+    foreach ($entry in $entries) {
+        $map[[string]$entry.path] = $entry
+    }
+
+    return [pscustomobject]@{
+        entries = $entries
+        byPath = $map
+    }
+}
+
+function Compare-DirtySnapshot {
+    param(
+        $InitialSnapshot,
+        $CurrentSnapshot,
+        [string[]]$AdmittedPaths
+    )
+
+    $violations = New-Object System.Collections.Generic.List[string]
+    foreach ($entry in @($InitialSnapshot.entries)) {
+        if ($entry.path -in $AdmittedPaths) {
+            continue
+        }
+
+        $currentEntry = Get-ObjectPropertyValue -Object $CurrentSnapshot.byPath -Name $entry.path -DefaultValue $null
+        if ($null -eq $currentEntry) {
+            [void]$violations.Add(("Pre-existing dirty path changed unexpectedly: {0} became clean or disappeared." -f $entry.path))
+            continue
+        }
+
+        if ([string]$entry.status -ne [string]$currentEntry.status -or [string]$entry.digest -ne [string]$currentEntry.digest) {
+            [void]$violations.Add(("Pre-existing dirty path changed unexpectedly: {0}" -f $entry.path))
+        }
+    }
+
+    return @($violations.ToArray())
+}
+
+function Resolve-TaskChangedPaths {
+    param(
+        $InitialSnapshot,
+        $CurrentSnapshot
+    )
+
+    $paths = New-Object System.Collections.Generic.List[string]
+    foreach ($entry in @($CurrentSnapshot.entries)) {
+        if (-not $InitialSnapshot.byPath.ContainsKey([string]$entry.path)) {
+            [void]$paths.Add([string]$entry.path)
+        }
+    }
+
+    return @($paths.ToArray())
+}
+
+function Get-RepoRelativePath {
+    param(
+        [string]$RepoRoot,
+        [string]$AbsolutePath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($AbsolutePath)) {
+        return $null
+    }
+
+    $resolvedRepoRoot = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd("\", "/") + [System.IO.Path]::DirectorySeparatorChar
+    $resolvedAbsolutePath = [System.IO.Path]::GetFullPath($AbsolutePath)
+    $repoUri = New-Object System.Uri($resolvedRepoRoot)
+    $pathUri = New-Object System.Uri($resolvedAbsolutePath)
+    $relativeUri = $repoUri.MakeRelativeUri($pathUri)
+    return ([System.Uri]::UnescapeDataString($relativeUri.ToString())).Replace("\", "/")
+}
+
+function Test-InternalArtifactPath {
+    param(
+        [string]$Path,
+        [string[]]$ExactPaths,
+        [string[]]$Prefixes
+    )
+
+    $normalizedPath = ([string]$Path).Replace("\", "/")
+    if ($normalizedPath -in $ExactPaths) {
+        return $true
+    }
+
+    foreach ($prefix in $Prefixes) {
+        if (-not [string]::IsNullOrWhiteSpace($prefix) -and $normalizedPath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Test-AnyInitialStagedDirt {
+    param($Snapshot)
+
+    $stagedPaths = @(
+        $Snapshot.entries |
+        Where-Object { [string]$_.indexStatus -ne " " -and [string]$_.indexStatus -ne "?" } |
+        ForEach-Object { [string]$_.path }
+    )
+    return @($stagedPaths)
+}
+
+function Get-LockProcessState {
+    param($LockRecord)
+
+    $owner = Get-ObjectPropertyValue -Object $LockRecord -Name "owner" -DefaultValue $null
+    if ($null -eq $owner) {
+        return "unknown"
+    }
+
+    $machine = [string](Get-ObjectPropertyValue -Object $owner -Name "machine" -DefaultValue "")
+    $processId = [int](Get-ObjectPropertyValue -Object $owner -Name "process_id" -DefaultValue 0)
+    if ([string]::IsNullOrWhiteSpace($machine) -or $machine -ine $env:COMPUTERNAME -or $processId -le 0) {
+        return "unknown"
+    }
+
+    try {
+        $process = Get-Process -Id $processId -ErrorAction Stop
+        if ($null -ne $process) {
+            return "alive"
+        }
+    }
+    catch {
+        return "exited"
+    }
+
+    return "unknown"
+}
+
+function Acquire-CanonicalWriterLock {
+    param(
+        [string]$LockPath,
+        [string]$CanonicalRoot,
+        [string]$PromptPath,
+        [string]$RunId,
+        [int]$StaleAfterMinutes
+    )
+
+    $staleDiagnostic = $null
+    while ($true) {
+        $lockRecord = [ordered]@{
+            contract = "atlas.stack.canonical_workspace_lock.v1"
+            run_id = $RunId
+            canonical_root = $CanonicalRoot
+            prompt_path = $PromptPath
+            acquired_at = (Get-Date).ToUniversalTime().ToString("o")
+            stale_after_minutes = $StaleAfterMinutes
+            owner = [ordered]@{
+                machine = $env:COMPUTERNAME
+                user = $env:USERNAME
+                process_id = $PID
+                process_name = "powershell"
+                script_path = $PSCommandPath
+            }
+        }
+
+        try {
+            $directory = Split-Path -Parent $LockPath
+            if (-not [string]::IsNullOrWhiteSpace($directory)) {
+                New-Item -ItemType Directory -Path $directory -Force | Out-Null
+            }
+
+            $fileStream = [System.IO.File]::Open($LockPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            try {
+                $writer = New-Object System.IO.StreamWriter($fileStream, [System.Text.UTF8Encoding]::new($false))
+                try {
+                    $writer.Write((($lockRecord | ConvertTo-Json -Depth 8) + "`r`n"))
+                    $writer.Flush()
+                }
+                finally {
+                    $writer.Dispose()
+                }
+            }
+            finally {
+                $fileStream.Dispose()
+            }
+
+            return [pscustomobject]@{
+                acquired = $true
+                path = $LockPath
+                record = [pscustomobject]$lockRecord
+                staleDiagnostic = $staleDiagnostic
+            }
+        }
+        catch [System.IO.IOException] {
+            if (-not (Test-Path -LiteralPath $LockPath)) {
+                continue
+            }
+
+            $existingLock = Read-JsonFile -Path $LockPath
+            $processState = Get-LockProcessState -LockRecord $existingLock
+            $acquiredAtText = [string](Get-ObjectPropertyValue -Object $existingLock -Name "acquired_at" -DefaultValue "")
+            $acquiredAt = $null
+            $lockAgeMinutes = $null
+            if (-not [string]::IsNullOrWhiteSpace($acquiredAtText)) {
+                try {
+                    $acquiredAt = [datetime]::Parse($acquiredAtText, $null, [System.Globalization.DateTimeStyles]::RoundtripKind)
+                    $lockAgeMinutes = [math]::Round((((Get-Date).ToUniversalTime()) - $acquiredAt.ToUniversalTime()).TotalMinutes, 3)
+                }
+                catch {
+                    $acquiredAt = $null
+                }
+            }
+
+            $isStale = $false
+            if ($null -ne $lockAgeMinutes -and $lockAgeMinutes -ge $StaleAfterMinutes -and $processState -ne "alive") {
+                $isStale = $true
+            }
+
+            if ($isStale) {
+                $staleSuffix = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ")
+                $stalePath = Join-Path -Path (Split-Path -Parent $LockPath) -ChildPath ("atlas-workspace-writer.stale-{0}.json" -f $staleSuffix)
+                Move-Item -LiteralPath $LockPath -Destination $stalePath -Force
+                $staleDiagnostic = [pscustomobject]@{
+                    staleLockPath = $stalePath
+                    previousLockPath = $LockPath
+                    previousLock = $existingLock
+                    previousProcessState = $processState
+                    previousLockAgeMinutes = $lockAgeMinutes
+                }
+                continue
+            }
+
+            $owner = Get-ObjectPropertyValue -Object $existingLock -Name "owner" -DefaultValue $null
+            $ownerMachine = [string](Get-ObjectPropertyValue -Object $owner -Name "machine" -DefaultValue "unknown")
+            $ownerUser = [string](Get-ObjectPropertyValue -Object $owner -Name "user" -DefaultValue "unknown")
+            $ownerProcessId = [string](Get-ObjectPropertyValue -Object $owner -Name "process_id" -DefaultValue "unknown")
+            throw ("Canonical workspace writer lock is already held by {0}\{1} pid {2} at {3}. ProcessState={4}; StaleAfterMinutes={5}." -f $ownerMachine, $ownerUser, $ownerProcessId, $LockPath, $processState, $StaleAfterMinutes)
+        }
+    }
+}
+
+function Release-CanonicalWriterLock {
+    param(
+        [string]$LockPath,
+        [string]$RunId
+    )
+
+    if (-not (Test-Path -LiteralPath $LockPath)) {
+        return [pscustomobject]@{
+            released = $false
+            reason = "lock_missing"
+        }
+    }
+
+    $currentLock = Read-JsonFile -Path $LockPath
+    $currentRunId = [string](Get-ObjectPropertyValue -Object $currentLock -Name "run_id" -DefaultValue "")
+    if ($currentRunId -ne $RunId) {
+        return [pscustomobject]@{
+            released = $false
+            reason = "lock_owner_changed"
+        }
+    }
+
+    Remove-Item -LiteralPath $LockPath -Force
+    return [pscustomobject]@{
+        released = $true
+        reason = $null
+    }
+}
+
+$status = "setup_failed"
+$logDirectory = $null
+$manifestPath = $null
+$summaryPath = $null
+$codexStdOutPath = $null
+$codexStdErrPath = $null
+$archivePath = $null
+$runId = $null
+$runtimeConfig = $null
+$executionContract = $null
+$runtimePolicy = $null
+$promptRecord = $null
+$repoRoot = $null
+$commitSha = $null
+$commitMessage = $null
+$effectiveSandboxMode = $null
+$verifyRecords = @()
+$commitMetadataPolicy = $null
+$commitMetadataArtifactRecord = $null
+$commitMetadataArtifactTracked = $false
+$commitMetadataArtifactRemoved = $false
+$specToDiffPolicy = $null
+$specToDiffArtifactRecord = $null
+$specToDiffArtifactTracked = $false
+$specToDiffArtifactRemoved = $false
+$specToDiffFailureReason = $null
+$currentDirtySnapshot = $null
+$initialDirtySnapshot = $null
+$dirtyPreservationViolations = @()
+$taskChangedPaths = @()
+$admittedChangedPaths = @()
+$mutationAdmissionRecord = $null
+$lockState = $null
+$lockRelease = $null
+$lockPath = $null
+$lockDirectory = $null
+$archiveDirectory = $null
+$executionClass = "canonical_workspace"
+$lockStaleAfterMinutes = 30
+$localLandingRecord = $null
+$specToDiffRecord = $null
+
+function Write-CanonicalManifest {
+    if ([string]::IsNullOrWhiteSpace($manifestPath)) {
+        return
+    }
+
+    $manifest = [ordered]@{
+        schemaVersion = "1.0"
+        runId = $runId
+        status = $status
+        executionClass = $executionClass
+        promptPath = $PromptPath
+        promptTitle = if ($null -ne $promptRecord) { $promptRecord.Title } else { $null }
+        canonicalRoot = $repoRoot
+        canonicalRootValidation = $script:CanonicalRootValidationState
+        runtimeConfigPath = if ($null -ne $runtimeConfig) { $runtimeConfig.ConfigPath } else { $null }
+        runtimePolicy = $runtimePolicy
+        mutationAdmission = if ($null -ne $mutationAdmissionRecord) { $mutationAdmissionRecord } else { $null }
+        dirtyInventory = [ordered]@{
+            initial = if ($null -ne $initialDirtySnapshot) { @($initialDirtySnapshot.entries) } else { @() }
+            final = if ($null -ne $currentDirtySnapshot) { @($currentDirtySnapshot.entries) } else { @() }
+            preservationViolations = @($dirtyPreservationViolations)
+        }
+        changedPaths = @($taskChangedPaths)
+        verification = @($verifyRecords)
+        commit = [ordered]@{
+            enabled = $null -ne $commitMetadataPolicy
+            message = $commitMessage
+        }
+        commitSha = $commitSha
+        lock = [ordered]@{
+            path = $lockPath
+            acquired = if ($null -ne $lockState) { [bool]$lockState.acquired } else { $false }
+            record = if ($null -ne $lockState) { $lockState.record } else { $null }
+            staleDiagnostic = if ($null -ne $lockState) { $lockState.staleDiagnostic } else { $null }
+            released = if ($null -ne $lockRelease) { [bool]$lockRelease.released } else { $false }
+            releaseReason = if ($null -ne $lockRelease) { $lockRelease.reason } else { $null }
+        }
+        specToDiff = if ($null -ne $specToDiffRecord) {
+            [ordered]@{
+                enabled = [bool]$specToDiffRecord.enabled
+                validationPassed = [bool]$specToDiffRecord.isValid
+                blockingReasons = @($specToDiffRecord.blockingReasons)
+                criteria = @($specToDiffRecord.criteria)
+                expectedChangedPathMatches = @($specToDiffRecord.expectedChangedPathMatches)
+                expectedUnchangedPathViolations = @($specToDiffRecord.expectedUnchangedPathViolations)
+                justifiedExpectedUnchangedPaths = @($specToDiffRecord.justifiedExpectedUnchangedPaths)
+            }
+        }
+        else {
+            $null
+        }
+        effectivePolicies = [ordered]@{
+            verificationSkipped = [bool]$SkipVerification.IsPresent
+            noCommit = [bool]$NoCommit.IsPresent
+            autoCommitEnabled = if ($null -ne $executionContract) { ConvertTo-RunnerBoolean -Value (Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $executionContract -Name "autoCommitPolicy" -DefaultValue $null) -Name "enabled" -DefaultValue $true) -DefaultValue $true } else { $true }
+            sandboxMode = $effectiveSandboxMode
+            pushMode = if ($null -ne $executionContract) { [string](Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $executionContract -Name "pushPolicy" -DefaultValue $null) -Name "mode" -DefaultValue "") } else { $null }
+        }
+        localLanding = $localLandingRecord
+        workerArtifacts = [ordered]@{
+            context = $null
+            running = $null
+            completion = $null
+            merge_request = $null
+        }
+    }
+
+    Write-TextFile -Path $manifestPath -Content (($manifest | ConvertTo-Json -Depth 12) + "`r`n")
+}
+
+try {
+    $runtimeConfig = Import-CanonicalRuntimeConfiguration -ScriptRoot $PSScriptRoot -ConfigPath $RuntimeConfigPath
+    $executionClassPath = Resolve-PathFromBase -BasePath (Get-Location).Path -Value $ExecutionClassPath
+    if (-not (Test-Path -LiteralPath $executionClassPath)) {
+        throw ("Execution class file was not found: {0}" -f $executionClassPath)
+    }
+    $executionContract = Get-Content -LiteralPath $executionClassPath -Raw | ConvertFrom-Json
+    $executionClass = [string](Get-ObjectPropertyValue -Object $executionContract -Name "executionClass" -DefaultValue "canonical_workspace")
+
+    $repoRoot = Resolve-CanonicalRoot -Path $CanonicalRootPath -ExecutionContract $executionContract
+    Set-Location -LiteralPath $repoRoot
+    $promptRecord = Parse-PromptFile -Path $PromptPath
+    $admittedChangedPaths = Resolve-AdmittedChangedPaths -ExplicitPaths $AdmittedChangedPath -PromptRecord $promptRecord
+    $mutationAdmissionRecord = [ordered]@{
+        defaultMode = [string](Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $executionContract -Name "mutationAdmission" -DefaultValue $null) -Name "defaultMode" -DefaultValue "read-only")
+        admittedPaths = @($admittedChangedPaths)
+        exactPathRequired = [bool](Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $executionContract -Name "mutationAdmission" -DefaultValue $null) -Name "requireExactPathMatch" -DefaultValue $true)
+        unexpectedTaskChangedPaths = @()
+    }
+
+    $archiveDirectory = Resolve-PathFromBase -BasePath $repoRoot -Value ([string](Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $executionContract -Name "artifacts" -DefaultValue $null) -Name "archiveDir" -DefaultValue ".codex/archive"))
+    $logRoot = Resolve-PathFromBase -BasePath $repoRoot -Value ([string](Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $executionContract -Name "artifacts" -DefaultValue $null) -Name "logsDir" -DefaultValue ".codex/logs"))
+    $lockDirectory = Resolve-PathFromBase -BasePath $repoRoot -Value ([string](Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $executionContract -Name "artifacts" -DefaultValue $null) -Name "lockDir" -DefaultValue ".codex/locks"))
+    $lockFileName = [string](Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $executionContract -Name "lock" -DefaultValue $null) -Name "fileName" -DefaultValue "atlas-workspace-writer.lock.json")
+    $lockStaleAfterMinutes = [int](Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $executionContract -Name "lock" -DefaultValue $null) -Name "staleAfterMinutes" -DefaultValue 30)
+    $lockPath = Join-Path -Path $lockDirectory -ChildPath $lockFileName
+
+    $runId = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ") + "-" + (ConvertTo-Slug -Value $promptRecord.Title)
+    $logDirectory = Join-Path -Path $logRoot -ChildPath $runId
+    $manifestPath = Join-Path -Path $logDirectory -ChildPath "run.json"
+    $summaryPath = Join-Path -Path $logDirectory -ChildPath "final-summary.md"
+    $codexStdOutPath = Join-Path -Path $logDirectory -ChildPath "codex.stdout.log"
+    $codexStdErrPath = Join-Path -Path $logDirectory -ChildPath "codex.stderr.log"
+    New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+
+    $runtimePolicy = Resolve-StackRuntimePolicy `
+        -Config $runtimeConfig.Config `
+        -RepoConfig $runtimeConfig.RepoConfig `
+        -DefaultsConfig $runtimeConfig.DefaultsConfig `
+        -PromptRecord $promptRecord `
+        -ExplicitPolicy ([pscustomobject]@{
+            model = $Model
+            reasoning = $Reasoning
+            speed = $Speed
+            permissions = $Permissions
+            permission_profile = $PermissionProfile
+            sandbox_mode = $SandboxMode
+            approval = $ApprovalPolicy
+            web_search = $WebSearch
+        }) `
+        -CodexCommand $CodexCommand
+    Write-CanonicalManifest
+
+    $commitMetadataPolicy = Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $executionContract -Name "autoCommitPolicy" -DefaultValue $null) -Name "commitMetadata" -DefaultValue $null
+    if ($null -eq $commitMetadataPolicy) {
+        throw "Canonical workspace execution class must declare autoCommitPolicy.commitMetadata."
+    }
+    $specToDiffPolicy = Get-SpecToDiffPromptPolicy -PromptRecord $promptRecord
+
+    $codexCommandValue = $CodexCommand
+    if ([string]::IsNullOrWhiteSpace($codexCommandValue)) {
+        $commandCandidate = Get-Command "codex" -ErrorAction SilentlyContinue
+        if ($null -eq $commandCandidate) {
+            $commandCandidate = Get-Command "codex.exe" -ErrorAction SilentlyContinue
+        }
+        if ($null -ne $commandCandidate) {
+            $codexCommandValue = $commandCandidate.Source
+        }
+    }
+    if (-not (Test-Path -LiteralPath $codexCommandValue)) {
+        throw ("Codex command was not found: {0}" -f $codexCommandValue)
+    }
+
+    $effectivePrompt = $promptRecord.Body.Trim()
+    if (-not [string]::IsNullOrWhiteSpace($promptRecord.DocsUpdateNote)) {
+        $effectivePrompt = $effectivePrompt + "`r`n`r`nDocs update note: " + $promptRecord.DocsUpdateNote.Trim()
+    }
+
+    $commitContractInstructions = @(
+        "Commit metadata contract:",
+        ("- If you make repository changes that should be committed, write UTF-8 JSON to `{0}`." -f $commitMetadataPolicy.artifactPath),
+        ('- Use exactly this shape: {"type":"<type>","scope":"<scope>","summary":"<summary>"}'),
+        ("- Allowed commit types: {0}." -f (($commitMetadataPolicy.allowedTypes -join ", "))),
+        "- Scope must be a short lowercase slug using letters, digits, and hyphens.",
+        "- Summary must be specific, contain at least two words, and must not be generic like update, done, fixes, or misc changes.",
+        "- If you make no repository changes, do not create the commit metadata artifact.",
+        "- The runner will consume and remove the artifact before staging.",
+        "- Do not push. Push remains manual-only."
+    ) -join "`r`n"
+    $effectivePrompt = $effectivePrompt + "`r`n`r`n" + $commitContractInstructions
+
+    if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
+        $criterionLines = @($specToDiffPolicy.acceptanceCriteria | ForEach-Object { "- {0}: {1}" -f [string]$_.id, [string]$_.text })
+        $expectedChangedLines = if (@($specToDiffPolicy.expectedChangedPaths).Length -gt 0) { @($specToDiffPolicy.expectedChangedPaths | ForEach-Object { "- {0}" -f [string]$_ }) } else { @("- none declared") }
+        $expectedUnchangedLines = if (@($specToDiffPolicy.expectedUnchangedPaths).Length -gt 0) { @($specToDiffPolicy.expectedUnchangedPaths | ForEach-Object { "- {0}" -f [string]$_ }) } else { @("- none declared") }
+        $blockedSkippedRuleLines = if (@($specToDiffPolicy.blockedSkippedRules).Length -gt 0) { @($specToDiffPolicy.blockedSkippedRules | ForEach-Object { "- {0}" -f [string]$_ }) } else { @("- If a criterion cannot be proven from the final diff, mark it as blocked, skipped, or failed instead of satisfied.") }
+        $specToDiffInstructions = @(
+            "Spec-to-diff completion contract:",
+            ("- This prompt declares acceptance criteria, so write UTF-8 JSON to `{0}`." -f $specToDiffPolicy.artifactPath),
+            "- Use exactly this shape:",
+            '- {"contract_version":"atlas.stack.spec_to_diff.v1","criteria":[{"criterion_id":"ac-01","status":"satisfied","changed_paths":["docs/example.md"],"diff_evidence":["literal diff snippet"],"note":"optional note"}],"unchanged_path_justifications":[{"path":"docs/example.md","justification":"why the expected unchanged path changed","criterion_ids":["ac-01"]}]}',
+            "- Emit one criteria entry for every acceptance criterion id listed below.",
+            "- Allowed criterion statuses: satisfied, skipped, failed, blocked.",
+            "- For satisfied criteria, changed_paths must list the actual changed repo-relative files and diff_evidence must quote short literal snippets that appear in the final diff or newly added file content.",
+            "- Do not mark a criterion satisfied unless it is provable from the final diff.",
+            "- If any criterion cannot be completed or proven, mark it blocked, skipped, or failed and explain why in note.",
+            "- If an expected unchanged path changes, add an unchanged_path_justifications entry with an explicit reason.",
+            "Acceptance criteria ids:",
+            $criterionLines -join "`r`n",
+            "Expected changed paths:",
+            $expectedChangedLines -join "`r`n",
+            "Expected unchanged paths:",
+            $expectedUnchangedLines -join "`r`n",
+            "Blocked / skipped reporting rules:",
+            $blockedSkippedRuleLines -join "`r`n"
+        ) -join "`r`n"
+        $effectivePrompt = $effectivePrompt + "`r`n`r`n" + $specToDiffInstructions
+    }
+
+    Write-TextFile -Path (Join-Path -Path $logDirectory -ChildPath "effective.prompt.md") -Content $effectivePrompt
+    $commitMetadataArtifactPath = Resolve-PathFromBase -BasePath $repoRoot -Value ([string]$commitMetadataPolicy.artifactPath)
+    $specToDiffArtifactPath = if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) { Resolve-PathFromBase -BasePath $repoRoot -Value ([string]$specToDiffPolicy.artifactPath) } else { $null }
+    $internalArtifactExactPaths = @(Normalize-RepoRelativePathList -Paths @(
+        (Get-RepoRelativePath -RepoRoot $repoRoot -AbsolutePath $lockPath),
+        (Get-RepoRelativePath -RepoRoot $repoRoot -AbsolutePath $commitMetadataArtifactPath),
+        (Get-RepoRelativePath -RepoRoot $repoRoot -AbsolutePath $specToDiffArtifactPath)
+    ))
+    $logDirectoryRelativePath = Get-RepoRelativePath -RepoRoot $repoRoot -AbsolutePath $logDirectory
+    $lockDirectoryRelativePath = Get-RepoRelativePath -RepoRoot $repoRoot -AbsolutePath $lockDirectory
+    $internalArtifactPathPrefixes = @()
+    if (-not [string]::IsNullOrWhiteSpace($logDirectoryRelativePath)) {
+        $internalArtifactPathPrefixes += "{0}/" -f $logDirectoryRelativePath.TrimEnd("/")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($lockDirectoryRelativePath)) {
+        $internalArtifactPathPrefixes += "{0}/" -f $lockDirectoryRelativePath.TrimEnd("/")
+    }
+
+    $verificationCommands = @(ConvertTo-StringArray -Value (Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $executionContract -Name "verification" -DefaultValue $null) -Name "defaultCommands" -DefaultValue @()))
+    if (@($promptRecord.Verify).Count -gt 0) {
+        $verificationCommands = @($promptRecord.Verify)
+    }
+
+    $initialDirtySnapshot = Filter-DirtySnapshot -Snapshot (Get-DirtySnapshot -WorkingDirectory $repoRoot) -ExactPaths $internalArtifactExactPaths -Prefixes $internalArtifactPathPrefixes
+    $preExistingStagedPaths = @(Test-AnyInitialStagedDirt -Snapshot $initialDirtySnapshot)
+    if ($preExistingStagedPaths.Count -gt 0) {
+        $status = "mutation_admission_failed"
+        throw ("Canonical workspace writer requires an unstaged baseline before mutation admission. Pre-existing staged paths: {0}" -f ($preExistingStagedPaths -join ", "))
+    }
+
+    foreach ($admittedPath in $admittedChangedPaths) {
+        if ($initialDirtySnapshot.byPath.ContainsKey($admittedPath)) {
+            $status = "mutation_admission_failed"
+            throw ("Admitted task-owned path must start clean in the canonical workspace: {0}" -f $admittedPath)
+        }
+    }
+
+    $lockState = Acquire-CanonicalWriterLock -LockPath $lockPath -CanonicalRoot $repoRoot -PromptPath $PromptPath -RunId $runId -StaleAfterMinutes $lockStaleAfterMinutes
+    $status = "prepared"
+    Write-CanonicalManifest
+
+    foreach ($runtimeNote in @($runtimePolicy.warnings)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$runtimeNote)) {
+            Write-RunnerMessage -Message ([string]$runtimeNote) -Level "WARN"
+        }
+    }
+
+    $personality = [string](Get-ConfigValue -Config $runtimeConfig.Config -Path @("personality") -DefaultValue "")
+    $codexInvocation = New-CodexInvocationPlan `
+        -RuntimePolicy $runtimePolicy `
+        -SummaryPath $summaryPath `
+        -WorktreePath $repoRoot `
+        -Personality $personality
+    $effectiveSandboxMode = $codexInvocation.legacySandboxMode
+    Write-CanonicalManifest
+
+    Write-RunnerMessage -Message ("Running canonical workspace writer against {0}" -f $repoRoot)
+    $codexResult = Invoke-ProcessCapture -FilePath $codexCommandValue -ArgumentList @($codexInvocation.arguments) -WorkingDirectory $codexInvocation.workingDirectory -StandardInputText $effectivePrompt
+    Write-TextFile -Path $codexStdOutPath -Content $codexResult.StdOut
+    Write-TextFile -Path $codexStdErrPath -Content $codexResult.StdErr
+    if ($codexResult.ExitCode -ne 0) {
+        $status = "codex_failed"
+        throw ("Codex exec failed with exit code {0}." -f $codexResult.ExitCode)
+    }
+
+    $commitMetadataArtifactRecord = Read-CommitMetadataArtifact -Path $commitMetadataArtifactPath
+    if ($null -ne $commitMetadataArtifactRecord) {
+        $commitMetadataRawPath = Join-Path -Path $logDirectory -ChildPath "commit-meta.raw.json"
+        Write-TextFile -Path $commitMetadataRawPath -Content $commitMetadataArtifactRecord.rawContent
+        $commitMetadataArtifactTracked = Test-GitPathTracked -Path ([string]$commitMetadataPolicy.artifactPath) -WorkingDirectory $repoRoot
+        if (-not $commitMetadataArtifactTracked) {
+            Remove-Item -LiteralPath $commitMetadataArtifactPath -Force
+            $commitMetadataArtifactRemoved = $true
+        }
+    }
+
+    if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
+        $specToDiffArtifactRecord = Read-SpecToDiffArtifact -Path $specToDiffArtifactPath
+        if ($null -ne $specToDiffArtifactRecord) {
+            $specToDiffRawPath = Join-Path -Path $logDirectory -ChildPath "spec-to-diff.raw.json"
+            Write-TextFile -Path $specToDiffRawPath -Content $specToDiffArtifactRecord.rawContent
+            $specToDiffArtifactTracked = Test-GitPathTracked -Path ([string]$specToDiffPolicy.artifactPath) -WorkingDirectory $repoRoot
+            if (-not $specToDiffArtifactTracked) {
+                Remove-Item -LiteralPath $specToDiffArtifactPath -Force
+                $specToDiffArtifactRemoved = $true
+            }
+        }
+    }
+
+    $verificationDirectory = Join-Path -Path $logDirectory -ChildPath "verification"
+    New-Item -ItemType Directory -Path $verificationDirectory -Force | Out-Null
+    if (-not $SkipVerification.IsPresent) {
+        $verifyIndex = 0
+        foreach ($verificationCommand in $verificationCommands) {
+            $verifyIndex += 1
+            Write-RunnerMessage -Message ("Running verification command {0}: {1}" -f $verifyIndex, $verificationCommand)
+            $verificationResult = Invoke-ShellCommand -Command $verificationCommand -WorkingDirectory $repoRoot
+            $verifyStdOutPath = Join-Path -Path $verificationDirectory -ChildPath ("verify-{0:00}.stdout.log" -f $verifyIndex)
+            $verifyStdErrPath = Join-Path -Path $verificationDirectory -ChildPath ("verify-{0:00}.stderr.log" -f $verifyIndex)
+            Write-TextFile -Path $verifyStdOutPath -Content $verificationResult.StdOut
+            Write-TextFile -Path $verifyStdErrPath -Content $verificationResult.StdErr
+            $verifyRecords += [pscustomobject]@{
+                command = $verificationCommand
+                exitCode = $verificationResult.ExitCode
+                stdoutPath = $verifyStdOutPath
+                stderrPath = $verifyStdErrPath
+            }
+            if ($verificationResult.ExitCode -ne 0) {
+                $status = "verification_failed"
+                throw ("Verification command failed: {0}" -f $verificationCommand)
+            }
+        }
+    }
+
+    if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
+        if ($null -eq $specToDiffArtifactRecord) {
+            $status = "spec_to_diff_failed"
+            $specToDiffFailureReason = "Spec-to-diff completion artifact is required when acceptance criteria are declared."
+            throw $specToDiffFailureReason
+        }
+        if ($specToDiffArtifactTracked) {
+            $status = "spec_to_diff_failed"
+            $specToDiffFailureReason = ("Spec-to-diff artifact path is tracked and cannot be treated as temporary: {0}" -f $specToDiffPolicy.artifactPath)
+            throw $specToDiffFailureReason
+        }
+    }
+
+    $currentDirtySnapshot = Filter-DirtySnapshot -Snapshot (Get-DirtySnapshot -WorkingDirectory $repoRoot) -ExactPaths $internalArtifactExactPaths -Prefixes $internalArtifactPathPrefixes
+    $dirtyPreservationViolations = @(Compare-DirtySnapshot -InitialSnapshot $initialDirtySnapshot -CurrentSnapshot $currentDirtySnapshot -AdmittedPaths $admittedChangedPaths)
+    if ($dirtyPreservationViolations.Count -gt 0) {
+        $status = "dirty_preservation_failed"
+        throw $dirtyPreservationViolations[0]
+    }
+
+    $taskChangedPaths = @(
+        Resolve-TaskChangedPaths -InitialSnapshot $initialDirtySnapshot -CurrentSnapshot $currentDirtySnapshot |
+        Where-Object { -not (Test-InternalArtifactPath -Path $_ -ExactPaths $internalArtifactExactPaths -Prefixes $internalArtifactPathPrefixes) }
+    )
+    $unexpectedTaskChangedPaths = @($taskChangedPaths | Where-Object { $_ -notin $admittedChangedPaths })
+    $mutationAdmissionRecord.unexpectedTaskChangedPaths = @($unexpectedTaskChangedPaths)
+    if ($unexpectedTaskChangedPaths.Count -gt 0) {
+        $status = "mutation_admission_failed"
+        throw ("Canonical workspace writer detected unadmitted task-owned changes: {0}" -f ($unexpectedTaskChangedPaths -join ", "))
+    }
+
+    if (@($admittedChangedPaths).Count -eq 0 -and @($taskChangedPaths).Count -gt 0) {
+        $status = "mutation_admission_failed"
+        throw ("Canonical workspace writer is read-only by default. Explicitly admit exact changed paths before mutation. Observed: {0}" -f ($taskChangedPaths -join ", "))
+    }
+
+    if (@($taskChangedPaths).Count -eq 0) {
+        $status = "success"
+        Write-CanonicalManifest
+        return
+    }
+
+    $specToDiffRecord = if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
+        Test-SpecToDiffCompletionProof `
+            -PromptRecord $promptRecord `
+            -ArtifactRecord $specToDiffArtifactRecord `
+            -ChangedPaths $taskChangedPaths `
+            -WorkingDirectory $repoRoot
+    }
+    else {
+        $null
+    }
+    if ($null -ne $specToDiffRecord) {
+        $specToDiffValidationPath = Join-Path -Path $logDirectory -ChildPath "spec-to-diff.validation.json"
+        Write-TextFile -Path $specToDiffValidationPath -Content (($specToDiffRecord | ConvertTo-Json -Depth 8) + "`r`n")
+        if (-not $specToDiffRecord.isValid) {
+            $status = "spec_to_diff_failed"
+            $specToDiffFailureReason = if ($specToDiffRecord.blockingReasons.Count -gt 0) { [string]$specToDiffRecord.blockingReasons[0] } else { "Spec-to-diff validation failed." }
+            throw ("Spec-to-diff verification gate failed: {0}" -f $specToDiffFailureReason)
+        }
+    }
+
+    $resolvedCommit = Resolve-CommitMetadata -PromptRecord $promptRecord -ArtifactRecord $commitMetadataArtifactRecord -CommitPolicy $commitMetadataPolicy -ChangedPaths $taskChangedPaths -RepoId ([string]$executionContract.repoId)
+    $commitMessage = $resolvedCommit.message
+    $commitMetadataResolvedPath = Join-Path -Path $logDirectory -ChildPath "commit-meta.resolved.json"
+    $commitMessagePath = Join-Path -Path $logDirectory -ChildPath "commit-message.txt"
+    Write-TextFile -Path $commitMetadataResolvedPath -Content (([ordered]@{
+        source = $resolvedCommit.source
+        type = $resolvedCommit.type
+        scope = $resolvedCommit.scope
+        summary = $resolvedCommit.summary
+        message = $resolvedCommit.message
+        fallbackType = if ($resolvedCommit.PSObject.Properties.Name -contains "fallbackType") { $resolvedCommit.fallbackType } else { $null }
+        fallbackArea = if ($resolvedCommit.PSObject.Properties.Name -contains "fallbackArea") { $resolvedCommit.fallbackArea } else { $null }
+        candidateErrors = if ($resolvedCommit.PSObject.Properties.Name -contains "candidateErrors") { @($resolvedCommit.candidateErrors) } else { @() }
+    } | ConvertTo-Json -Depth 6) + "`r`n")
+    Write-TextFile -Path $commitMessagePath -Content ($commitMessage + "`r`n")
+
+    $autoCommitPolicy = Get-ObjectPropertyValue -Object $executionContract -Name "autoCommitPolicy" -DefaultValue $null
+    $autoCommitEnabled = -not $NoCommit.IsPresent -and (ConvertTo-RunnerBoolean -Value (Get-ObjectPropertyValue -Object $autoCommitPolicy -Name "enabled" -DefaultValue $true) -DefaultValue $true)
+    if ($autoCommitEnabled) {
+        Write-RunnerMessage -Message "Staging exact admitted canonical workspace paths"
+        $stagePaths = @($taskChangedPaths | Where-Object { $_ -in $admittedChangedPaths })
+        $addArguments = @("add", "--") + $stagePaths
+        $addResult = Invoke-Git -Arguments $addArguments -WorkingDirectory $repoRoot
+        Assert-CommandSucceeded -Result $addResult -Description "git add -- <exact paths>"
+
+        $cachedResult = Invoke-Git -Arguments @("diff", "--cached", "--name-only", "--relative") -WorkingDirectory $repoRoot
+        Assert-CommandSucceeded -Result $cachedResult -Description "git diff --cached --name-only"
+        $cachedPaths = @(Normalize-RepoRelativePathList -Paths ($cachedResult.StdOut -split "`r?`n"))
+        $unexpectedStaged = @($cachedPaths | Where-Object { $_ -notin $stagePaths })
+        $missingStaged = @($stagePaths | Where-Object { $_ -notin $cachedPaths })
+        if ($unexpectedStaged.Count -gt 0 -or $missingStaged.Count -gt 0) {
+            $status = "staging_failed"
+            $problems = @()
+            if ($unexpectedStaged.Count -gt 0) {
+                $problems += ("unexpected staged paths: {0}" -f ($unexpectedStaged -join ", "))
+            }
+            if ($missingStaged.Count -gt 0) {
+                $problems += ("missing staged paths: {0}" -f ($missingStaged -join ", "))
+            }
+            throw ("Exact staging contract failed: {0}" -f ($problems -join "; "))
+        }
+
+        $gitEnvironment = @{}
+        $authorName = [string](Get-ConfigValue -Config $runtimeConfig.Config -Path @("git", "author_name") -DefaultValue "")
+        $authorEmail = [string](Get-ConfigValue -Config $runtimeConfig.Config -Path @("git", "author_email") -DefaultValue "")
+        if (-not [string]::IsNullOrWhiteSpace($authorName)) {
+            $gitEnvironment["GIT_AUTHOR_NAME"] = $authorName
+            $gitEnvironment["GIT_COMMITTER_NAME"] = $authorName
+        }
+        if (-not [string]::IsNullOrWhiteSpace($authorEmail)) {
+            $gitEnvironment["GIT_AUTHOR_EMAIL"] = $authorEmail
+            $gitEnvironment["GIT_COMMITTER_EMAIL"] = $authorEmail
+        }
+
+        $commitResult = Invoke-Git -Arguments @("commit", "-m", $commitMessage) -WorkingDirectory $repoRoot -Environment $gitEnvironment
+        if ($commitResult.ExitCode -ne 0) {
+            $status = "commit_failed"
+            throw ("git commit failed. {0}" -f $commitResult.StdErr.Trim())
+        }
+
+        $shaResult = Invoke-Git -Arguments @("rev-parse", "HEAD") -WorkingDirectory $repoRoot
+        Assert-CommandSucceeded -Result $shaResult -Description "git rev-parse HEAD"
+        $commitSha = $shaResult.StdOut.Trim()
+    }
+
+    $status = "success"
+}
+catch {
+    if ($status -eq "prepared") {
+        $status = "failed"
+    }
+    Write-RunnerMessage -Message $_.Exception.Message -Level "ERROR"
+    if (-not [string]::IsNullOrWhiteSpace($_.ScriptStackTrace)) {
+        Write-RunnerMessage -Message $_.ScriptStackTrace.Trim() -Level "ERROR"
+    }
+}
+finally {
+    if (-not [string]::IsNullOrWhiteSpace($PromptPath) -and -not [string]::IsNullOrWhiteSpace($archiveDirectory) -and (Test-Path -LiteralPath $PromptPath)) {
+        try {
+            $archiveSlug = ConvertTo-Slug -Value ([System.IO.Path]::GetFileNameWithoutExtension($PromptPath))
+            $archivePath = New-ArchivePath -ArchiveDirectory $archiveDirectory -Slug $archiveSlug -Status $status -Extension ([System.IO.Path]::GetExtension($PromptPath))
+            Move-Item -LiteralPath $PromptPath -Destination $archivePath -Force
+        }
+        catch {
+            Write-RunnerMessage -Message ("Failed to archive prompt: {0}" -f $_.Exception.Message) -Level "WARN"
+            if ($status -eq "success") {
+                $status = "archive_failed"
+            }
+        }
+    }
+
+    if ($null -ne $lockState) {
+        try {
+            $lockRelease = Release-CanonicalWriterLock -LockPath $lockPath -RunId $runId
+        }
+        catch {
+            $lockRelease = [pscustomobject]@{
+                released = $false
+                reason = ("release_failed: {0}" -f $_.Exception.Message)
+            }
+        }
+    }
+
+    Write-CanonicalManifest
+}
+
+exit (Get-StatusExitCode -Status $status)

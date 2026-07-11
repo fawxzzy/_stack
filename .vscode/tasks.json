@@ -156,6 +156,20 @@
       }
     },
     {
+      "label": "Codex: Atlas Workspace Task",
+      "type": "shell",
+      "command": "pnpm run codex:atlas-workspace:task -- -PromptPath ${input:codexAtlasWorkspacePromptPath} -CanonicalRootPath ${input:codexAtlasWorkspaceRootPath}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
       "label": "Codex: Stack Verify",
       "type": "shell",
       "command": "pnpm run codex:stack:verify",
@@ -511,6 +525,16 @@
       "id": "codexStackPromptPath",
       "type": "promptString",
       "description": "Absolute prompt path for the _stack Codex task"
+    },
+    {
+      "id": "codexAtlasWorkspacePromptPath",
+      "type": "promptString",
+      "description": "Absolute prompt path for the Atlas canonical workspace writer task"
+    },
+    {
+      "id": "codexAtlasWorkspaceRootPath",
+      "type": "promptString",
+      "description": "Absolute canonical ATLAS root path for the Atlas workspace writer"
     },
     {
       "id": "codexLifelinePromptPath",

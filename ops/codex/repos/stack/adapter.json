@@ -8,6 +8,7 @@
     "bootstrapCommands": [],
     "defaultCommands": [
       "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-StackOperatorSurface.ps1",
+      "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-AtlasWorkspaceWriter.ps1",
       "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\stack\\Test-StackWorkerArtifacts.ps1",
       "git diff --check"
     ],
@@ -16,7 +17,8 @@
       "_stack is self-managed through the same runner path, but it must not expand into dev-level multi-repo dispatch or Fitness-specific deploy logic in this pass.",
       "_stack worker runs must stamp stack_lock_digest from the root stack.lock.yaml and emit assignment, running status, completion status, and merge-request artifacts through the shared handoff flow.",
       "Do not add automatic commit-triggered receipts; receipts remain lightweight and manual even when successful mutating tasks auto-commit.",
-      "_stack runtime policy defaults now live in ops/codex/repos/stack/config.toml so governed runs can resolve and receipt one explicit runtime-policy envelope before execution."
+      "_stack runtime policy defaults now live in ops/codex/repos/stack/config.toml so governed runs can resolve and receipt one explicit runtime-policy envelope before execution.",
+      "_stack also owns the canonical Atlas workspace writer execution class, which operates directly against an explicit ATLAS root with read-only default admission, lock enforcement, dirty-path preservation, exact staging, and manual-only push."
     ]
   },
   "allowedMutationSurfaces": [
