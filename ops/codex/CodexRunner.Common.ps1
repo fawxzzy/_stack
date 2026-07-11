@@ -131,8 +131,11 @@ function Get-ObjectPropertyValue {
         return $DefaultValue
     }
 
-    if ($Object -is [hashtable]) {
-        if ($Object.ContainsKey($Name)) {
+    if ($Object -is [hashtable] -or $Object -is [System.Collections.IDictionary]) {
+        if ($Object.Contains($Name)) {
+            return $Object[$Name]
+        }
+        if ($Object.PSObject.Methods.Name -contains "ContainsKey" -and $Object.ContainsKey($Name)) {
             return $Object[$Name]
         }
 
@@ -193,8 +196,11 @@ function Import-StackCodexConfiguration {
 
     $defaultsPath = Join-Path -Path $ScriptRoot -ChildPath "config.defaults.toml"
     $config = @{}
+    $defaultsConfig = @{}
+    $repoConfig = @{}
     if (Test-Path -LiteralPath $defaultsPath) {
-        $config = ConvertFrom-SimpleToml -Path $defaultsPath
+        $defaultsConfig = ConvertFrom-SimpleToml -Path $defaultsPath
+        $config = $defaultsConfig
     }
 
     $resolvedConfigPath = $null
@@ -236,6 +242,8 @@ function Import-StackCodexConfiguration {
 
     return [pscustomobject]@{
         Config = $config
+        DefaultsConfig = $defaultsConfig
+        RepoConfig = $repoConfig
         ConfigPath = $resolvedConfigPath
         ConfigBasePath = $configBasePath
         RepoRoot = (Resolve-Path -LiteralPath $resolvedRepoRoot).Path
@@ -770,6 +778,16 @@ function Parse-PromptFile {
             "docsupdatenote" { $metadata.DocsUpdateNote = $value }
             "exportpatch" { $metadata.ExportPatch = $value }
             "exportbundle" { $metadata.ExportBundle = $value }
+            "runtimemodel" { $metadata.RuntimeModel = $value }
+            "runtimereasoning" { $metadata.RuntimeReasoning = $value }
+            "runtimespeed" { $metadata.RuntimeSpeed = $value }
+            "runtimepermissions" { $metadata.RuntimePermissions = $value }
+            "runtimepermissionprofile" { $metadata.RuntimePermissionProfile = $value }
+            "runtimesandboxmode" { $metadata.RuntimeSandboxMode = $value }
+            "runtimeapproval" { $metadata.RuntimeApproval = $value }
+            "runtimeapprovalpolicy" { $metadata.RuntimeApproval = $value }
+            "runtimewebsearch" { $metadata.RuntimeWebSearch = $value }
+            "runtimewebsearchmode" { $metadata.RuntimeWebSearch = $value }
             default { }
         }
 
@@ -815,6 +833,14 @@ function Parse-PromptFile {
     $docsUpdateNote = if ($metadata.ContainsKey("DocsUpdateNote")) { $metadata["DocsUpdateNote"] } else { $null }
     $exportPatch = if ($metadata.ContainsKey("ExportPatch")) { $metadata["ExportPatch"] } else { $null }
     $exportBundle = if ($metadata.ContainsKey("ExportBundle")) { $metadata["ExportBundle"] } else { $null }
+    $runtimeModel = if ($metadata.ContainsKey("RuntimeModel")) { $metadata["RuntimeModel"] } else { $null }
+    $runtimeReasoning = if ($metadata.ContainsKey("RuntimeReasoning")) { $metadata["RuntimeReasoning"] } else { $null }
+    $runtimeSpeed = if ($metadata.ContainsKey("RuntimeSpeed")) { $metadata["RuntimeSpeed"] } else { $null }
+    $runtimePermissions = if ($metadata.ContainsKey("RuntimePermissions")) { $metadata["RuntimePermissions"] } else { $null }
+    $runtimePermissionProfile = if ($metadata.ContainsKey("RuntimePermissionProfile")) { $metadata["RuntimePermissionProfile"] } else { $null }
+    $runtimeSandboxMode = if ($metadata.ContainsKey("RuntimeSandboxMode")) { $metadata["RuntimeSandboxMode"] } else { $null }
+    $runtimeApproval = if ($metadata.ContainsKey("RuntimeApproval")) { $metadata["RuntimeApproval"] } else { $null }
+    $runtimeWebSearch = if ($metadata.ContainsKey("RuntimeWebSearch")) { $metadata["RuntimeWebSearch"] } else { $null }
 
     return [pscustomobject]@{
         Title = $title
@@ -829,6 +855,14 @@ function Parse-PromptFile {
         DocsUpdateNote = $docsUpdateNote
         ExportPatch = $exportPatch
         ExportBundle = $exportBundle
+        RuntimeModel = $runtimeModel
+        RuntimeReasoning = $runtimeReasoning
+        RuntimeSpeed = $runtimeSpeed
+        RuntimePermissions = $runtimePermissions
+        RuntimePermissionProfile = $runtimePermissionProfile
+        RuntimeSandboxMode = $runtimeSandboxMode
+        RuntimeApproval = $runtimeApproval
+        RuntimeWebSearch = $runtimeWebSearch
         AcceptanceCriteria = @($acceptanceCriteria)
         ExpectedChangedPaths = @($expectedChangedPaths)
         ExpectedUnchangedPaths = @($expectedUnchangedPaths)
@@ -841,25 +875,25 @@ function Parse-PromptFile {
 function Get-SpecToDiffPromptPolicy {
     param($PromptRecord)
 
-    $criteria = if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "AcceptanceCriteria") {
+    [object[]]$criteria = if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "AcceptanceCriteria") {
         @($PromptRecord.AcceptanceCriteria)
     }
     else {
         @()
     }
-    $expectedChangedPaths = if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "ExpectedChangedPaths") {
+    [object[]]$expectedChangedPaths = if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "ExpectedChangedPaths") {
         @($PromptRecord.ExpectedChangedPaths)
     }
     else {
         @()
     }
-    $expectedUnchangedPaths = if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "ExpectedUnchangedPaths") {
+    [object[]]$expectedUnchangedPaths = if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "ExpectedUnchangedPaths") {
         @($PromptRecord.ExpectedUnchangedPaths)
     }
     else {
         @()
     }
-    $blockedSkippedRules = if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "BlockedSkippedRules") {
+    [object[]]$blockedSkippedRules = if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "BlockedSkippedRules") {
         @($PromptRecord.BlockedSkippedRules)
     }
     else {
@@ -955,6 +989,582 @@ function Get-LocalLandingPolicy {
     return [pscustomobject]@{
         mode = $mode
         targetBranch = $targetBranch.Trim()
+    }
+}
+
+function Normalize-RunnerOptionalString {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return $null
+    }
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $null
+    }
+
+    return $text.Trim()
+}
+
+function Normalize-RuntimeSpeedMode {
+    param($Value)
+
+    $text = Normalize-RunnerOptionalString -Value $Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $null
+    }
+
+    switch ($text.Trim().ToLowerInvariant()) {
+        "standard" { return "standard" }
+        "normal" { return "standard" }
+        "default" { return "standard" }
+        "fast" { return "fast" }
+        default { throw ("Unsupported runtime speed mode: {0}" -f $text) }
+    }
+}
+
+function Normalize-RuntimePermissionMode {
+    param($Value)
+
+    $text = Normalize-RunnerOptionalString -Value $Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $null
+    }
+
+    switch (($text.Trim().ToLowerInvariant()).Replace("_", "-")) {
+        "full-access" { return "full-access" }
+        "fullaccess" { return "full-access" }
+        "workspace-write" { return "workspace-write" }
+        "workspacewrite" { return "workspace-write" }
+        "read-only" { return "read-only" }
+        "readonly" { return "read-only" }
+        "custom" { return "custom" }
+        default { throw ("Unsupported runtime permissions mode: {0}" -f $text) }
+    }
+}
+
+function Normalize-RuntimeWebSearchMode {
+    param($Value)
+
+    $text = Normalize-RunnerOptionalString -Value $Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $null
+    }
+
+    switch ($text.Trim().ToLowerInvariant()) {
+        "disabled" { return "disabled" }
+        "off" { return "disabled" }
+        "false" { return "disabled" }
+        "none" { return "disabled" }
+        "live" { return "live" }
+        "enabled" { return "live" }
+        "on" { return "live" }
+        "true" { return "live" }
+        default { throw ("Unsupported runtime web-search mode: {0}" -f $text) }
+    }
+}
+
+function Normalize-RuntimePermissionProfile {
+    param($Value)
+
+    return Normalize-RunnerOptionalString -Value $Value
+}
+
+function Normalize-RuntimeSandboxMode {
+    param($Value)
+
+    $text = Normalize-RunnerOptionalString -Value $Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $null
+    }
+
+    return $text.Trim().ToLowerInvariant()
+}
+
+function Get-RuntimePolicyConfigLayer {
+    param([hashtable]$Config)
+
+    return [pscustomobject]@{
+        model = Normalize-RunnerOptionalString -Value (Get-ConfigValue -Config $Config -Path @("runtime_policy", "model") -DefaultValue (Get-ConfigValue -Config $Config -Path @("model") -DefaultValue $null))
+        reasoning = Normalize-RunnerOptionalString -Value (Get-ConfigValue -Config $Config -Path @("runtime_policy", "reasoning") -DefaultValue (Get-ConfigValue -Config $Config -Path @("model_reasoning_effort") -DefaultValue $null))
+        speed = Normalize-RuntimeSpeedMode -Value (Get-ConfigValue -Config $Config -Path @("runtime_policy", "speed") -DefaultValue $null)
+        permissions = Normalize-RuntimePermissionMode -Value (Get-ConfigValue -Config $Config -Path @("runtime_policy", "permissions") -DefaultValue $null)
+        permission_profile = Normalize-RuntimePermissionProfile -Value (Get-ConfigValue -Config $Config -Path @("runtime_policy", "permission_profile") -DefaultValue $null)
+        sandbox_mode = Normalize-RuntimeSandboxMode -Value (Get-ConfigValue -Config $Config -Path @("runtime_policy", "sandbox_mode") -DefaultValue (Get-ConfigValue -Config $Config -Path @("windows", "sandbox") -DefaultValue $null))
+        approval = Normalize-RunnerOptionalString -Value (Get-ConfigValue -Config $Config -Path @("runtime_policy", "approval") -DefaultValue (Get-ConfigValue -Config $Config -Path @("windows", "approval_policy") -DefaultValue $null))
+        web_search = Normalize-RuntimeWebSearchMode -Value (Get-ConfigValue -Config $Config -Path @("runtime_policy", "web_search") -DefaultValue $null)
+    }
+}
+
+function Resolve-RuntimePolicyField {
+    param(
+        [object[]]$Candidates,
+        [string]$Name
+    )
+
+    foreach ($candidate in @($Candidates)) {
+        if ($null -eq $candidate) {
+            continue
+        }
+
+        $value = Get-ObjectPropertyValue -Object $candidate -Name "value" -DefaultValue $null
+        if ($null -eq $value) {
+            continue
+        }
+
+        if ($value -is [string] -and [string]::IsNullOrWhiteSpace([string]$value)) {
+            continue
+        }
+
+        $source = [string](Get-ObjectPropertyValue -Object $candidate -Name "source" -DefaultValue "")
+        return [pscustomobject]@{
+            name = $Name
+            value = $value
+            source = if ([string]::IsNullOrWhiteSpace($source)) { $null } else { $source }
+        }
+    }
+
+    return [pscustomobject]@{
+        name = $Name
+        value = $null
+        source = $null
+    }
+}
+
+function Get-RunnerPermissionModeFromMechanism {
+    param(
+        [string]$PermissionProfile,
+        [string]$SandboxMode
+    )
+
+    $normalizedPermissionProfile = Normalize-RuntimePermissionProfile -Value $PermissionProfile
+    if (-not [string]::IsNullOrWhiteSpace($normalizedPermissionProfile)) {
+        switch ($normalizedPermissionProfile) {
+            ":danger-full-access" { return "full-access" }
+            default { return "custom" }
+        }
+    }
+
+    $normalizedSandboxMode = Normalize-RuntimeSandboxMode -Value $SandboxMode
+    switch ($normalizedSandboxMode) {
+        "danger-full-access" { return "full-access" }
+        "workspace-write" { return "workspace-write" }
+        "read-only" { return "read-only" }
+        default { return $null }
+    }
+}
+
+function Get-CodexRuntimeHostDirectory {
+    $path = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "atlas-codex-runtime-host"
+    if (-not (Test-Path -LiteralPath $path)) {
+        New-Item -ItemType Directory -Path $path -Force | Out-Null
+    }
+
+    return $path
+}
+
+function Get-CodexCliContext {
+    param([string]$CodexCommand)
+
+    $hostDirectory = Get-CodexRuntimeHostDirectory
+    $versionResult = Invoke-ProcessCapture -FilePath $CodexCommand -ArgumentList @("--version") -WorkingDirectory $hostDirectory
+    $version = $null
+    if ($versionResult.ExitCode -eq 0) {
+        [object[]]$versionOutput = @(
+            $versionResult.StdOut.Trim(),
+            $versionResult.StdErr.Trim() |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                Select-Object -First 1
+        )
+        if ($versionOutput.Count -gt 0) {
+            $version = [string]$versionOutput[0]
+        }
+    }
+
+    $models = @()
+    $modelsError = $null
+    $modelsResult = Invoke-ProcessCapture -FilePath $CodexCommand -ArgumentList @("debug", "models") -WorkingDirectory $hostDirectory
+    if ($modelsResult.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($modelsResult.StdOut)) {
+        try {
+            $modelsPayload = $modelsResult.StdOut | ConvertFrom-Json
+            if ($null -ne $modelsPayload -and $modelsPayload.PSObject.Properties.Name -contains "models") {
+                $models = @($modelsPayload.models)
+            }
+        }
+        catch {
+            $modelsError = $_.Exception.Message
+        }
+    }
+    elseif ($modelsResult.ExitCode -ne 0) {
+        $modelsError = if (-not [string]::IsNullOrWhiteSpace($modelsResult.StdErr)) {
+            $modelsResult.StdErr.Trim()
+        }
+        else {
+            $modelsResult.StdOut.Trim()
+        }
+    }
+
+    return [pscustomobject]@{
+        codexVersion = $version
+        modelCatalog = @($models)
+        modelCatalogError = $modelsError
+        hostDirectory = $hostDirectory
+    }
+}
+
+function Get-RuntimePolicySourcePrecedence {
+    param([string]$Source)
+
+    switch ([string]$Source) {
+        "explicit-arg" { return 4 }
+        "prompt-metadata" { return 3 }
+        "repo-config" { return 2 }
+        "shared-default" { return 1 }
+        default { return 0 }
+    }
+}
+
+function Get-CodexSpeedCapability {
+    param(
+        $CliContext,
+        [string]$Model
+    )
+
+    if ($null -eq $CliContext) {
+        return [pscustomobject]@{
+            supported = $false
+            status = "unavailable"
+            note = "Codex model catalog was not available for Fast capability detection."
+        }
+    }
+
+    $models = @(Get-ObjectPropertyValue -Object $CliContext -Name "modelCatalog" -DefaultValue @())
+    if ($models.Count -eq 0) {
+        $catalogError = [string](Get-ObjectPropertyValue -Object $CliContext -Name "modelCatalogError" -DefaultValue "")
+        $note = if ([string]::IsNullOrWhiteSpace($catalogError)) {
+            "Codex model catalog was not available for Fast capability detection."
+        }
+        else {
+            "Codex model catalog was not available for Fast capability detection: $catalogError"
+        }
+
+        return [pscustomobject]@{
+            supported = $false
+            status = "unavailable"
+            note = $note
+        }
+    }
+
+    $matchingModels = @($models | Where-Object { [string]$_.slug -eq $Model } | Select-Object -First 1)
+    if ($matchingModels.Count -eq 0) {
+        return [pscustomobject]@{
+            supported = $false
+            status = "unknown-model"
+            note = ("Codex model catalog did not include '{0}' for Fast capability detection." -f $Model)
+        }
+    }
+
+    $matchingModel = $matchingModels[0]
+    $speedTiers = @(ConvertTo-StringArray -Value (Get-ObjectPropertyValue -Object $matchingModel -Name "additional_speed_tiers" -DefaultValue @()))
+    $supportsFast = @($speedTiers | Where-Object { ([string]$_).Trim().ToLowerInvariant() -eq "fast" }).Count -gt 0
+
+    return [pscustomobject]@{
+        supported = $supportsFast
+        status = if ($supportsFast) { "supported" } else { "unsupported" }
+        note = if ($supportsFast) {
+            "Fast speed is supported for the requested model."
+        }
+        else {
+            ("Fast speed is not available for model '{0}' in the installed Codex catalog." -f $Model)
+        }
+    }
+}
+
+function Resolve-StackRuntimePolicy {
+    param(
+        [hashtable]$Config,
+        [hashtable]$RepoConfig = $null,
+        [hashtable]$DefaultsConfig = $null,
+        $PromptRecord,
+        $ExplicitPolicy,
+        [string]$CodexCommand,
+        $CliContext = $null
+    )
+
+    $repoConfigPolicy = Get-RuntimePolicyConfigLayer -Config $(if ($null -ne $RepoConfig) { $RepoConfig } else { @{} })
+    $sharedDefaultsPolicy = Get-RuntimePolicyConfigLayer -Config $(if ($null -ne $DefaultsConfig) { $DefaultsConfig } else { @{} })
+
+    $promptPolicy = [pscustomobject]@{
+        model = Normalize-RunnerOptionalString -Value (Get-ObjectPropertyValue -Object $PromptRecord -Name "RuntimeModel" -DefaultValue $null)
+        reasoning = Normalize-RunnerOptionalString -Value (Get-ObjectPropertyValue -Object $PromptRecord -Name "RuntimeReasoning" -DefaultValue $null)
+        speed = Normalize-RuntimeSpeedMode -Value (Get-ObjectPropertyValue -Object $PromptRecord -Name "RuntimeSpeed" -DefaultValue $null)
+        permissions = Normalize-RuntimePermissionMode -Value (Get-ObjectPropertyValue -Object $PromptRecord -Name "RuntimePermissions" -DefaultValue $null)
+        permission_profile = Normalize-RuntimePermissionProfile -Value (Get-ObjectPropertyValue -Object $PromptRecord -Name "RuntimePermissionProfile" -DefaultValue $null)
+        sandbox_mode = Normalize-RuntimeSandboxMode -Value (Get-ObjectPropertyValue -Object $PromptRecord -Name "RuntimeSandboxMode" -DefaultValue $null)
+        approval = Normalize-RunnerOptionalString -Value (Get-ObjectPropertyValue -Object $PromptRecord -Name "RuntimeApproval" -DefaultValue $null)
+        web_search = Normalize-RuntimeWebSearchMode -Value (Get-ObjectPropertyValue -Object $PromptRecord -Name "RuntimeWebSearch" -DefaultValue $null)
+    }
+
+    $explicitResolved = [pscustomobject]@{
+        model = Normalize-RunnerOptionalString -Value (Get-ObjectPropertyValue -Object $ExplicitPolicy -Name "model" -DefaultValue $null)
+        reasoning = Normalize-RunnerOptionalString -Value (Get-ObjectPropertyValue -Object $ExplicitPolicy -Name "reasoning" -DefaultValue $null)
+        speed = Normalize-RuntimeSpeedMode -Value (Get-ObjectPropertyValue -Object $ExplicitPolicy -Name "speed" -DefaultValue $null)
+        permissions = Normalize-RuntimePermissionMode -Value (Get-ObjectPropertyValue -Object $ExplicitPolicy -Name "permissions" -DefaultValue $null)
+        permission_profile = Normalize-RuntimePermissionProfile -Value (Get-ObjectPropertyValue -Object $ExplicitPolicy -Name "permission_profile" -DefaultValue $null)
+        sandbox_mode = Normalize-RuntimeSandboxMode -Value (Get-ObjectPropertyValue -Object $ExplicitPolicy -Name "sandbox_mode" -DefaultValue $null)
+        approval = Normalize-RunnerOptionalString -Value (Get-ObjectPropertyValue -Object $ExplicitPolicy -Name "approval" -DefaultValue $null)
+        web_search = Normalize-RuntimeWebSearchMode -Value (Get-ObjectPropertyValue -Object $ExplicitPolicy -Name "web_search" -DefaultValue $null)
+    }
+
+    $modelResult = Resolve-RuntimePolicyField -Name "model" -Candidates @(
+        [pscustomobject]@{ value = $explicitResolved.model; source = "explicit-arg" },
+        [pscustomobject]@{ value = $promptPolicy.model; source = "prompt-metadata" },
+        [pscustomobject]@{ value = $repoConfigPolicy.model; source = "repo-config" },
+        [pscustomobject]@{ value = $sharedDefaultsPolicy.model; source = "shared-default" }
+    )
+    $reasoningResult = Resolve-RuntimePolicyField -Name "reasoning" -Candidates @(
+        [pscustomobject]@{ value = $explicitResolved.reasoning; source = "explicit-arg" },
+        [pscustomobject]@{ value = $promptPolicy.reasoning; source = "prompt-metadata" },
+        [pscustomobject]@{ value = $repoConfigPolicy.reasoning; source = "repo-config" },
+        [pscustomobject]@{ value = $sharedDefaultsPolicy.reasoning; source = "shared-default" }
+    )
+    $speedResult = Resolve-RuntimePolicyField -Name "speed" -Candidates @(
+        [pscustomobject]@{ value = $explicitResolved.speed; source = "explicit-arg" },
+        [pscustomobject]@{ value = $promptPolicy.speed; source = "prompt-metadata" },
+        [pscustomobject]@{ value = $repoConfigPolicy.speed; source = "repo-config" },
+        [pscustomobject]@{ value = $sharedDefaultsPolicy.speed; source = "shared-default" }
+    )
+    $permissionsModeResult = Resolve-RuntimePolicyField -Name "permissions" -Candidates @(
+        [pscustomobject]@{ value = $explicitResolved.permissions; source = "explicit-arg" },
+        [pscustomobject]@{ value = $promptPolicy.permissions; source = "prompt-metadata" },
+        [pscustomobject]@{ value = $repoConfigPolicy.permissions; source = "repo-config" },
+        [pscustomobject]@{ value = $sharedDefaultsPolicy.permissions; source = "shared-default" }
+    )
+    $permissionProfileResult = Resolve-RuntimePolicyField -Name "permission_profile" -Candidates @(
+        [pscustomobject]@{ value = $explicitResolved.permission_profile; source = "explicit-arg" },
+        [pscustomobject]@{ value = $promptPolicy.permission_profile; source = "prompt-metadata" },
+        [pscustomobject]@{ value = $repoConfigPolicy.permission_profile; source = "repo-config" },
+        [pscustomobject]@{ value = $sharedDefaultsPolicy.permission_profile; source = "shared-default" }
+    )
+    $sandboxModeResult = Resolve-RuntimePolicyField -Name "sandbox_mode" -Candidates @(
+        [pscustomobject]@{ value = $explicitResolved.sandbox_mode; source = "explicit-arg" },
+        [pscustomobject]@{ value = $promptPolicy.sandbox_mode; source = "prompt-metadata" },
+        [pscustomobject]@{ value = $repoConfigPolicy.sandbox_mode; source = "repo-config" },
+        [pscustomobject]@{ value = $sharedDefaultsPolicy.sandbox_mode; source = "shared-default" }
+    )
+    $approvalResult = Resolve-RuntimePolicyField -Name "approval" -Candidates @(
+        [pscustomobject]@{ value = $explicitResolved.approval; source = "explicit-arg" },
+        [pscustomobject]@{ value = $promptPolicy.approval; source = "prompt-metadata" },
+        [pscustomobject]@{ value = $repoConfigPolicy.approval; source = "repo-config" },
+        [pscustomobject]@{ value = $sharedDefaultsPolicy.approval; source = "shared-default" }
+    )
+    $webSearchResult = Resolve-RuntimePolicyField -Name "web_search" -Candidates @(
+        [pscustomobject]@{ value = $explicitResolved.web_search; source = "explicit-arg" },
+        [pscustomobject]@{ value = $promptPolicy.web_search; source = "prompt-metadata" },
+        [pscustomobject]@{ value = $repoConfigPolicy.web_search; source = "repo-config" },
+        [pscustomobject]@{ value = $sharedDefaultsPolicy.web_search; source = "shared-default" }
+    )
+
+    $requestedPermissionProfile = $permissionProfileResult.value
+    $requestedPermissionProfileSource = $permissionProfileResult.source
+    $requestedSandboxMode = $sandboxModeResult.value
+    $requestedSandboxSource = $sandboxModeResult.source
+    $warnings = New-Object System.Collections.Generic.List[string]
+    $blockers = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($requestedPermissionProfile) -and -not [string]::IsNullOrWhiteSpace($requestedSandboxMode)) {
+        $permissionProfileRank = Get-RuntimePolicySourcePrecedence -Source $requestedPermissionProfileSource
+        $sandboxRank = Get-RuntimePolicySourcePrecedence -Source $requestedSandboxSource
+        if ($permissionProfileRank -gt $sandboxRank) {
+            [void]$warnings.Add(("Runtime policy suppressed lower-precedence legacy sandbox mode '{0}' from {1} because permission profile '{2}' came from {3}." -f $requestedSandboxMode, $requestedSandboxSource, $requestedPermissionProfile, $requestedPermissionProfileSource))
+            $requestedSandboxMode = $null
+            $requestedSandboxSource = $null
+        }
+        elseif ($sandboxRank -gt $permissionProfileRank) {
+            [void]$warnings.Add(("Runtime policy suppressed lower-precedence permission profile '{0}' from {1} because legacy sandbox mode '{2}' came from {3}." -f $requestedPermissionProfile, $requestedPermissionProfileSource, $requestedSandboxMode, $requestedSandboxSource))
+            $requestedPermissionProfile = $null
+            $requestedPermissionProfileSource = $null
+        }
+        else {
+            throw ("Runtime policy conflict: permission profile '{0}' and legacy sandbox mode '{1}' cannot be active together. Remove one mechanism." -f $requestedPermissionProfile, $requestedSandboxMode)
+        }
+    }
+
+    $requestedPermissionMode = $permissionsModeResult.value
+    if ([string]::IsNullOrWhiteSpace($requestedPermissionMode)) {
+        $requestedPermissionMode = Get-RunnerPermissionModeFromMechanism -PermissionProfile $requestedPermissionProfile -SandboxMode $requestedSandboxMode
+    }
+
+    $mechanismMode = Get-RunnerPermissionModeFromMechanism -PermissionProfile $requestedPermissionProfile -SandboxMode $requestedSandboxMode
+    if (
+        -not [string]::IsNullOrWhiteSpace($permissionsModeResult.value) -and
+        -not [string]::IsNullOrWhiteSpace($mechanismMode) -and
+        $permissionsModeResult.value -ne "custom" -and
+        $permissionsModeResult.value -ne $mechanismMode
+    ) {
+        throw ("Runtime policy conflict: permissions mode '{0}' does not match the requested permission mechanism." -f $permissionsModeResult.value)
+    }
+
+    $resolvedPermissionProfile = $requestedPermissionProfile
+    $resolvedSandboxMode = $requestedSandboxMode
+    $permissionsProfileSource = $requestedPermissionProfileSource
+    $sandboxSource = $requestedSandboxSource
+    if ([string]::IsNullOrWhiteSpace($resolvedPermissionProfile) -and [string]::IsNullOrWhiteSpace($resolvedSandboxMode)) {
+        switch ($requestedPermissionMode) {
+            "full-access" {
+                $resolvedPermissionProfile = ":danger-full-access"
+                $permissionsProfileSource = if ([string]::IsNullOrWhiteSpace($permissionsModeResult.source)) { "derived-from-permissions" } else { "derived-from-$($permissionsModeResult.source)" }
+            }
+            "workspace-write" {
+                $resolvedSandboxMode = "workspace-write"
+                $sandboxSource = if ([string]::IsNullOrWhiteSpace($permissionsModeResult.source)) { "derived-from-permissions" } else { "derived-from-$($permissionsModeResult.source)" }
+            }
+            "read-only" {
+                $resolvedSandboxMode = "read-only"
+                $sandboxSource = if ([string]::IsNullOrWhiteSpace($permissionsModeResult.source)) { "derived-from-permissions" } else { "derived-from-$($permissionsModeResult.source)" }
+            }
+        }
+    }
+
+    $resolvedPermissionMode = $requestedPermissionMode
+    if ([string]::IsNullOrWhiteSpace($resolvedPermissionMode)) {
+        $resolvedPermissionMode = Get-RunnerPermissionModeFromMechanism -PermissionProfile $resolvedPermissionProfile -SandboxMode $resolvedSandboxMode
+    }
+
+    $resolvedSpeed = if ([string]::IsNullOrWhiteSpace($speedResult.value)) { "standard" } else { [string]$speedResult.value }
+    $speedSource = if ([string]::IsNullOrWhiteSpace($speedResult.source)) { "shared-default" } else { [string]$speedResult.source }
+    if ($resolvedSpeed -eq "fast") {
+        $effectiveCliContext = if ($null -ne $CliContext) { $CliContext } elseif (-not [string]::IsNullOrWhiteSpace($CodexCommand)) { Get-CodexCliContext -CodexCommand $CodexCommand } else { $null }
+        $speedCapability = Get-CodexSpeedCapability -CliContext $effectiveCliContext -Model ([string]$modelResult.value)
+        if (-not [bool]$speedCapability.supported) {
+            $resolvedSpeed = "standard"
+            $speedSource = "{0}; fallback-standard" -f $speedSource
+            if (-not [string]::IsNullOrWhiteSpace([string]$speedCapability.note)) {
+                $warnings.Add([string]$speedCapability.note) | Out-Null
+            }
+        }
+
+        $CliContext = $effectiveCliContext
+    }
+
+    if ($null -eq $CliContext -and -not [string]::IsNullOrWhiteSpace($CodexCommand)) {
+        $CliContext = Get-CodexCliContext -CodexCommand $CodexCommand
+    }
+
+    $resolvedApproval = if ([string]::IsNullOrWhiteSpace($approvalResult.value)) { "never" } else { [string]$approvalResult.value }
+    $resolvedWebSearch = if ([string]::IsNullOrWhiteSpace($webSearchResult.value)) { "disabled" } else { [string]$webSearchResult.value }
+
+    return [pscustomobject]@{
+        requested = [ordered]@{
+            model = if ([string]::IsNullOrWhiteSpace($modelResult.value)) { $null } else { [string]$modelResult.value }
+            reasoning = if ([string]::IsNullOrWhiteSpace($reasoningResult.value)) { $null } else { [string]$reasoningResult.value }
+            speed = if ([string]::IsNullOrWhiteSpace($speedResult.value)) { "standard" } else { [string]$speedResult.value }
+            permissions = [ordered]@{
+                mode = $requestedPermissionMode
+                permission_profile = if ([string]::IsNullOrWhiteSpace($requestedPermissionProfile)) { $null } else { [string]$requestedPermissionProfile }
+                sandbox_mode = if ([string]::IsNullOrWhiteSpace($requestedSandboxMode)) { $null } else { [string]$requestedSandboxMode }
+            }
+        }
+        resolved = [ordered]@{
+            model = if ([string]::IsNullOrWhiteSpace($modelResult.value)) { $null } else { [string]$modelResult.value }
+            reasoning = if ([string]::IsNullOrWhiteSpace($reasoningResult.value)) { $null } else { [string]$reasoningResult.value }
+            speed = $resolvedSpeed
+            permissions = [ordered]@{
+                mode = $resolvedPermissionMode
+                permission_profile = if ([string]::IsNullOrWhiteSpace($resolvedPermissionProfile)) { $null } else { [string]$resolvedPermissionProfile }
+                sandbox_mode = if ([string]::IsNullOrWhiteSpace($resolvedSandboxMode)) { $null } else { [string]$resolvedSandboxMode }
+            }
+            approval = $resolvedApproval
+            web_search = $resolvedWebSearch
+            codex_version = [string](Get-ObjectPropertyValue -Object $CliContext -Name "codexVersion" -DefaultValue $null)
+        }
+        sources = [ordered]@{
+            model = if ([string]::IsNullOrWhiteSpace($modelResult.source)) { "shared-default" } else { [string]$modelResult.source }
+            reasoning = if ([string]::IsNullOrWhiteSpace($reasoningResult.source)) { "shared-default" } else { [string]$reasoningResult.source }
+            speed = $speedSource
+            permissions = [ordered]@{
+                mode = if ([string]::IsNullOrWhiteSpace($permissionsModeResult.source)) { $null } else { [string]$permissionsModeResult.source }
+                permission_profile = if ([string]::IsNullOrWhiteSpace($permissionsProfileSource)) { $null } else { [string]$permissionsProfileSource }
+                sandbox_mode = if ([string]::IsNullOrWhiteSpace($sandboxSource)) { $null } else { [string]$sandboxSource }
+            }
+        }
+        codex_version = [string](Get-ObjectPropertyValue -Object $CliContext -Name "codexVersion" -DefaultValue $null)
+        warnings = @($warnings.ToArray())
+        blockers = @($blockers.ToArray())
+        cliContext = $CliContext
+    }
+}
+
+function New-CodexInvocationPlan {
+    param(
+        $RuntimePolicy,
+        [string]$SummaryPath,
+        [string]$WorktreePath,
+        [string]$Personality = ""
+    )
+
+    $arguments = New-Object System.Collections.Generic.List[string]
+    $resolvedPolicy = if ($null -ne $RuntimePolicy) { $RuntimePolicy.resolved } else { $null }
+    $resolvedPermissions = if ($null -ne $resolvedPolicy) { $resolvedPolicy.permissions } else { $null }
+
+    $approval = [string](Get-ObjectPropertyValue -Object $resolvedPolicy -Name "approval" -DefaultValue "")
+    if (-not [string]::IsNullOrWhiteSpace($approval)) {
+        [void]$arguments.Add("-a")
+        [void]$arguments.Add($approval)
+    }
+
+    $model = [string](Get-ObjectPropertyValue -Object $resolvedPolicy -Name "model" -DefaultValue "")
+    if (-not [string]::IsNullOrWhiteSpace($model)) {
+        [void]$arguments.Add("-m")
+        [void]$arguments.Add($model)
+    }
+
+    $reasoning = [string](Get-ObjectPropertyValue -Object $resolvedPolicy -Name "reasoning" -DefaultValue "")
+    if (-not [string]::IsNullOrWhiteSpace($reasoning)) {
+        [void]$arguments.Add("-c")
+        [void]$arguments.Add(('model_reasoning_effort="{0}"' -f $reasoning))
+    }
+
+    $speed = [string](Get-ObjectPropertyValue -Object $resolvedPolicy -Name "speed" -DefaultValue "")
+    if (-not [string]::IsNullOrWhiteSpace($speed)) {
+        [void]$arguments.Add("-c")
+        [void]$arguments.Add(('service_tier="{0}"' -f $speed))
+    }
+
+    $webSearch = [string](Get-ObjectPropertyValue -Object $resolvedPolicy -Name "web_search" -DefaultValue "")
+    if (-not [string]::IsNullOrWhiteSpace($webSearch)) {
+        [void]$arguments.Add("-c")
+        [void]$arguments.Add(('web_search="{0}"' -f $webSearch))
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($Personality)) {
+        [void]$arguments.Add("-c")
+        [void]$arguments.Add(('personality="{0}"' -f $Personality))
+    }
+
+    $permissionProfile = [string](Get-ObjectPropertyValue -Object $resolvedPermissions -Name "permission_profile" -DefaultValue "")
+    $sandboxMode = [string](Get-ObjectPropertyValue -Object $resolvedPermissions -Name "sandbox_mode" -DefaultValue "")
+    if (-not [string]::IsNullOrWhiteSpace($permissionProfile)) {
+        [void]$arguments.Add("-c")
+        [void]$arguments.Add(('default_permissions="{0}"' -f $permissionProfile))
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($sandboxMode)) {
+        [void]$arguments.Add("-s")
+        [void]$arguments.Add($sandboxMode)
+    }
+
+    [void]$arguments.Add("exec")
+    [void]$arguments.Add("--json")
+    [void]$arguments.Add("-o")
+    [void]$arguments.Add($SummaryPath)
+    [void]$arguments.Add("-C")
+    [void]$arguments.Add($WorktreePath)
+    [void]$arguments.Add("-")
+
+    return [pscustomobject]@{
+        arguments = @($arguments.ToArray())
+        workingDirectory = Get-CodexRuntimeHostDirectory
+        legacySandboxMode = if ([string]::IsNullOrWhiteSpace($sandboxMode)) { $null } else { $sandboxMode }
     }
 }
 

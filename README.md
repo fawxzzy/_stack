@@ -28,7 +28,9 @@
 - `pnpm run codex:playbook:task -- -PromptPath C:\path\to\prompt.md`
 - `pnpm run codex:stack:inbox`
 - `pnpm run codex:stack:inbox:once`
+- `pnpm run codex:stack:inbox:bootstrap:once`
 - `pnpm run codex:stack:task -- -PromptPath C:\path\to\prompt.md`
+- `pnpm run codex:stack:task:bootstrap -- -PromptPath C:\path\to\prompt.md`
 - `pnpm run codex:stack:verify`
 - `pnpm run stack:queue-or-registry:follow-on` packages one bounded retained-state follow-on posture from the authoritative ATLAS execution-transition classifier.
 - `pnpm run stack:queue-or-registry:live-direct-json-read-follow-on` rechecks the authoritative ATLAS execution-transition classifier and performs one bounded direct-json read for one admitted retained-state candidate path only.
@@ -41,9 +43,12 @@
 - `_stack` is now also a first-class thin adapter through `ops/codex/repos/stack`.
 - `_stack` owns the runner; repo-local `.codex/` folders still own inbox, archive, logs, worktrees, and exports.
 - `_stack` worker runs stamp `stack_lock_digest` from the root `stack.lock.yaml` and write assignment, status, merge-request, and completion status artifacts alongside the run logs.
+- Every governed Codex job now resolves and receipts a runtime-policy envelope before execution using the same precedence chain: explicit command argument, prompt metadata, repo config, then shared defaults.
+- Each repo-local `.codex/logs/<run-id>/run.json` now records `runtimePolicy.requested`, `runtimePolicy.resolved`, `runtimePolicy.sources`, `runtimePolicy.codex_version`, `runtimePolicy.warnings`, and `runtimePolicy.blockers` so the effective execution truth is explicit without exposing secrets.
 - Atlas stays docs-first and repo-local; push remains manual-only and successful mutating tasks still auto-commit by default.
 - Lifeline stays repo-local and self-hosted; push remains manual-only and successful mutating tasks still auto-commit by default.
 - `_stack` self-manages through the same runner path with repo-local `_stack\.codex\` artifacts, manual-only push, the same validated commit metadata contract used by the other adapters, and optional local auto-land to local `main` in `ff-only` mode.
+- Governed `_stack` jobs now default to the modern `:danger-full-access` permission profile from repo config, while the last accepted bootstrap path remains available through the explicit legacy `danger-full-access` sandbox scripts above.
 - Shared base-ref selection is local-first: prefer `origin/main` when it exists locally, otherwise fall back to local `main`, and record the resolved ref in each run manifest.
 - Shared auto-commit now uses a validated commit metadata contract via a temporary `.codex/commit-meta.json` artifact, with deterministic fallback messages when Codex output is missing or too generic.
 - Shared local landing is adapter-controlled through `localLandingPolicy`; `_stack` is the only repo currently opted into `ff-only`, while Atlas, Playbook, and Lifeline stay disabled by default.

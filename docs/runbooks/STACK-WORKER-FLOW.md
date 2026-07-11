@@ -14,6 +14,7 @@ The closed loop is:
 4. Lifeline execution + receipt
 5. supervisor conflict detection
 6. pause / merge / resume artifacts
+7. runtime-policy receipt
 
 ## Artifact Set
 
@@ -25,6 +26,34 @@ The closed loop is:
 - `worker.merge-request.json` when pause/merge is required
 
 The runner writes these artifacts into the repo-local Codex log directory for the job run.
+
+## Runtime Policy Envelope
+
+Rule: `Explicit Runtime Policy`
+
+Every governed Codex job resolves and receipts its effective execution settings before it begins.
+
+Pattern: `Runtime Policy Envelope`
+
+One precedence-resolved policy object travels from task admission through completion. `_stack` resolves model, reasoning, speed, permissions, approval, and web-search settings with this order:
+
+- explicit command argument
+- prompt metadata
+- repo config
+- shared defaults
+
+The run manifest records the non-secret envelope at `run.json.runtimePolicy` with:
+
+- `requested`
+- `resolved`
+- `sources`
+- `codex_version`
+- `warnings`
+- `blockers`
+
+Failure Mode: `Hidden Runtime Drift`
+
+This failure mode occurs when the requested model, speed, or permission posture differs from what Codex actually executes. Governed jobs now block or receipt the fallback instead of silently drifting.
 
 ## Assignment
 
@@ -75,6 +104,8 @@ Rules:
 - `_stack` passes read-only and dry-run worker actions to Lifeline through the worker assignment + status refs, a capability profile ref, a privileged-action request artifact, and an approval receipt artifact
 - the request, approval, and worker assignment must all match the same `worker_id`, `assignment_id`, `stack_lock_digest`, and governed surface identity when present
 - `_stack` only bridges `read_only_scan` and dry-run `scoped_write` in this phase
+- `_stack` resolves Fast capability before execution and falls back to Standard when the installed Codex catalog does not advertise Fast for the selected model
+- `_stack` rejects any runtime policy that tries to activate both a modern permission profile and a legacy sandbox mode
 - Lifeline emits the privileged-action receipt under `runtime/lifeline/worker-execution/<assignment_id>/`
 - `_stack` writes the resulting receipt ref back into a new worker status artifact instead of inferring execution from terminal logs
 

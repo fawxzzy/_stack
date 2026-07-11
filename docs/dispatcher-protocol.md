@@ -77,10 +77,12 @@ Use only when the task explicitly spans more than one repo and coordination is r
 5. `_stack` may also self-manage `_stack`-only workflow changes through its thin shared-runner adapter; this does not widen `_stack` into a dev-root multi-repo dispatcher.
 6. `_stack` may optionally fast-forward successful shared-runner task commits back onto local `_stack` `main` when its adapter enables `ff-only`; this remains local-only and does not permit auto-push.
 7. Shared runner base-ref resolution stays local-first: prefer `origin/main` when it exists locally, otherwise use local `main`, and record the resolved ref in the run manifest.
-8. Fitness, Mazer, and Trove currently use Vercel.
-9. Playbook, Lifeline, and Atlas are currently self-hosted and should not be routed through Vercel workflows.
-10. Cross-repo work should produce thin orchestration artifacts in `_stack` and keep repo mutations delegated.
-11. Do not restructure sibling repos from the dispatcher layer.
+8. Governed Codex jobs must resolve and receipt one runtime-policy envelope before execution; precedence is explicit command argument, prompt metadata, repo config, then shared defaults.
+9. Runtime-policy receipts must record requested versus effective settings plus `codex_version`, `warnings`, and `blockers` so hidden model, speed, or permission drift is observable in the run manifest.
+10. Fitness, Mazer, and Trove currently use Vercel.
+11. Playbook, Lifeline, and Atlas are currently self-hosted and should not be routed through Vercel workflows.
+12. Cross-repo work should produce thin orchestration artifacts in `_stack` and keep repo mutations delegated.
+13. Do not restructure sibling repos from the dispatcher layer.
 
 ## Dispatcher Decision Table
 
@@ -102,6 +104,7 @@ The parent runner should include:
 - absolute working directory
 - allowed edit surface
 - stack lock digest
+- runtime policy metadata when the child task must pin model, speed, permissions, approval, or web-search behavior explicitly
 - worker assignment/status or merge-request refs when the handoff is a resume or merge step
 - objective
 - constraints

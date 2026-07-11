@@ -87,8 +87,6 @@
   "execution": {
     "baseRef": "origin/main",
     "branchPrefix": "codex/",
-    "defaultSandbox": "workspace-write",
-    "documentedWindowsFallback": "danger-full-access",
     "cleanupWorktreeOnSuccess": false,
     "fetchOrigin": false
   }

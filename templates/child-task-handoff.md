@@ -15,6 +15,15 @@ Worker Assignment Id: <assignment id>
 Worker Id: <worker id>
 Input Handoff Refs:
 - <handoff ref>
+Runtime Policy Metadata:
+- Runtime Model: <optional model override>
+- Runtime Reasoning: <optional reasoning override>
+- Runtime Speed: <optional speed override>
+- Runtime Permissions: <optional permission mode override>
+- Runtime Permission Profile: <optional modern profile override>
+- Runtime Sandbox Mode: <optional legacy sandbox override>
+- Runtime Approval: <optional approval override>
+- Runtime Web Search: <optional web-search override>
 
 Objective:
 <single concrete outcome>

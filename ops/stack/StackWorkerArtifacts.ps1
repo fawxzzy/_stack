@@ -6,13 +6,35 @@ if (-not (Test-Path -LiteralPath $codexCommonPath)) {
 }
 . $codexCommonPath
 
+function Get-StackLogicalRepoRoot {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot
+    )
+
+    $resolvedRepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
+    $worktreesRoot = [System.IO.Path]::GetDirectoryName($resolvedRepoRoot)
+    if (-not [string]::IsNullOrWhiteSpace($worktreesRoot) -and ([System.IO.Path]::GetFileName($worktreesRoot) -ieq "worktrees")) {
+        $codexRoot = [System.IO.Path]::GetDirectoryName($worktreesRoot)
+        if (-not [string]::IsNullOrWhiteSpace($codexRoot) -and ([System.IO.Path]::GetFileName($codexRoot) -ieq ".codex")) {
+            $logicalRepoRoot = [System.IO.Path]::GetDirectoryName($codexRoot)
+            if (-not [string]::IsNullOrWhiteSpace($logicalRepoRoot)) {
+                return $logicalRepoRoot
+            }
+        }
+    }
+
+    return $resolvedRepoRoot
+}
+
 function Get-StackWorkspaceRoot {
     param(
         [Parameter(Mandatory = $true)]
         [string]$RepoRoot
     )
 
-    $workspaceRoot = Resolve-Path -LiteralPath (Join-Path -Path $RepoRoot -ChildPath "..\..")
+    $logicalRepoRoot = Get-StackLogicalRepoRoot -RepoRoot $RepoRoot
+    $workspaceRoot = Resolve-Path -LiteralPath (Join-Path -Path $logicalRepoRoot -ChildPath "..\..")
     return $workspaceRoot.Path
 }
 

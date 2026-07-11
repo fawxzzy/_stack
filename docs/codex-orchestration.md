@@ -1,13 +1,14 @@
 # Shared Codex Orchestration In `_stack`
 
-`_stack` now owns the shared local Codex inbox/worktree orchestration engine. Repo-specific behavior stays in thin adapter and config files so `_stack` remains an operator layer instead of becoming a dev-root mega-runner.
+`_stack` owns the shared local Codex inbox/worktree orchestration engine. Repo-specific behavior stays in thin adapter and config files so `_stack` remains an operator layer instead of becoming a second implementation surface.
 
-## Responsibility split
+## Responsibility Split
 
 `_stack` owns:
 
 - shared PowerShell runner scripts
-- shared runtime defaults for model, sandbox, approval, polling, exports, and git author metadata
+- one shared runtime-policy resolver and invocation planner
+- shared runtime defaults for model, reasoning, speed, permissions, approval, web-search, polling, exports, and git author metadata
 - the adapter schema and example repo adapters
 - operator-facing docs and entrypoints
 
@@ -16,37 +17,94 @@ Each repo still owns:
 - its own inbox, archive, logs, worktrees, and exports under repo-local paths
 - its own verification bootstrap and default verify commands
 - its own allowed mutation surfaces and docs alignment rules
-- its own push and auto-commit policy declaration through the adapter
+- its own push and auto-commit policy declaration through the adapter and repo config
 
 The shared runner operates inside repo-local worktrees. It does not move repo artifacts into `_stack`.
 
-## Shared runner surfaces
+## Shared Runner Surfaces
 
 - `ops/codex/Start-CodexInboxRunner.ps1`: watches a repo-local inbox and dispatches one prompt per worktree
 - `ops/codex/Invoke-CodexRepoTask.ps1`: executes one prompt end to end
-- `ops/codex/CodexRunner.Common.ps1`: common parsing, git, process, prompt, archive, and logging helpers
+- `ops/codex/CodexRunner.Common.ps1`: common parsing, git, runtime-policy, process, prompt, archive, and logging helpers
 - `ops/stack/StackWorkerArtifacts.ps1`: worker assignment/status/merge-request helpers that stamp the root stack lock digest
 - `ops/stack/Test-StackWorkerArtifacts.ps1`: verification for the worker artifact contract and touched-range parsing
 - `ops/codex/config.defaults.toml`: shared runtime defaults
 - `ops/codex/adapter.schema.json`: thin repo adapter contract
 
-## Execution model
+## Runtime Policy Envelope
+
+Rule: `Explicit Runtime Policy`
+
+Every governed Codex job resolves and receipts its effective execution settings before it begins.
+
+Pattern: `Runtime Policy Envelope`
+
+One precedence-resolved policy object travels from task admission through completion.
+
+Supported settings:
+
+- `model`
+- `reasoning`
+- `speed`
+- `permissions`
+- `permission_profile`
+- `sandbox_mode`
+- `approval`
+- `web_search`
+
+Precedence:
+
+1. explicit command argument
+2. prompt metadata
+3. repo-specific config
+4. shared `_stack` defaults
+
+The run manifest records the non-secret envelope at `run.json.runtimePolicy` with this stable shape:
+
+- `requested.model`
+- `requested.reasoning`
+- `requested.speed`
+- `requested.permissions`
+- `resolved.model`
+- `resolved.reasoning`
+- `resolved.speed`
+- `resolved.permissions`
+- `resolved.approval`
+- `resolved.web_search`
+- `resolved.codex_version`
+- `codex_version`
+- `sources.model`
+- `sources.reasoning`
+- `sources.speed`
+- `sources.permissions`
+- `warnings`
+- `blockers`
+
+Failure Mode: `Hidden Runtime Drift`
+
+This failure mode occurs when the requested model or permission posture differs from the configuration Codex actually executes. Governed jobs now block or explicitly receipt the fallback instead of silently drifting.
+
+## Execution Model
 
 1. The operator starts the shared runner from `_stack` with a repo config.
 2. The repo config resolves the target repo root plus the adapter file.
 3. The watcher reads the repo-local inbox path from the adapter and waits for settled `.md` prompt files.
 4. Each prompt gets a fresh repo-local worktree and `codex/<slug>` task branch from the adapter `execution.baseRef`, resolved locally by preferring `origin/main` and falling back to local `main` when the remote-tracking ref is unavailable.
-5. Codex runs non-interactively inside that worktree.
-6. Verification bootstrap commands run first, then the effective verify list from prompt metadata or adapter defaults.
-7. Adapters may also declare a proof gate that runs after the standard verify commands and fails closed when the declared status artifact is missing, unreadable, or reports `completion_ready=false`.
-8. For mutating prompts that declare explicit acceptance criteria, Codex must emit a temporary spec-to-diff completion artifact before the runner can grant success.
-9. The runner validates that artifact against the final repo diff and fails closed when any criterion is missing, unsupported, contradictory, skipped, failed, blocked, or otherwise unproven.
-10. The runner writes `worker.assignment.json` and a running status artifact before execution, then records completion status with touched ranges when the run ends.
-11. The runner blocks commit if verification fails, proof gating fails, the spec-to-diff gate fails, or changed files exceed `allowedMutationSurfaces`.
-12. Successful mutating tasks auto-commit by default, skip push, export patch and optional bundle artifacts, and archive the prompt.
-13. Failed runs still archive the prompt and keep worktree/log state for inspection.
+5. The runner resolves one runtime-policy envelope from explicit arguments, prompt metadata, repo config, and shared defaults before it invokes Codex.
+6. The runner rejects any policy that tries to activate both a modern permission profile and a legacy sandbox mode at the same precedence level.
+7. The runner capability-checks requested `fast` speed against the installed Codex model catalog. If the selected model does not advertise `fast`, the effective speed falls back to `standard` and the receipt records that fallback.
+8. The runner invokes Codex non-interactively with the resolved model, reasoning, speed, permission mechanism, approval policy, and web-search posture. When the installed CLI supports version reporting, the manifest receipts that version.
+9. On Windows, Codex is launched from a neutral host working directory while `-C <worktree>` still points Codex at the governed repo-local worktree. This avoids local config parsing drift without changing the target repo surface.
+10. Verification bootstrap commands run first, then the effective verify list from prompt metadata or adapter defaults.
+11. Adapters may also declare a proof gate that runs after the standard verify commands and fails closed when the declared status artifact is missing, unreadable, or reports `completion_ready=false`.
+12. For mutating prompts that declare explicit acceptance criteria, Codex must emit a temporary spec-to-diff completion artifact before the runner can grant success.
+13. The runner validates that artifact against the final repo diff and fails closed when any criterion is missing, unsupported, contradictory, skipped, failed, blocked, or otherwise unproven.
+14. The runner writes `worker.assignment.json` and a running status artifact before execution, then records completion status with touched ranges when the run ends.
+15. The runner blocks commit if verification fails, proof gating fails, the spec-to-diff gate fails, or changed files exceed `allowedMutationSurfaces`.
+16. Successful mutating tasks auto-commit by default, skip push, export patch and optional bundle artifacts, and archive the prompt.
+17. Failed runs still archive the prompt and keep worktree/log state for inspection.
 
-## Adapter contract
+## Adapter Contract
 
 The adapter contract is JSON and intentionally thin:
 
@@ -61,24 +119,38 @@ The adapter contract is JSON and intentionally thin:
 - `autoCommitPolicy`: explicit commit behavior for successful mutating runs, including the commit metadata contract
 - `localLandingPolicy`: optional local post-commit landing policy for bringing a successful task commit back onto local `main` without pushing
 - `stack worker artifacts`: `_stack` jobs emit assignment, running status, merge-request, and completion status artifacts, all stamped with the root `stack_lock_digest`
-- `execution`: base ref, branch prefix, sandbox default, documented Windows fallback, and worktree cleanup/fetch toggles
+- `execution`: base ref, branch prefix, worktree cleanup/fetch toggles, and optional repo-local verification settings
 
 Schema file:
 
 - `ops/codex/adapter.schema.json`
 
-## Thin repo config
+Runtime policy now lives in config rather than the adapter schema:
+
+- shared defaults: `ops/codex/config.defaults.toml`
+- repo overrides: `ops/codex/repos/<repo>/config.toml`
+
+## Thin Repo Config
 
 Each repo config should normally stay minimal:
 
 ```toml
 repo_root = "../../../../../fawxzzy-playbook"
 adapter_path = "./adapter.json"
+
+[runtime_policy]
+model = "gpt-5.4"
+reasoning = "high"
+speed = "standard"
+permissions = "workspace-write"
+sandbox_mode = "workspace-write"
+approval = "never"
+web_search = "disabled"
 ```
 
 Shared defaults come from `ops/codex/config.defaults.toml`. Repo configs only need to add overrides when a repo truly needs different runtime behavior.
 
-## Repo adapter examples
+## Repo Adapter Examples
 
 Playbook is the first extracted adapter:
 
@@ -108,13 +180,6 @@ Atlas stays intentionally thin:
 - push remains manual-only
 - auto-commit remains enabled by default for successful mutating tasks
 
-The Atlas proof gate is intentionally narrow:
-
-- `_stack` runs the normal verification commands first
-- `_stack` then runs `python ops/atlas/ui_proof/fitness.py`
-- completion blocks with `proof_gate_failed` when the derived summary is missing, unreadable, or reports `completion_ready=false`
-- the proof summary is consumer-facing compatibility state, not a replacement for the underlying semantic drift or visual proof reports
-
 Lifeline is the next thin non-Vercel extracted adapter:
 
 - config: `ops/codex/repos/lifeline/config.toml`
@@ -129,7 +194,7 @@ Lifeline stays intentionally repo-local:
 - push remains manual-only
 - auto-commit remains enabled by default for successful mutating tasks using the shared commit metadata artifact contract
 
-`_stack` is now also a first-class self-managed adapter:
+`_stack` is also a first-class self-managed adapter:
 
 - config: `ops/codex/repos/stack/config.toml`
 - adapter: `ops/codex/repos/stack/adapter.json`
@@ -137,10 +202,12 @@ Lifeline stays intentionally repo-local:
 `_stack` stays intentionally operator-only while using the same runner path it hosts:
 
 - repo-local inbox/archive/log/worktree/export paths resolve under `_stack/.codex/`
-- verification stays lightweight and checks required operator files, `_stack` Codex scripts/tasks, and whitespace safety with `git diff --check`
+- verification stays lightweight and checks required operator files, `_stack` Codex scripts/tasks, worker artifacts, and whitespace safety with `git diff --check`
 - `git diff --check` remains hygiene only; it is not proof that the requested source edits were applied
 - mutation scope stays limited to `_stack` operator surfaces such as `ops/**`, `docs/**`, `.vscode/**`, templates, queue, receipts scaffolding, and repo metadata
 - docs rules keep README, orchestration docs, dispatcher docs, workspace manifest, and handoff templates aligned when `_stack` runner behavior or workflow boundaries change
+- governed `_stack` jobs default to `permissions = "full-access"` with the modern `permission_profile = ":danger-full-access"` from repo config
+- the last accepted bootstrap path remains available through explicit legacy `sandbox_mode = "danger-full-access"` entrypoints for compatibility with existing callers
 - push remains manual-only
 - local landing is enabled only for `_stack`, using `ff-only` to bring a successful task commit back onto local `main` when the repo-root worktree is safe to advance
 - auto-commit remains enabled by default for successful mutating tasks using the same commit metadata artifact contract
@@ -166,7 +233,7 @@ Failure Mode: `Summary-Truth Drift`
 
 This failure mode occurs when a worker summary claims the requested change is complete but the repository diff does not prove that every explicit requested edit was applied.
 
-## Auto-commit, landing, and push policy
+## Auto-Commit, Landing, And Push Policy
 
 Default behavior is explicit and fail-closed:
 
@@ -184,9 +251,9 @@ Default behavior is explicit and fail-closed:
 
 The runner records the configured and resolved base refs, resolved patch export base ref, commit metadata decision, final commit message, adapter data, task branch, commit sha, landing mode, `landed_to_main`, and any landing failure reason in each repo-local `run.json` manifest.
 
-## Commit metadata contract
+## Commit Metadata Contract
 
-The shared runner now asks Codex for structured commit metadata in a temporary repo-local artifact:
+The shared runner asks Codex for structured commit metadata in a temporary repo-local artifact:
 
 - default artifact path: `.codex/commit-meta.json`
 - JSON shape: `{"type":"<type>","scope":"<scope>","summary":"<summary>"}`
@@ -226,34 +293,17 @@ The runner copies the raw artifact into the run log, validates it against the fi
 
 Push remains manual-only. This pass does not add any auto-push or multi-repo dispatch behavior.
 
-## Local landing policy
+## Runtime Posture
 
-The shared runner supports these adapter-controlled local landing modes:
+Shared defaults keep legacy `workspace-write` compatibility through `sandbox_mode = "workspace-write"`.
 
-- `disabled`: leave successful auto-commit output on the task branch only
-- `ff-only`: after a successful auto-commit, try to fast-forward the repo-root local `main` worktree to the task commit without pushing
+Repo overrides may switch to the modern permission mechanism:
 
-`ff-only` is intentionally strict:
+- `_stack` defaults to `permissions = "full-access"` and `permission_profile = ":danger-full-access"`
+- bootstrap compatibility remains available through explicit legacy `danger-full-access` entrypoints
+- modern permission profiles and legacy sandbox modes must never be active together in the same effective policy
 
-- the repo root must already be checked out on the landing target branch, which defaults to `main`
-- the repo-root worktree must be clean before landing
-- the task commit must be a fast-forward from the current local branch tip
-- landing uses local `git merge --ff-only <commitSha>` semantics only; if that is not safe, nothing is landed
-
-The run manifest writes the landing record under `localLanding`:
-
-- `mode`
-- `targetBranch`
-- `taskBranch`
-- `commitSha`
-- `landed_to_main`
-- `failureReason`
-
-## Windows sandbox posture
-
-Shared defaults use `workspace-write`. The documented Windows fallback remains `danger-full-access`, but only as an operator override or per-repo documented fallback. It is not the shared default.
-
-## Example commands
+## Example Commands
 
 Run the Atlas watcher:
 
@@ -285,34 +335,10 @@ Run the Lifeline watcher:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\lifeline\config.toml
 ```
 
-Run Lifeline inbox processing once:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\lifeline\config.toml -RunOnce
-```
-
-Run one Lifeline prompt directly:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\lifeline\config.toml -PromptPath C:\path\to\prompt.md
-```
-
-Run Playbook inbox processing once:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\playbook\config.toml -RunOnce
-```
-
 Run one specific prompt directly:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\playbook\config.toml -PromptPath C:\path\to\prompt.md
-```
-
-Use a sandbox override only when the shared default fails in an already sandboxed environment:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\playbook\config.toml -RunOnce -SandboxMode danger-full-access
 ```
 
 Run the `_stack` watcher:
@@ -327,13 +353,31 @@ Run `_stack` inbox processing once:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\stack\config.toml -RunOnce
 ```
 
-Run one `_stack` prompt directly:
+Run the last accepted static-model bootstrap policy explicitly:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\stack\config.toml -PromptPath C:\path\to\prompt.md
+pnpm run codex:stack:inbox:bootstrap:once
 ```
 
-## Non-goals for this pass
+Run one `_stack` prompt directly with the same bootstrap posture:
+
+```powershell
+pnpm run codex:stack:task:bootstrap -- -PromptPath C:\path\to\prompt.md
+```
+
+Override runtime policy explicitly for a governed direct task:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\stack\config.toml -PromptPath C:\path\to\prompt.md -Model gpt-5.4 -Reasoning high -Speed standard -PermissionProfile :danger-full-access -ApprovalPolicy never -WebSearch disabled
+```
+
+Use a legacy sandbox override only for explicit compatibility paths:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\stack\config.toml -PromptPath C:\path\to\prompt.md -SandboxMode danger-full-access
+```
+
+## Non-Goals For This Pass
 
 - no dev-root orchestrator
 - no Fitness deploy-script changes

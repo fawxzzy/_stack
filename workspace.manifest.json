@@ -5,7 +5,36 @@
       "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Test-StackOperatorSurface.ps1 && git diff --check",
       "deployModel": "operator-layer",
       "codexLocalLanding": "ff-only-local-main",
-      "codexBaseRefRule": "prefer-origin-main-else-local-main"
+      "codexBaseRefRule": "prefer-origin-main-else-local-main",
+      "codexRuntimePolicy": {
+        "rule": "explicit-runtime-policy",
+        "envelope": "precedence-resolved-and-receipted",
+        "precedence": [
+          "explicit-command-argument",
+          "prompt-metadata",
+          "repo-config",
+          "shared-defaults"
+        ],
+        "defaultPosture": {
+          "permissions": "full-access",
+          "permissionProfile": ":danger-full-access",
+          "approval": "never",
+          "webSearch": "disabled"
+        },
+        "bootstrapCompatibility": {
+          "sandboxMode": "danger-full-access",
+          "reason": "last accepted static-model bootstrap path"
+        },
+        "receiptFields": [
+          "requested",
+          "resolved",
+          "sources",
+          "codex_version",
+          "warnings",
+          "blockers"
+        ],
+        "pushPolicy": "manual-only"
+      }
     },
     "fitness": {
       "path": "../fawxzzy-fitness",

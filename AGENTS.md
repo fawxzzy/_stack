@@ -13,6 +13,8 @@ Execution
 - Run workflow commands from `_stack`.
 - Prefer existing `package.json` scripts and `.vscode` tasks over ad hoc commands.
 - Keep Vercel logic Fitness-specific unless the workspace manifest is intentionally expanded later.
+- Governed Codex jobs must resolve runtime policy with this precedence: explicit command argument, prompt metadata, repo config, then shared defaults.
+- Governed Codex jobs must receipt their effective runtime-policy envelope in repo-local `.codex/logs/<run-id>/run.json` before execution begins.
 
 Editing Boundaries
 - Do not edit repo implementation code from `_stack` work unless a tiny workflow-facing change is strictly required and explicitly in scope.

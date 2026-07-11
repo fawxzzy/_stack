@@ -5,7 +5,14 @@ param(
     [string]$RepoRoot = "",
     [string]$AdapterPath = "",
     [string]$CodexCommand = "",
+    [string]$Model = "",
+    [string]$Reasoning = "",
+    [string]$Speed = "",
+    [string]$Permissions = "",
+    [string]$PermissionProfile = "",
     [string]$SandboxMode = "",
+    [string]$ApprovalPolicy = "",
+    [string]$WebSearch = "",
     [switch]$KeepWorktree,
     [switch]$SkipVerification,
     [switch]$NoCommit
@@ -45,6 +52,7 @@ $archiveDirectory = $null
 $effectiveVerifyCommands = @()
 $verificationSource = "prompt"
 $effectiveSandboxMode = $null
+$runtimePolicy = $null
 $stackLockContext = $null
 $workerAssignmentPath = $null
 $workerRunningStatusPath = $null
@@ -214,6 +222,12 @@ try {
         $codexCommandValue = [string](Get-ConfigValue -Config $config -Path @("windows", "codex_command") -DefaultValue "codex")
     }
     $codexCommandValue = Expand-ConfigString -Value $codexCommandValue
+    if (-not (Test-Path -LiteralPath $codexCommandValue)) {
+        $commandCandidate = Get-Command -Name $codexCommandValue -ErrorAction SilentlyContinue
+        if ($null -ne $commandCandidate) {
+            $codexCommandValue = $commandCandidate.Source
+        }
+    }
     if (-not (Test-Path -LiteralPath $codexCommandValue)) {
         throw ("Codex command was not found: {0}" -f $codexCommandValue)
     }
@@ -499,54 +513,38 @@ try {
                 -SourceArtifactRefs $runningObservationRefs))
     }
 
-    $codexArgs = New-Object System.Collections.Generic.List[string]
-    $approvalPolicy = [string](Get-ConfigValue -Config $config -Path @("windows", "approval_policy") -DefaultValue "never")
-    if (-not [string]::IsNullOrWhiteSpace($approvalPolicy)) {
-        [void]$codexArgs.Add("-a")
-        [void]$codexArgs.Add($approvalPolicy)
-    }
-
-    $model = [string](Get-ConfigValue -Config $config -Path @("model") -DefaultValue "")
-    if (-not [string]::IsNullOrWhiteSpace($model)) {
-        [void]$codexArgs.Add("-m")
-        [void]$codexArgs.Add($model)
-    }
-
-    $reasoningEffort = [string](Get-ConfigValue -Config $config -Path @("model_reasoning_effort") -DefaultValue "")
-    if (-not [string]::IsNullOrWhiteSpace($reasoningEffort)) {
-        [void]$codexArgs.Add("-c")
-        [void]$codexArgs.Add(('model_reasoning_effort="{0}"' -f $reasoningEffort))
+    $runtimePolicy = Resolve-StackRuntimePolicy `
+        -Config $config `
+        -RepoConfig $resolvedConfig.RepoConfig `
+        -DefaultsConfig $resolvedConfig.DefaultsConfig `
+        -PromptRecord $promptRecord `
+        -ExplicitPolicy ([pscustomobject]@{
+            model = $Model
+            reasoning = $Reasoning
+            speed = $Speed
+            permissions = $Permissions
+            permission_profile = $PermissionProfile
+            sandbox_mode = $SandboxMode
+            approval = $ApprovalPolicy
+            web_search = $WebSearch
+        }) `
+        -CodexCommand $codexCommandValue
+    foreach ($runtimeNote in @($runtimePolicy.warnings)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$runtimeNote)) {
+            Write-RunnerMessage -Message ([string]$runtimeNote) -Level "WARN"
+        }
     }
 
     $personality = [string](Get-ConfigValue -Config $config -Path @("personality") -DefaultValue "")
-    if (-not [string]::IsNullOrWhiteSpace($personality)) {
-        [void]$codexArgs.Add("-c")
-        [void]$codexArgs.Add(('personality="{0}"' -f $personality))
-    }
-
-    [void]$codexArgs.Add("exec")
-    [void]$codexArgs.Add("--json")
-    [void]$codexArgs.Add("-o")
-    [void]$codexArgs.Add($summaryPath)
-    [void]$codexArgs.Add("-C")
-    [void]$codexArgs.Add($worktreePath)
-
-    $effectiveSandboxMode = $SandboxMode
-    if ([string]::IsNullOrWhiteSpace($effectiveSandboxMode)) {
-        $effectiveSandboxMode = [string]$adapterContract.execution.defaultSandbox
-    }
-    if ([string]::IsNullOrWhiteSpace($effectiveSandboxMode)) {
-        $effectiveSandboxMode = [string](Get-ConfigValue -Config $config -Path @("windows", "sandbox") -DefaultValue "workspace-write")
-    }
-    if (-not [string]::IsNullOrWhiteSpace($effectiveSandboxMode)) {
-        [void]$codexArgs.Add("-s")
-        [void]$codexArgs.Add($effectiveSandboxMode)
-    }
-
-    [void]$codexArgs.Add("-")
+    $codexInvocation = New-CodexInvocationPlan `
+        -RuntimePolicy $runtimePolicy `
+        -SummaryPath $summaryPath `
+        -WorktreePath $worktreePath `
+        -Personality $personality
+    $effectiveSandboxMode = $codexInvocation.legacySandboxMode
 
     Write-RunnerMessage -Message "Running Codex in non-interactive mode"
-    $codexResult = Invoke-ProcessCapture -FilePath $codexCommandValue -ArgumentList @($codexArgs.ToArray()) -WorkingDirectory $repoRoot -StandardInputText $effectivePrompt
+    $codexResult = Invoke-ProcessCapture -FilePath $codexCommandValue -ArgumentList @($codexInvocation.arguments) -WorkingDirectory $codexInvocation.workingDirectory -StandardInputText $effectivePrompt
     Write-TextFile -Path $codexStdOutPath -Content $codexResult.StdOut
     Write-TextFile -Path $codexStdErrPath -Content $codexResult.StdErr
 
@@ -1081,6 +1079,19 @@ finally {
                 blockedSkippedRules = if ($null -ne $specToDiffPolicy) { @($specToDiffPolicy.blockedSkippedRules) } else { @() }
             }
             sandboxMode = $effectiveSandboxMode
+            runtimePolicy = if ($null -ne $runtimePolicy) {
+                [ordered]@{
+                    requested = $runtimePolicy.requested
+                    resolved = $runtimePolicy.resolved
+                    sources = $runtimePolicy.sources
+                    codex_version = $runtimePolicy.codex_version
+                    warnings = @($runtimePolicy.warnings)
+                    blockers = @($runtimePolicy.blockers)
+                }
+            }
+            else {
+                $null
+            }
             logs = [ordered]@{
                 directory = $logDirectory
                 manifest = $manifestPath

@@ -1,2 +1,11 @@
 repo_root = "../../../../"
 adapter_path = "./adapter.json"
+
+[runtime_policy]
+model = "gpt-5.4"
+reasoning = "high"
+speed = "standard"
+permissions = "full-access"
+permission_profile = ":danger-full-access"
+approval = "never"
+web_search = "disabled"

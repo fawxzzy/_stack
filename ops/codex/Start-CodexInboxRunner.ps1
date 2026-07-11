@@ -6,7 +6,14 @@ param(
     [int]$PollIntervalSeconds = 0,
     [int]$SettleSeconds = -1,
     [string]$CodexCommand = "",
+    [string]$Model = "",
+    [string]$Reasoning = "",
+    [string]$Speed = "",
+    [string]$Permissions = "",
+    [string]$PermissionProfile = "",
     [string]$SandboxMode = "",
+    [string]$ApprovalPolicy = "",
+    [string]$WebSearch = "",
     [switch]$RunOnce
 )
 
@@ -83,8 +90,29 @@ do {
         if (-not [string]::IsNullOrWhiteSpace($CodexCommand)) {
             $taskArguments += @("-CodexCommand", $CodexCommand)
         }
+        if (-not [string]::IsNullOrWhiteSpace($Model)) {
+            $taskArguments += @("-Model", $Model)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($Reasoning)) {
+            $taskArguments += @("-Reasoning", $Reasoning)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($Speed)) {
+            $taskArguments += @("-Speed", $Speed)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($Permissions)) {
+            $taskArguments += @("-Permissions", $Permissions)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($PermissionProfile)) {
+            $taskArguments += @("-PermissionProfile", $PermissionProfile)
+        }
         if (-not [string]::IsNullOrWhiteSpace($SandboxMode)) {
             $taskArguments += @("-SandboxMode", $SandboxMode)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($ApprovalPolicy)) {
+            $taskArguments += @("-ApprovalPolicy", $ApprovalPolicy)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($WebSearch)) {
+            $taskArguments += @("-WebSearch", $WebSearch)
         }
 
         & $powershellExe @taskArguments
