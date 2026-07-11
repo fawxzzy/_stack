@@ -24,11 +24,15 @@
 - The writer acquires an exclusive lock at `.codex/locks/atlas-workspace-writer.lock.json`.
   The lock receipts owner metadata, blocks contention, preserves stale-lock crash diagnostics, and only releases when the current run still owns the lock file.
 - The writer snapshots the initial dirty inventory before execution.
-  Each dirty path is receipted with status and digest so pre-existing operator-owned dirt can be preserved rather than restaged or recommitted.
+  Each dirty path is receipted with status, digest source, and digest so pre-existing operator-owned dirt can be preserved rather than restaged or recommitted.
 - Every admitted task-owned path must start clean.
   If an admitted path is already dirty, the run fails before Codex execution.
-- Pre-existing dirt must remain byte-stable.
-  If a previously dirty path changes unexpectedly during the run, the writer fails closed.
+- Pre-existing dirt must remain digest-stable.
+  Working-tree files keep a streamed SHA-256 file digest, missing tracked files keep their `HEAD` blob identity, and existing dirty directories receive a deterministic `working-tree-directory` fingerprint.
+- Directory dirt is fingerprinted recursively and fail-closed.
+  The directory fingerprint walks sorted relative entry paths, records each entry path and entry type, streams file contents into the hash without building one giant whole-tree byte array, and fails the run closed if anything inside the pre-existing dirty directory drifts during the task.
+- Reparse-point directories are recorded but not descended.
+  They contribute a deterministic directory-entry record to the fingerprint, but the writer never traverses through them while preserving dirt.
 - Staging is exact-path only.
   The writer stages admitted task-owned paths with `git add -- <exact path>` and then verifies the cached set. It never uses `git add .`, `git add -A`, or broad staging globs.
 - Verification and spec-to-diff gates run before auto-commit.
@@ -75,6 +79,14 @@ The canonical `.git` guard follows that rule directly:
 `Preserved-Dirt Exact Staging`
 
 - Snapshot pre-existing dirt first, freeze it by digest, derive task-owned changes afterward, and stage only the exact admitted task-owned paths.
+
+`Directory Dirt Fingerprint`
+
+- When git reports a pre-existing dirty directory entry such as an untracked nested repo boundary, preserve it by a deterministic recursive fingerprint rather than treating the directory like a file path.
+
+`Fail-Closed Directory Drift`
+
+- If content, entry type, or entry path changes anywhere inside a pre-existing dirty directory during the run, the canonical writer fails closed even when `git status` still shows the same top-level dirt line.
 
 `Worktree Topology Illusion`
 

@@ -208,6 +208,12 @@ if (prompt.includes("Scenario: touch-preexisting-dirt")) {
   writeArtifacts();
 }
 
+if (prompt.includes("Scenario: mutate-preexisting-directory-path")) {
+  writeTaskFile();
+  fs.writeFileSync(path.join(repoRoot, "d", "new-drift.txt"), "nested directory path drift\n", "utf8");
+  writeArtifacts();
+}
+
 fs.writeFileSync(summaryPath, "Fake Codex completed the canonical workspace fixture.\n", "utf8");
 process.stdout.write('{"status":"ok"}\n');
 '@
@@ -243,6 +249,35 @@ function New-FixtureRepo {
     [void](Invoke-GitChecked -WorkingDirectory $repoRoot -Arguments @("branch", "-M", "main"))
 
     return $repoRoot
+}
+
+function New-NestedRepoDirtyDirectory {
+    param(
+        [string]$RepoRoot,
+        [string]$RelativePath = "d"
+    )
+
+    $nestedRepoRoot = Join-Path -Path $RepoRoot -ChildPath $RelativePath
+    New-Item -ItemType Directory -Path $nestedRepoRoot -Force | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path -Path $nestedRepoRoot -ChildPath "inner.txt"), "nested baseline`r`n")
+
+    [void](Invoke-GitChecked -WorkingDirectory $nestedRepoRoot -Arguments @("init", "--quiet"))
+    [void](Invoke-GitChecked -WorkingDirectory $nestedRepoRoot -Arguments @("config", "user.name", "Nested Repo Fixture"))
+    [void](Invoke-GitChecked -WorkingDirectory $nestedRepoRoot -Arguments @("config", "user.email", "nested-repo-fixture@local"))
+    [void](Invoke-GitChecked -WorkingDirectory $nestedRepoRoot -Arguments @("add", "."))
+    [void](Invoke-GitChecked -WorkingDirectory $nestedRepoRoot -Arguments @("commit", "--quiet", "-m", "nested baseline"))
+    [void](Invoke-GitChecked -WorkingDirectory $nestedRepoRoot -Arguments @("branch", "-M", "main"))
+
+    $statusResult = Invoke-GitChecked -WorkingDirectory $RepoRoot -Arguments @("status", "--porcelain=v1", "--untracked-files=all")
+    $expectedStatusLine = "?? {0}/" -f $RelativePath.Replace("\", "/").Trim("/")
+    Assert-Condition -Condition (($statusResult.StdOut -split "`r?`n") -contains $expectedStatusLine) -Message ("Nested repo fixture did not produce the expected outer dirt shape. Expected `{0}`. Observed: {1}" -f $expectedStatusLine, $statusResult.StdOut.Trim())
+
+    return [pscustomobject]@{
+        RelativePath = $RelativePath.Replace("\", "/").Trim("/")
+        StatusPath = $expectedStatusLine.Substring(3)
+        RootPath = $nestedRepoRoot
+        InnerFilePath = Join-Path -Path $nestedRepoRoot -ChildPath "inner.txt"
+    }
 }
 
 function New-PromptFile {
@@ -422,6 +457,41 @@ Expected Changed Paths:
     Assert-Condition -Condition (($successHead.StdOut -split "`r?`n") -contains "docs/task.md") -Message "Canonical writer success fixture commit did not include docs/task.md."
     Assert-Condition -Condition (($successHead.StdOut -split "`r?`n") -notcontains "docs/operator-note.md") -Message "Canonical writer success fixture commit included pre-existing dirt."
 
+    $nestedDirectoryRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "nested-directory")
+    $nestedDirectoryFixture = New-NestedRepoDirtyDirectory -RepoRoot $nestedDirectoryRepo
+    $nestedDirectoryPrompt = New-PromptFile -RepoRoot $nestedDirectoryRepo -FileName "nested-directory.md" -Content @"
+Title: Nested directory preservation
+Mutation Admission Path: docs/task.md
+Verify: git diff --check
+
+Objective:
+Prove pre-existing nested-repo directory dirt is preserved by digest.
+
+Scenario: mutate-admitted
+
+Acceptance Criteria:
+- [ac-01] Update docs/task.md with canonical workspace proof.
+
+Expected Changed Paths:
+- docs/task.md
+"@
+    $nestedDirectoryRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $nestedDirectoryRepo -PromptPath $nestedDirectoryPrompt -FakeCodexPath $fakeCodex.CommandPath -GitWrapper $gitWrapper
+    Assert-Condition -Condition ($nestedDirectoryRun.Result.ExitCode -eq 0) -Message ("Nested-directory preservation fixture failed. StdOut: {0} StdErr: {1} ManifestStatus: {2}" -f $nestedDirectoryRun.Result.StdOut, $nestedDirectoryRun.Result.StdErr, $(if ($null -ne $nestedDirectoryRun.Manifest) { $nestedDirectoryRun.Manifest.status } else { "<missing>" }))
+    Assert-Condition -Condition ($null -ne $nestedDirectoryRun.Manifest) -Message "Nested-directory preservation fixture did not produce run.json."
+    Assert-Condition -Condition ([string]$nestedDirectoryRun.Manifest.status -eq "success") -Message "Nested-directory preservation fixture did not record success."
+    $nestedInitialEntry = @($nestedDirectoryRun.Manifest.dirtyInventory.initial | Where-Object { $_.path -eq $nestedDirectoryFixture.StatusPath })
+    $nestedFinalEntry = @($nestedDirectoryRun.Manifest.dirtyInventory.final | Where-Object { $_.path -eq $nestedDirectoryFixture.StatusPath })
+    Assert-Condition -Condition ($nestedInitialEntry.Count -eq 1) -Message "Nested-directory preservation fixture did not snapshot the pre-existing nested repo directory."
+    Assert-Condition -Condition ($nestedFinalEntry.Count -eq 1) -Message "Nested-directory preservation fixture did not preserve the nested repo directory in the final snapshot."
+    Assert-Condition -Condition ([string]$nestedInitialEntry[0].digestSource -eq "working-tree-directory") -Message "Nested-directory preservation fixture did not receipt working-tree-directory as the digest source."
+    Assert-Condition -Condition ([string]$nestedFinalEntry[0].digestSource -eq "working-tree-directory") -Message "Nested-directory preservation fixture did not keep working-tree-directory as the final digest source."
+    Assert-Condition -Condition ([string]$nestedInitialEntry[0].digest -match "^sha256:[0-9a-f]{64}$") -Message "Nested-directory preservation fixture did not receipt a deterministic directory digest."
+    Assert-Condition -Condition ([string]$nestedInitialEntry[0].digest -eq [string]$nestedFinalEntry[0].digest) -Message "Nested-directory preservation fixture changed the nested repo directory digest even though the directory was untouched."
+    Assert-Condition -Condition (@($nestedDirectoryRun.Manifest.dirtyInventory.preservationViolations).Count -eq 0) -Message "Nested-directory preservation fixture unexpectedly reported dirty-preservation violations."
+    Assert-Condition -Condition ((Get-Content -LiteralPath $nestedDirectoryFixture.InnerFilePath -Raw) -eq "nested baseline`r`n") -Message "Nested-directory preservation fixture changed the nested repo contents."
+    $nestedStatusAfter = Invoke-GitChecked -WorkingDirectory $nestedDirectoryRepo -Arguments @("status", "--porcelain=v1", "--untracked-files=all")
+    Assert-Condition -Condition (($nestedStatusAfter.StdOut -split "`r?`n") -contains ("?? {0}" -f $nestedDirectoryFixture.StatusPath)) -Message "Nested-directory preservation fixture did not keep the outer nested-repo dirt line intact."
+
     $unadmittedRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "unadmitted")
     $unadmittedPrompt = New-PromptFile -RepoRoot $unadmittedRepo -FileName "unadmitted.md" -Content @"
 Title: Unadmitted mutation
@@ -456,6 +526,38 @@ Scenario: touch-preexisting-dirt
     Assert-Condition -Condition ($null -ne $dirtRun.Manifest) -Message "Dirty-preservation fixture did not produce run.json."
     Assert-Condition -Condition ([string]$dirtRun.Manifest.status -eq "dirty_preservation_failed") -Message "Dirty-preservation fixture did not fail with dirty_preservation_failed."
     Assert-Condition -Condition (@($dirtRun.Manifest.dirtyInventory.preservationViolations).Count -gt 0) -Message "Dirty-preservation fixture did not receipt preservation violations."
+
+    $nestedDirectoryDriftRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "nested-directory-drift")
+    $nestedDirectoryDriftFixture = New-NestedRepoDirtyDirectory -RepoRoot $nestedDirectoryDriftRepo
+    $nestedDirectoryDriftPrompt = New-PromptFile -RepoRoot $nestedDirectoryDriftRepo -FileName "nested-directory-drift.md" -Content @"
+Title: Nested directory drift
+Mutation Admission Path: docs/task.md
+Verify: git diff --check
+
+Objective:
+Prove nested-repo directory drift fails closed.
+
+Scenario: mutate-preexisting-directory-path
+
+Acceptance Criteria:
+- [ac-01] Update docs/task.md with canonical workspace proof.
+
+Expected Changed Paths:
+- docs/task.md
+"@
+    $nestedDirectoryDriftRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $nestedDirectoryDriftRepo -PromptPath $nestedDirectoryDriftPrompt -FakeCodexPath $fakeCodex.CommandPath -GitWrapper $gitWrapper
+    Assert-Condition -Condition ($nestedDirectoryDriftRun.Result.ExitCode -ne 0) -Message "Nested-directory drift fixture unexpectedly succeeded."
+    Assert-Condition -Condition ($null -ne $nestedDirectoryDriftRun.Manifest) -Message "Nested-directory drift fixture did not produce run.json."
+    Assert-Condition -Condition ([string]$nestedDirectoryDriftRun.Manifest.status -eq "dirty_preservation_failed") -Message "Nested-directory drift fixture did not fail with dirty_preservation_failed."
+    $nestedDriftInitialEntry = @($nestedDirectoryDriftRun.Manifest.dirtyInventory.initial | Where-Object { $_.path -eq $nestedDirectoryDriftFixture.StatusPath })
+    $nestedDriftFinalEntry = @($nestedDirectoryDriftRun.Manifest.dirtyInventory.final | Where-Object { $_.path -eq $nestedDirectoryDriftFixture.StatusPath })
+    Assert-Condition -Condition ($nestedDriftInitialEntry.Count -eq 1 -and $nestedDriftFinalEntry.Count -eq 1) -Message "Nested-directory drift fixture did not receipt both the initial and final nested directory snapshots."
+    Assert-Condition -Condition ([string]$nestedDriftInitialEntry[0].digestSource -eq "working-tree-directory") -Message "Nested-directory drift fixture did not receipt working-tree-directory on the initial snapshot."
+    Assert-Condition -Condition ([string]$nestedDriftFinalEntry[0].digestSource -eq "working-tree-directory") -Message "Nested-directory drift fixture did not receipt working-tree-directory on the final snapshot."
+    Assert-Condition -Condition ([string]$nestedDriftInitialEntry[0].digest -ne [string]$nestedDriftFinalEntry[0].digest) -Message "Nested-directory drift fixture did not detect the nested directory fingerprint change."
+    Assert-Condition -Condition (@($nestedDirectoryDriftRun.Manifest.dirtyInventory.preservationViolations | Where-Object { $_ -match [regex]::Escape($nestedDirectoryDriftFixture.StatusPath) }).Count -gt 0) -Message "Nested-directory drift fixture did not receipt a preservation violation for the nested repo directory."
+    $nestedDriftStatusAfter = Invoke-GitChecked -WorkingDirectory $nestedDirectoryDriftRepo -Arguments @("status", "--porcelain=v1", "--untracked-files=all")
+    Assert-Condition -Condition (($nestedDriftStatusAfter.StdOut -split "`r?`n") -contains ("?? {0}" -f $nestedDirectoryDriftFixture.StatusPath)) -Message "Nested-directory drift fixture changed the outer nested-repo dirt line instead of relying on the directory digest."
 
     $contentionRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "contention")
     $contentionLockPath = Join-Path -Path $contentionRepo -ChildPath ".codex\locks\atlas-workspace-writer.lock.json"

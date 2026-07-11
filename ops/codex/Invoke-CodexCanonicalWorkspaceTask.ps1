@@ -194,42 +194,223 @@ function Get-CanonicalPathMetadata {
         throw ("Path escapes canonical workspace root: {0}" -f $RelativePath)
     }
 
+    $exists = Test-Path -LiteralPath $absolutePath
+    $isDirectory = $false
+    $isReparsePoint = $false
+    $pathType = "missing"
+    if ($exists) {
+        $item = Get-Item -LiteralPath $absolutePath -Force
+        $attributes = [System.IO.FileAttributes]$item.Attributes
+        $isDirectory = [bool]($attributes -band [System.IO.FileAttributes]::Directory)
+        $isReparsePoint = [bool]($attributes -band [System.IO.FileAttributes]::ReparsePoint)
+        if ($isDirectory) {
+            $pathType = if ($isReparsePoint) { "directory-reparse-point" } else { "directory" }
+        }
+        else {
+            $pathType = if ($isReparsePoint) { "file-reparse-point" } else { "file" }
+        }
+    }
+
     return [pscustomobject]@{
         relativePath = $RelativePath.Replace("\", "/")
         absolutePath = $absolutePath
-        exists = Test-Path -LiteralPath $absolutePath
+        exists = $exists
+        isDirectory = $isDirectory
+        isReparsePoint = $isReparsePoint
+        pathType = $pathType
+    }
+}
+
+function ConvertTo-DigestRelativePath {
+    param([string]$RelativePath)
+
+    $normalized = ([string]$RelativePath).Replace("\", "/").Trim()
+    if ([string]::IsNullOrWhiteSpace($normalized)) {
+        return ""
+    }
+
+    return $normalized.Trim("/")
+}
+
+function Join-DigestRelativePath {
+    param(
+        [string]$BasePath,
+        [string]$ChildName
+    )
+
+    $normalizedBasePath = ConvertTo-DigestRelativePath -RelativePath $BasePath
+    $normalizedChildName = ([string]$ChildName).Replace("\", "/").Trim("/")
+    if ([string]::IsNullOrWhiteSpace($normalizedBasePath)) {
+        return $normalizedChildName
+    }
+
+    return "{0}/{1}" -f $normalizedBasePath, $normalizedChildName
+}
+
+function Add-HashText {
+    param(
+        $Hash,
+        [string]$Text
+    )
+
+    $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes([string]$Text)
+    $Hash.AppendData($bytes)
+}
+
+function Add-HashBytesFromFile {
+    param(
+        $Hash,
+        [string]$Path
+    )
+
+    $buffer = New-Object byte[] 81920
+    $fileStream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    try {
+        while (($bytesRead = $fileStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $Hash.AppendData($buffer, 0, $bytesRead)
+        }
+    }
+    finally {
+        $fileStream.Dispose()
+    }
+}
+
+function ConvertTo-Sha256DigestString {
+    param([byte[]]$HashBytes)
+
+    return "sha256:{0}" -f ([System.BitConverter]::ToString($HashBytes).Replace("-", "").ToLowerInvariant())
+}
+
+function Add-DirectoryDigestEntries {
+    param(
+        $Hash,
+        [string]$DirectoryPath,
+        [string]$RelativePath
+    )
+
+    $childPaths = @([System.IO.Directory]::EnumerateFileSystemEntries($DirectoryPath))
+    [System.Array]::Sort($childPaths, [System.StringComparer]::Ordinal)
+
+    foreach ($childPath in $childPaths) {
+        $childItem = Get-Item -LiteralPath $childPath -Force
+        $attributes = [System.IO.FileAttributes]$childItem.Attributes
+        $isDirectory = [bool]($attributes -band [System.IO.FileAttributes]::Directory)
+        $isReparsePoint = [bool]($attributes -band [System.IO.FileAttributes]::ReparsePoint)
+        $entryType = if ($isDirectory) {
+            if ($isReparsePoint) { "directory-reparse-point" } else { "directory" }
+        }
+        else {
+            if ($isReparsePoint) { "file-reparse-point" } else { "file" }
+        }
+        $entryRelativePath = Join-DigestRelativePath -BasePath $RelativePath -ChildName $childItem.Name
+        $contentLength = if ($isDirectory) { 0L } else { [int64]$childItem.Length }
+
+        Add-HashText -Hash $Hash -Text ("entry`0path-length:{0}`0path:{1}`0type:{2}`0content-length:{3}`0" -f $entryRelativePath.Length, $entryRelativePath, $entryType, $contentLength)
+        if (-not $isDirectory) {
+            Add-HashBytesFromFile -Hash $Hash -Path $childItem.FullName
+        }
+        Add-HashText -Hash $Hash -Text "`n"
+
+        # Reparse-point directories are fingerprinted as entries but never descended into.
+        if ($isDirectory -and -not $isReparsePoint) {
+            Add-DirectoryDigestEntries -Hash $Hash -DirectoryPath $childItem.FullName -RelativePath $entryRelativePath
+        }
+    }
+}
+
+function Get-WorkingTreeFileDigest {
+    param([string]$AbsolutePath)
+
+    $hash = [System.Security.Cryptography.IncrementalHash]::CreateHash([System.Security.Cryptography.HashAlgorithmName]::SHA256)
+    try {
+        Add-HashBytesFromFile -Hash $hash -Path $AbsolutePath
+        return ConvertTo-Sha256DigestString -HashBytes $hash.GetHashAndReset()
+    }
+    finally {
+        $hash.Dispose()
+    }
+}
+
+function Get-WorkingTreeDirectoryDigest {
+    param(
+        [string]$AbsolutePath,
+        [string]$RelativePath,
+        [bool]$IsReparsePoint = $false
+    )
+
+    $hash = [System.Security.Cryptography.IncrementalHash]::CreateHash([System.Security.Cryptography.HashAlgorithmName]::SHA256)
+    try {
+        $directoryRelativePath = ConvertTo-DigestRelativePath -RelativePath $RelativePath
+        $rootEntryType = if ($IsReparsePoint) { "directory-reparse-point" } else { "directory" }
+        Add-HashText -Hash $hash -Text ("entry`0path-length:{0}`0path:{1}`0type:{2}`0content-length:{3}`0`n" -f $directoryRelativePath.Length, $directoryRelativePath, $rootEntryType, 0)
+        if (-not $IsReparsePoint) {
+            Add-DirectoryDigestEntries -Hash $hash -DirectoryPath $AbsolutePath -RelativePath $directoryRelativePath
+        }
+        return ConvertTo-Sha256DigestString -HashBytes $hash.GetHashAndReset()
+    }
+    finally {
+        $hash.Dispose()
+    }
+}
+
+function Resolve-HeadObjectDigest {
+    param(
+        [string]$WorkingDirectory,
+        [string]$RelativePath
+    )
+
+    $headPath = ConvertTo-DigestRelativePath -RelativePath $RelativePath
+    if ([string]::IsNullOrWhiteSpace($headPath)) {
+        return $null
+    }
+
+    $objectSpec = "HEAD:{0}" -f $headPath
+    $objectTypeResult = Invoke-Git -Arguments @("cat-file", "-t", $objectSpec) -WorkingDirectory $WorkingDirectory
+    if ($objectTypeResult.ExitCode -ne 0) {
+        return $null
+    }
+
+    $objectIdResult = Invoke-Git -Arguments @("rev-parse", $objectSpec) -WorkingDirectory $WorkingDirectory
+    if ($objectIdResult.ExitCode -ne 0) {
+        return $null
+    }
+
+    $objectType = $objectTypeResult.StdOut.Trim()
+    $source = switch ($objectType) {
+        "blob" { "head-blob" }
+        "tree" { "head-tree" }
+        default { "head-{0}" -f $objectType }
+    }
+
+    return [pscustomobject]@{
+        source = $source
+        digest = "git:{0}" -f $objectIdResult.StdOut.Trim()
     }
 }
 
 function Resolve-DigestValue {
     param(
         [string]$WorkingDirectory,
-        [string]$RelativePath,
-        [bool]$PathExists
+        $PathMetadata
     )
 
-    if ($PathExists) {
-        $bytes = [System.IO.File]::ReadAllBytes((Join-Path -Path $WorkingDirectory -ChildPath $RelativePath))
-        $hash = [System.Security.Cryptography.SHA256]::Create()
-        try {
-            $digest = $hash.ComputeHash($bytes)
-        }
-        finally {
-            $hash.Dispose()
+    if ($PathMetadata.exists) {
+        if ($PathMetadata.isDirectory) {
+            return [pscustomobject]@{
+                source = "working-tree-directory"
+                digest = Get-WorkingTreeDirectoryDigest -AbsolutePath $PathMetadata.absolutePath -RelativePath $PathMetadata.relativePath -IsReparsePoint $PathMetadata.isReparsePoint
+            }
         }
 
         return [pscustomobject]@{
             source = "working-tree-file"
-            digest = "sha256:{0}" -f ([System.BitConverter]::ToString($digest).Replace("-", "").ToLowerInvariant())
+            digest = Get-WorkingTreeFileDigest -AbsolutePath $PathMetadata.absolutePath
         }
     }
 
-    $headResult = Invoke-Git -Arguments @("rev-parse", ("HEAD:{0}" -f $RelativePath)) -WorkingDirectory $WorkingDirectory
-    if ($headResult.ExitCode -eq 0) {
-        return [pscustomobject]@{
-            source = "head-blob"
-            digest = "git:{0}" -f $headResult.StdOut.Trim()
-        }
+    $headDigest = Resolve-HeadObjectDigest -WorkingDirectory $WorkingDirectory -RelativePath $PathMetadata.relativePath
+    if ($null -ne $headDigest) {
+        return $headDigest
     }
 
     return [pscustomobject]@{
@@ -259,7 +440,7 @@ function Get-DirtySnapshot {
 
         $relativePath = $pathText.Replace("\", "/")
         $pathMetadata = Get-CanonicalPathMetadata -RepoRoot $WorkingDirectory -RelativePath $relativePath
-        $digestRecord = Resolve-DigestValue -WorkingDirectory $WorkingDirectory -RelativePath $relativePath -PathExists $pathMetadata.exists
+        $digestRecord = Resolve-DigestValue -WorkingDirectory $WorkingDirectory -PathMetadata $pathMetadata
         $entry = [pscustomobject]@{
             path = $relativePath
             status = $statusCode
@@ -320,7 +501,11 @@ function Compare-DirtySnapshot {
             continue
         }
 
-        if ([string]$entry.status -ne [string]$currentEntry.status -or [string]$entry.digest -ne [string]$currentEntry.digest) {
+        if (
+            [string]$entry.status -ne [string]$currentEntry.status -or
+            [string]$entry.digestSource -ne [string]$currentEntry.digestSource -or
+            [string]$entry.digest -ne [string]$currentEntry.digest
+        ) {
             [void]$violations.Add(("Pre-existing dirty path changed unexpectedly: {0}" -f $entry.path))
         }
     }
