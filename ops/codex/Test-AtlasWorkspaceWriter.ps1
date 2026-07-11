@@ -98,6 +98,7 @@ function New-FakeCodexTooling {
     $fakeCodexJs = @'
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 const args = process.argv.slice(2);
 const wrapperPath = process.env.FAKE_CODEX_WRAPPER_PATH ?? "";
@@ -193,6 +194,45 @@ if (prompt.includes("Scenario: runtime-policy-legacy")) {
 }
 
 const admittedProofText = "canonical workspace proof";
+const registeredWorktreeRelativePath = "mutable-owner-worktree";
+const registeredWorktreePath = path.join(repoRoot, registeredWorktreeRelativePath);
+const runGit = (cwd, args) => {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+  if (typeof result.stdout === "string" && result.stdout.length > 0) {
+    process.stdout.write(result.stdout);
+  }
+  if (typeof result.stderr === "string" && result.stderr.length > 0) {
+    process.stderr.write(result.stderr);
+  }
+  if ((result.status ?? 1) !== 0) {
+    process.exit(result.status ?? 1);
+  }
+  return (result.stdout ?? "").trim();
+};
+const requireRegisteredWorktree = () => {
+  if (!fs.existsSync(registeredWorktreePath)) {
+    process.stderr.write(`Missing registered worktree fixture at ${registeredWorktreePath}.\n`);
+    process.exit(39);
+  }
+  return registeredWorktreePath;
+};
+const mutateRegisteredWorktree = () => {
+  const worktreePath = requireRegisteredWorktree();
+  fs.appendFileSync(path.join(worktreePath, "owner.txt"), "owner drift\n", "utf8");
+  runGit(worktreePath, ["add", "owner.txt"]);
+  runGit(worktreePath, ["commit", "--quiet", "-m", "owner worktree drift"]);
+  fs.writeFileSync(path.join(worktreePath, "volatile.txt"), "volatile drift\n", "utf8");
+};
+const deleteRegisteredWorktreeGitfile = () => {
+  const worktreePath = requireRegisteredWorktree();
+  fs.rmSync(path.join(worktreePath, ".git"), { force: true });
+};
+const retargetRegisteredWorktreeGitfile = () => {
+  const worktreePath = requireRegisteredWorktree();
+  const alternateGitDirectory = path.join(worktreePath, ".alt-gitdir");
+  fs.mkdirSync(alternateGitDirectory, { recursive: true });
+  fs.writeFileSync(path.join(worktreePath, ".git"), `gitdir: ${alternateGitDirectory.replace(/\\\\/g, "/")}\n`, "utf8");
+};
 const writeTaskFile = () => {
   fs.mkdirSync(path.join(repoRoot, "docs"), { recursive: true });
   fs.appendFileSync(path.join(repoRoot, "docs", "task.md"), `${admittedProofText}\n`, "utf8");
@@ -235,6 +275,24 @@ if (prompt.includes("Scenario: touch-preexisting-dirt")) {
 if (prompt.includes("Scenario: mutate-preexisting-directory-path")) {
   writeTaskFile();
   fs.writeFileSync(path.join(repoRoot, "d", "new-drift.txt"), "nested directory path drift\n", "utf8");
+  writeArtifacts();
+}
+
+if (prompt.includes("Scenario: mutate-registered-worktree")) {
+  writeTaskFile();
+  mutateRegisteredWorktree();
+  writeArtifacts();
+}
+
+if (prompt.includes("Scenario: delete-registered-worktree-gitfile")) {
+  writeTaskFile();
+  deleteRegisteredWorktreeGitfile();
+  writeArtifacts();
+}
+
+if (prompt.includes("Scenario: retarget-registered-worktree-gitfile")) {
+  writeTaskFile();
+  retargetRegisteredWorktreeGitfile();
   writeArtifacts();
 }
 
@@ -401,6 +459,70 @@ function New-NestedRepoDirtyDirectory {
         StatusPath = $expectedStatusLine.Substring(3)
         RootPath = $nestedRepoRoot
         InnerFilePath = Join-Path -Path $nestedRepoRoot -ChildPath "inner.txt"
+    }
+}
+
+function Test-EquivalentPath {
+    param(
+        [string]$LeftPath,
+        [string]$RightPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($LeftPath) -or [string]::IsNullOrWhiteSpace($RightPath)) {
+        return $false
+    }
+
+    return [System.IO.Path]::GetFullPath($LeftPath).TrimEnd("\", "/").Equals(
+        [System.IO.Path]::GetFullPath($RightPath).TrimEnd("\", "/"),
+        [System.StringComparison]::OrdinalIgnoreCase
+    )
+}
+
+function New-MutableRegisteredWorktreeFixture {
+    param(
+        [string]$BaseRoot,
+        [string]$RepoRoot,
+        [string]$RelativePath = "mutable-owner-worktree"
+    )
+
+    $ownerRepoRoot = Join-Path -Path $BaseRoot -ChildPath "owner-repo"
+    $worktreeRoot = Join-Path -Path $RepoRoot -ChildPath $RelativePath
+    New-Item -ItemType Directory -Path $ownerRepoRoot -Force | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path -Path $ownerRepoRoot -ChildPath "owner-seed.txt"), "owner seed`r`n")
+
+    [void](Invoke-GitChecked -WorkingDirectory $ownerRepoRoot -Arguments @("init", "--quiet"))
+    [void](Invoke-GitChecked -WorkingDirectory $ownerRepoRoot -Arguments @("config", "user.name", "Owner Repo Fixture"))
+    [void](Invoke-GitChecked -WorkingDirectory $ownerRepoRoot -Arguments @("config", "user.email", "owner-repo-fixture@local"))
+    [void](Invoke-GitChecked -WorkingDirectory $ownerRepoRoot -Arguments @("add", "."))
+    [void](Invoke-GitChecked -WorkingDirectory $ownerRepoRoot -Arguments @("commit", "--quiet", "-m", "owner baseline"))
+    [void](Invoke-GitChecked -WorkingDirectory $ownerRepoRoot -Arguments @("branch", "-M", "main"))
+    [void](Invoke-GitChecked -WorkingDirectory $ownerRepoRoot -Arguments @("worktree", "add", "--quiet", $worktreeRoot, "-b", "mutable-owner-worktree-branch"))
+
+    [System.IO.File]::WriteAllText((Join-Path -Path $worktreeRoot -ChildPath "owner.txt"), "owner baseline`r`n")
+    [void](Invoke-GitChecked -WorkingDirectory $worktreeRoot -Arguments @("add", "owner.txt"))
+    [void](Invoke-GitChecked -WorkingDirectory $worktreeRoot -Arguments @("commit", "--quiet", "-m", "owner worktree baseline"))
+
+    $statusResult = Invoke-GitChecked -WorkingDirectory $RepoRoot -Arguments @("status", "--porcelain=v1", "--untracked-files=all")
+    $expectedStatusLine = "?? {0}/" -f $RelativePath.Replace("\", "/").Trim("/")
+    Assert-Condition -Condition (($statusResult.StdOut -split "`r?`n") -contains $expectedStatusLine) -Message ("Mutable registered worktree fixture did not produce the expected outer dirt shape. Expected `{0}`. Observed: {1}" -f $expectedStatusLine, $statusResult.StdOut.Trim())
+
+    $gitFilePath = Join-Path -Path $worktreeRoot -ChildPath ".git"
+    $gitFileTarget = ((Get-Content -LiteralPath $gitFilePath -Raw).Trim() -replace '^gitdir:\s*', '')
+    if (-not [System.IO.Path]::IsPathRooted($gitFileTarget)) {
+        $gitFileTarget = [System.IO.Path]::GetFullPath((Join-Path -Path $worktreeRoot -ChildPath $gitFileTarget))
+    }
+
+    return [pscustomobject]@{
+        RelativePath = $RelativePath.Replace("\", "/").Trim("/")
+        StatusPath = $expectedStatusLine.Substring(3)
+        WorktreePath = $worktreeRoot
+        GitFilePath = $gitFilePath
+        GitFileTarget = $gitFileTarget
+        LinkedWorktreeGitDirectory = (Invoke-GitChecked -WorkingDirectory $worktreeRoot -Arguments @("rev-parse", "--absolute-git-dir")).StdOut.Trim()
+        OwnerCommonGitDirectory = (Invoke-GitChecked -WorkingDirectory $worktreeRoot -Arguments @("rev-parse", "--path-format=absolute", "--git-common-dir")).StdOut.Trim()
+        CanonicalWorktreePath = (Invoke-GitChecked -WorkingDirectory $worktreeRoot -Arguments @("rev-parse", "--show-toplevel")).StdOut.Trim()
+        HeadCommit = (Invoke-GitChecked -WorkingDirectory $worktreeRoot -Arguments @("rev-parse", "HEAD")).StdOut.Trim()
+        OwnerFilePath = Join-Path -Path $worktreeRoot -ChildPath "owner.txt"
     }
 }
 
@@ -755,6 +877,100 @@ Expected Changed Paths:
     $nestedStatusAfter = Invoke-GitChecked -WorkingDirectory $nestedDirectoryRepo -Arguments @("status", "--porcelain=v1", "--untracked-files=all")
     Assert-Condition -Condition (($nestedStatusAfter.StdOut -split "`r?`n") -contains ("?? {0}" -f $nestedDirectoryFixture.StatusPath)) -Message "Nested-directory preservation fixture did not keep the outer nested-repo dirt line intact."
 
+    $registeredWorktreeRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "registered-worktree")
+    $registeredWorktreeFixture = New-MutableRegisteredWorktreeFixture -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "registered-worktree-owner") -RepoRoot $registeredWorktreeRepo
+    $registeredWorktreePrompt = New-PromptFile -RepoRoot $registeredWorktreeRepo -FileName "registered-worktree.md" -Content @"
+Title: Registered owner worktree preservation
+Mutation Admission Path: docs/task.md
+Verify: git diff --check
+
+Objective:
+Prove registered owner-worktree identity is preserved while volatile content and HEAD drift are allowed.
+
+Scenario: mutate-registered-worktree
+
+Acceptance Criteria:
+- [ac-01] Update docs/task.md with canonical workspace proof.
+
+Expected Changed Paths:
+- docs/task.md
+"@
+    $registeredWorktreeRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $registeredWorktreeRepo -PromptPath $registeredWorktreePrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
+    Assert-Condition -Condition ($registeredWorktreeRun.Result.ExitCode -eq 0) -Message ("Registered-worktree preservation fixture failed. StdOut: {0} StdErr: {1} ManifestStatus: {2}" -f $registeredWorktreeRun.Result.StdOut, $registeredWorktreeRun.Result.StdErr, $(if ($null -ne $registeredWorktreeRun.Manifest) { $registeredWorktreeRun.Manifest.status } else { "<missing>" }))
+    Assert-Condition -Condition ($null -ne $registeredWorktreeRun.Manifest) -Message "Registered-worktree preservation fixture did not produce run.json."
+    Assert-Condition -Condition ([string]$registeredWorktreeRun.Manifest.status -eq "success") -Message "Registered-worktree preservation fixture did not record success."
+    $registeredInitialEntry = @($registeredWorktreeRun.Manifest.dirtyInventory.initial | Where-Object { $_.path -eq $registeredWorktreeFixture.StatusPath })
+    $registeredFinalEntry = @($registeredWorktreeRun.Manifest.dirtyInventory.final | Where-Object { $_.path -eq $registeredWorktreeFixture.StatusPath })
+    Assert-Condition -Condition ($registeredInitialEntry.Count -eq 1 -and $registeredFinalEntry.Count -eq 1) -Message "Registered-worktree preservation fixture did not receipt both worktree snapshots."
+    Assert-Condition -Condition ([string]$registeredInitialEntry[0].preservationKind -eq "mutable_registered_worktree") -Message "Registered-worktree preservation fixture did not classify the initial dirt as mutable_registered_worktree."
+    Assert-Condition -Condition ([string]$registeredFinalEntry[0].preservationKind -eq "mutable_registered_worktree") -Message "Registered-worktree preservation fixture did not keep mutable_registered_worktree classification on the final snapshot."
+    Assert-Condition -Condition ([string]$registeredInitialEntry[0].digestSource -eq "registered-worktree-identity") -Message "Registered-worktree preservation fixture did not receipt registered-worktree-identity as the digest source."
+    Assert-Condition -Condition (Test-EquivalentPath -LeftPath ([string]$registeredInitialEntry[0].registrationIdentity.canonicalWorktreePath) -RightPath $registeredWorktreeFixture.CanonicalWorktreePath) -Message "Registered-worktree preservation fixture did not receipt canonicalWorktreePath."
+    Assert-Condition -Condition (Test-EquivalentPath -LeftPath ([string]$registeredInitialEntry[0].registrationIdentity.gitfileTarget) -RightPath $registeredWorktreeFixture.GitFileTarget) -Message "Registered-worktree preservation fixture did not receipt gitfileTarget."
+    Assert-Condition -Condition (Test-EquivalentPath -LeftPath ([string]$registeredInitialEntry[0].registrationIdentity.linkedWorktreeGitDirectory) -RightPath $registeredWorktreeFixture.LinkedWorktreeGitDirectory) -Message "Registered-worktree preservation fixture did not receipt linkedWorktreeGitDirectory."
+    Assert-Condition -Condition (Test-EquivalentPath -LeftPath ([string]$registeredInitialEntry[0].registrationIdentity.ownerCommonGitDirectory) -RightPath $registeredWorktreeFixture.OwnerCommonGitDirectory) -Message "Registered-worktree preservation fixture did not receipt ownerCommonGitDirectory."
+    Assert-Condition -Condition (Test-EquivalentPath -LeftPath ([string]$registeredFinalEntry[0].registrationIdentity.canonicalWorktreePath) -RightPath ([string]$registeredInitialEntry[0].registrationIdentity.canonicalWorktreePath)) -Message "Registered-worktree preservation fixture changed canonicalWorktreePath unexpectedly."
+    Assert-Condition -Condition (Test-EquivalentPath -LeftPath ([string]$registeredFinalEntry[0].registrationIdentity.gitfileTarget) -RightPath ([string]$registeredInitialEntry[0].registrationIdentity.gitfileTarget)) -Message "Registered-worktree preservation fixture changed gitfileTarget unexpectedly."
+    Assert-Condition -Condition (Test-EquivalentPath -LeftPath ([string]$registeredFinalEntry[0].registrationIdentity.linkedWorktreeGitDirectory) -RightPath ([string]$registeredInitialEntry[0].registrationIdentity.linkedWorktreeGitDirectory)) -Message "Registered-worktree preservation fixture changed linkedWorktreeGitDirectory unexpectedly."
+    Assert-Condition -Condition (Test-EquivalentPath -LeftPath ([string]$registeredFinalEntry[0].registrationIdentity.ownerCommonGitDirectory) -RightPath ([string]$registeredInitialEntry[0].registrationIdentity.ownerCommonGitDirectory)) -Message "Registered-worktree preservation fixture changed ownerCommonGitDirectory unexpectedly."
+    Assert-Condition -Condition ([bool]$registeredFinalEntry[0].contentDriftObserved) -Message "Registered-worktree preservation fixture did not receipt contentDriftObserved."
+    Assert-Condition -Condition ([string]$registeredFinalEntry[0].volatileObservation.headCommit -ne [string]$registeredInitialEntry[0].volatileObservation.headCommit) -Message "Registered-worktree preservation fixture did not observe HEAD drift."
+    Assert-Condition -Condition (@($registeredWorktreeRun.Manifest.dirtyInventory.preservationViolations).Count -eq 0) -Message "Registered-worktree preservation fixture unexpectedly reported dirty-preservation violations."
+    $registeredStatusAfter = Invoke-GitChecked -WorkingDirectory $registeredWorktreeRepo -Arguments @("status", "--porcelain=v1", "--untracked-files=all")
+    Assert-Condition -Condition (($registeredStatusAfter.StdOut -split "`r?`n") -contains ("?? {0}" -f $registeredWorktreeFixture.StatusPath)) -Message "Registered-worktree preservation fixture did not keep the outer dirt line intact."
+    $registeredAddCommandLogs = @((Get-Content -LiteralPath $gitWrapper.LogPath | ForEach-Object { $_ | ConvertFrom-Json }) | Where-Object { $_.args[0] -eq "add" })
+    Assert-Condition -Condition (@($registeredAddCommandLogs | Where-Object { $_.args -contains $registeredWorktreeFixture.RelativePath -or $_.args -contains $registeredWorktreeFixture.StatusPath }).Count -eq 0) -Message "Registered-worktree preservation fixture staged owner-worktree content."
+    $registeredHead = Invoke-GitChecked -WorkingDirectory $registeredWorktreeRepo -Arguments @("show", "--name-only", "--format=%B", "HEAD")
+    Assert-Condition -Condition (($registeredHead.StdOut -split "`r?`n") -contains "docs/task.md") -Message "Registered-worktree preservation fixture commit did not include docs/task.md."
+    Assert-Condition -Condition (($registeredHead.StdOut -split "`r?`n") -notcontains $registeredWorktreeFixture.RelativePath) -Message "Registered-worktree preservation fixture commit included owner-worktree content."
+
+    $registeredWorktreeDeleteRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "registered-worktree-delete")
+    $registeredWorktreeDeleteFixture = New-MutableRegisteredWorktreeFixture -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "registered-worktree-delete-owner") -RepoRoot $registeredWorktreeDeleteRepo
+    $registeredWorktreeDeletePrompt = New-PromptFile -RepoRoot $registeredWorktreeDeleteRepo -FileName "registered-worktree-delete.md" -Content @"
+Title: Registered owner worktree gitfile deletion
+Mutation Admission Path: docs/task.md
+Verify: git diff --check
+
+Objective:
+Prove registered owner-worktree gitfile deletion fails closed.
+
+Scenario: delete-registered-worktree-gitfile
+
+Acceptance Criteria:
+- [ac-01] Update docs/task.md with canonical workspace proof.
+
+Expected Changed Paths:
+- docs/task.md
+"@
+    $registeredWorktreeDeleteRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $registeredWorktreeDeleteRepo -PromptPath $registeredWorktreeDeletePrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
+    Assert-Condition -Condition ($registeredWorktreeDeleteRun.Result.ExitCode -ne 0) -Message "Registered-worktree gitfile deletion fixture unexpectedly succeeded."
+    Assert-Condition -Condition ($null -ne $registeredWorktreeDeleteRun.Manifest) -Message "Registered-worktree gitfile deletion fixture did not produce run.json."
+    Assert-Condition -Condition ([string]$registeredWorktreeDeleteRun.Manifest.status -eq "dirty_preservation_failed") -Message "Registered-worktree gitfile deletion fixture did not fail with dirty_preservation_failed."
+    Assert-Condition -Condition (@($registeredWorktreeDeleteRun.Manifest.dirtyInventory.preservationViolations | Where-Object { $_ -match [regex]::Escape($registeredWorktreeDeleteFixture.StatusPath) }).Count -gt 0) -Message "Registered-worktree gitfile deletion fixture did not receipt a preservation violation for the worktree."
+
+    $registeredWorktreeRetargetRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "registered-worktree-retarget")
+    $registeredWorktreeRetargetFixture = New-MutableRegisteredWorktreeFixture -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "registered-worktree-retarget-owner") -RepoRoot $registeredWorktreeRetargetRepo
+    $registeredWorktreeRetargetPrompt = New-PromptFile -RepoRoot $registeredWorktreeRetargetRepo -FileName "registered-worktree-retarget.md" -Content @"
+Title: Registered owner worktree gitfile retarget
+Mutation Admission Path: docs/task.md
+Verify: git diff --check
+
+Objective:
+Prove registered owner-worktree gitfile retargeting fails closed.
+
+Scenario: retarget-registered-worktree-gitfile
+
+Acceptance Criteria:
+- [ac-01] Update docs/task.md with canonical workspace proof.
+
+Expected Changed Paths:
+- docs/task.md
+"@
+    $registeredWorktreeRetargetRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $registeredWorktreeRetargetRepo -PromptPath $registeredWorktreeRetargetPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
+    Assert-Condition -Condition ($registeredWorktreeRetargetRun.Result.ExitCode -ne 0) -Message "Registered-worktree gitfile retarget fixture unexpectedly succeeded."
+    Assert-Condition -Condition ($null -ne $registeredWorktreeRetargetRun.Manifest) -Message "Registered-worktree gitfile retarget fixture did not produce run.json."
+    Assert-Condition -Condition ([string]$registeredWorktreeRetargetRun.Manifest.status -ne "success") -Message "Registered-worktree gitfile retarget fixture did not fail closed."
+
     $unadmittedRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "unadmitted")
     $unadmittedPrompt = New-PromptFile -RepoRoot $unadmittedRepo -FileName "unadmitted.md" -Content @"
 Title: Unadmitted mutation
@@ -817,7 +1033,7 @@ Expected Changed Paths:
     Assert-Condition -Condition ($nestedDriftInitialEntry.Count -eq 1 -and $nestedDriftFinalEntry.Count -eq 1) -Message "Nested-directory drift fixture did not receipt both the initial and final nested directory snapshots."
     Assert-Condition -Condition ([string]$nestedDriftInitialEntry[0].digestSource -eq "working-tree-directory") -Message "Nested-directory drift fixture did not receipt working-tree-directory on the initial snapshot."
     Assert-Condition -Condition ([string]$nestedDriftFinalEntry[0].digestSource -eq "working-tree-directory") -Message "Nested-directory drift fixture did not receipt working-tree-directory on the final snapshot."
-    Assert-Condition -Condition ([string]$nestedDriftInitialEntry[0].digest -ne [string]$nestedDriftFinalEntry[0].digest) -Message "Nested-directory drift fixture did not detect the nested directory fingerprint change."
+    Assert-Condition -Condition ([string]$nestedDriftInitialEntry[0].digest -ne [string]$nestedDriftFinalEntry[0].digest) -Message "Nested-directory drift fixture did not prove ordinary untracked directory drift remains fail-closed."
     Assert-Condition -Condition (@($nestedDirectoryDriftRun.Manifest.dirtyInventory.preservationViolations | Where-Object { $_ -match [regex]::Escape($nestedDirectoryDriftFixture.StatusPath) }).Count -gt 0) -Message "Nested-directory drift fixture did not receipt a preservation violation for the nested repo directory."
     $nestedDriftStatusAfter = Invoke-GitChecked -WorkingDirectory $nestedDirectoryDriftRepo -Arguments @("status", "--porcelain=v1", "--untracked-files=all")
     Assert-Condition -Condition (($nestedDriftStatusAfter.StdOut -split "`r?`n") -contains ("?? {0}" -f $nestedDirectoryDriftFixture.StatusPath)) -Message "Nested-directory drift fixture changed the outer nested-repo dirt line instead of relying on the directory digest."

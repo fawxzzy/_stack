@@ -41,6 +41,12 @@
   If an admitted path is already dirty, the run fails before Codex execution.
 - Pre-existing dirt must remain digest-stable.
   Working-tree files keep a streamed SHA-256 file digest, missing tracked files keep their `HEAD` blob identity, and existing dirty directories receive a deterministic `working-tree-directory` fingerprint.
+- Nested registered owner worktrees are identity-protected leased resources.
+  An untracked directory is classified as `mutable_registered_worktree` only when its `.git` entry is a file, the gitfile target resolves to an existing linked-worktree gitdir, Git resolves the same canonical worktree path, the owner common Git directory is stable, and that owner registration belongs to a nested owner repository rather than the canonical Atlas root.
+- Mutable registered owner worktrees may drift internally without blocking the canonical run.
+  The writer does not recursively content-hash `mutable_registered_worktree` contents, allows file, index, branch, `HEAD`, and status drift inside that leased owner worktree, and receipts the observation with `contentDriftObserved`.
+- Registered-worktree identity drift still fails closed.
+  If the linked worktree disappears, the `.git` pointer is deleted or retargeted, the resolved linked-worktree gitdir changes, the owner common Git directory changes, or Git no longer resolves the same registered worktree path, the canonical run fails closed through dirty preservation.
 - Directory dirt is fingerprinted recursively and fail-closed.
   The directory fingerprint walks sorted relative entry paths, records each entry path and entry type, streams file contents into the hash without building one giant whole-tree byte array, and fails the run closed if anything inside the pre-existing dirty directory drifts during the task.
 - Reparse-point directories are recorded but not descended.
@@ -97,6 +103,14 @@ The canonical `.git` guard follows that rule directly:
 `Directory Dirt Fingerprint`
 
 - When git reports a pre-existing dirty directory entry such as an untracked nested repo boundary, preserve it by a deterministic recursive fingerprint rather than treating the directory like a file path.
+
+`Registered Worktree Lease`
+
+- A nested owner-linked worktree beneath `C:\ATLAS` is preserved by stable registration identity, not by freezing its working contents, because the owner repository remains concurrently mutable outside the canonical writer.
+
+`Registered Worktree Drift Observation`
+
+- Volatile owner-worktree file, status, and `HEAD` changes are observed and receipted with `contentDriftObserved`, but they are not preservation violations unless the registration identity itself drifts.
 
 `Fail-Closed Directory Drift`
 

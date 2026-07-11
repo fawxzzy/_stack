@@ -28,6 +28,7 @@ if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction Sile
 . (Join-Path -Path $PSScriptRoot -ChildPath "CodexRunner.Common.ps1")
 
 $script:CanonicalRootValidationState = $null
+$script:CanonicalRootCommonGitDirectory = $null
 
 function Import-CanonicalRuntimeConfiguration {
     param(
@@ -380,6 +381,8 @@ function Resolve-CanonicalRoot {
         throw ("Canonical workspace root must be the repository toplevel. Resolved {0} to {1}." -f $resolvedPath, $topLevel)
     }
 
+    $script:CanonicalRootCommonGitDirectory = Resolve-GitPathOutput -WorkingDirectory $resolvedPath -Arguments @("rev-parse", "--path-format=absolute", "--git-common-dir") -Description "git rev-parse --path-format=absolute --git-common-dir"
+
     return $resolvedPath
 }
 
@@ -420,6 +423,43 @@ function Get-CanonicalPathMetadata {
         isReparsePoint = $isReparsePoint
         pathType = $pathType
     }
+}
+
+function Test-CanonicalPathEquality {
+    param(
+        [string]$LeftPath,
+        [string]$RightPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($LeftPath) -or [string]::IsNullOrWhiteSpace($RightPath)) {
+        return $false
+    }
+
+    $comparison = if (Test-WindowsPlatform) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+    $left = [System.IO.Path]::GetFullPath($LeftPath).TrimEnd("\", "/")
+    $right = [System.IO.Path]::GetFullPath($RightPath).TrimEnd("\", "/")
+    return $left.Equals($right, $comparison)
+}
+
+function Test-CanonicalPathDescendant {
+    param(
+        [string]$Path,
+        [string]$ParentPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($ParentPath)) {
+        return $false
+    }
+
+    $comparison = if (Test-WindowsPlatform) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+    $resolvedPath = [System.IO.Path]::GetFullPath($Path).TrimEnd("\", "/")
+    $resolvedParent = [System.IO.Path]::GetFullPath($ParentPath).TrimEnd("\", "/")
+    if ($resolvedPath.Equals($resolvedParent, $comparison)) {
+        return $false
+    }
+
+    $parentPrefix = $resolvedParent + [System.IO.Path]::DirectorySeparatorChar
+    return $resolvedPath.StartsWith($parentPrefix, $comparison)
 }
 
 function ConvertTo-DigestRelativePath {
@@ -480,6 +520,196 @@ function ConvertTo-Sha256DigestString {
     param([byte[]]$HashBytes)
 
     return "sha256:{0}" -f ([System.BitConverter]::ToString($HashBytes).Replace("-", "").ToLowerInvariant())
+}
+
+function Get-TextDigest {
+    param([AllowNull()][string]$Text)
+
+    $hash = [System.Security.Cryptography.IncrementalHash]::CreateHash([System.Security.Cryptography.HashAlgorithmName]::SHA256)
+    try {
+        Add-HashText -Hash $hash -Text ([string]$Text)
+        return ConvertTo-Sha256DigestString -HashBytes $hash.GetHashAndReset()
+    }
+    finally {
+        $hash.Dispose()
+    }
+}
+
+function Resolve-GitPathOutput {
+    param(
+        [string]$WorkingDirectory,
+        [string[]]$Arguments,
+        [string]$Description
+    )
+
+    $result = Invoke-Git -Arguments $Arguments -WorkingDirectory $WorkingDirectory
+    if ($result.ExitCode -ne 0) {
+        $errorText = if (-not [string]::IsNullOrWhiteSpace($result.StdErr)) { $result.StdErr.Trim() } else { $result.StdOut.Trim() }
+        throw ("{0} failed for {1}: {2}" -f $Description, $WorkingDirectory, $errorText)
+    }
+
+    $value = $result.StdOut.Trim()
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        throw ("{0} returned an empty path for {1}." -f $Description, $WorkingDirectory)
+    }
+
+    return [System.IO.Path]::GetFullPath($value)
+}
+
+function Resolve-GitFileTargetPath {
+    param([string]$GitFilePath)
+
+    $lines = @(
+        (Get-Content -LiteralPath $GitFilePath) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+    )
+    if ($lines.Count -ne 1) {
+        throw ("Ambiguous gitfile contents: {0}" -f $GitFilePath)
+    }
+
+    $line = [string]$lines[0]
+    if (-not $line.StartsWith("gitdir:", [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw ("Invalid gitfile contents: {0}" -f $GitFilePath)
+    }
+
+    $targetText = $line.Substring(7).Trim()
+    if ([string]::IsNullOrWhiteSpace($targetText)) {
+        throw ("Gitfile target is empty: {0}" -f $GitFilePath)
+    }
+
+    if ([System.IO.Path]::IsPathRooted($targetText)) {
+        return [System.IO.Path]::GetFullPath($targetText)
+    }
+
+    return [System.IO.Path]::GetFullPath((Join-Path -Path (Split-Path -Path $GitFilePath -Parent) -ChildPath $targetText))
+}
+
+function Get-RegisteredWorktreeVolatileObservation {
+    param([string]$WorkingDirectory)
+
+    $headResult = Invoke-Git -Arguments @("rev-parse", "HEAD") -WorkingDirectory $WorkingDirectory
+    if ($headResult.ExitCode -ne 0) {
+        $errorText = if (-not [string]::IsNullOrWhiteSpace($headResult.StdErr)) { $headResult.StdErr.Trim() } else { $headResult.StdOut.Trim() }
+        throw ("git rev-parse HEAD failed for {0}: {1}" -f $WorkingDirectory, $errorText)
+    }
+
+    $statusResult = Invoke-Git -Arguments @("status", "--porcelain=v1", "--branch", "--untracked-files=all") -WorkingDirectory $WorkingDirectory
+    if ($statusResult.ExitCode -ne 0) {
+        $errorText = if (-not [string]::IsNullOrWhiteSpace($statusResult.StdErr)) { $statusResult.StdErr.Trim() } else { $statusResult.StdOut.Trim() }
+        throw ("git status --porcelain=v1 --branch --untracked-files=all failed for {0}: {1}" -f $WorkingDirectory, $errorText)
+    }
+
+    $statusText = ($statusResult.StdOut -replace "`r`n", "`n").TrimEnd("`n")
+    return [pscustomobject]@{
+        headCommit = $headResult.StdOut.Trim()
+        statusDigest = Get-TextDigest -Text $statusText
+    }
+}
+
+function Test-RegisteredWorktreeIdentityMatch {
+    param(
+        $LeftIdentity,
+        $RightIdentity
+    )
+
+    if ($null -eq $LeftIdentity -or $null -eq $RightIdentity) {
+        return $false
+    }
+
+    foreach ($fieldName in @("canonicalWorktreePath", "gitfileTarget", "linkedWorktreeGitDirectory", "ownerCommonGitDirectory")) {
+        $leftValue = [string](Get-ObjectPropertyValue -Object $LeftIdentity -Name $fieldName -DefaultValue "")
+        $rightValue = [string](Get-ObjectPropertyValue -Object $RightIdentity -Name $fieldName -DefaultValue "")
+        if (-not (Test-CanonicalPathEquality -LeftPath $leftValue -RightPath $rightValue)) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
+function Resolve-MutableRegisteredWorktreeCandidate {
+    param($PathMetadata)
+
+    $gitEntryPath = Join-Path -Path $PathMetadata.absolutePath -ChildPath ".git"
+    if (-not (Test-Path -LiteralPath $gitEntryPath)) {
+        return [pscustomobject]@{
+            isCandidate = $false
+            isValid = $false
+            errorReason = $null
+            record = $null
+        }
+    }
+
+    if (Test-Path -LiteralPath $gitEntryPath -PathType Container) {
+        return [pscustomobject]@{
+            isCandidate = $false
+            isValid = $false
+            errorReason = $null
+            record = $null
+        }
+    }
+
+    try {
+        $gitfileTarget = Resolve-GitFileTargetPath -GitFilePath $gitEntryPath
+        if (-not (Test-Path -LiteralPath $gitfileTarget -PathType Container)) {
+            throw ("Gitfile target does not exist: {0}" -f $gitfileTarget)
+        }
+
+        $resolvedGitDirectory = Resolve-GitPathOutput -WorkingDirectory $PathMetadata.absolutePath -Arguments @("rev-parse", "--absolute-git-dir") -Description "git rev-parse --absolute-git-dir"
+        $ownerCommonGitDirectory = Resolve-GitPathOutput -WorkingDirectory $PathMetadata.absolutePath -Arguments @("rev-parse", "--path-format=absolute", "--git-common-dir") -Description "git rev-parse --path-format=absolute --git-common-dir"
+        $resolvedWorktreePath = Resolve-GitPathOutput -WorkingDirectory $PathMetadata.absolutePath -Arguments @("rev-parse", "--show-toplevel") -Description "git rev-parse --show-toplevel"
+
+        if (-not (Test-Path -LiteralPath $resolvedGitDirectory -PathType Container)) {
+            throw ("Resolved linked-worktree gitdir does not exist: {0}" -f $resolvedGitDirectory)
+        }
+        if (-not (Test-Path -LiteralPath $ownerCommonGitDirectory -PathType Container)) {
+            throw ("Owner common Git directory does not exist: {0}" -f $ownerCommonGitDirectory)
+        }
+        if (-not (Test-CanonicalPathEquality -LeftPath $resolvedWorktreePath -RightPath $PathMetadata.absolutePath)) {
+            throw ("Registered worktree path mismatch: {0}" -f $resolvedWorktreePath)
+        }
+        if (-not (Test-CanonicalPathEquality -LeftPath $gitfileTarget -RightPath $resolvedGitDirectory)) {
+            throw ("Gitfile target mismatch: {0}" -f $gitfileTarget)
+        }
+
+        $linkedWorktreeRoot = Join-Path -Path $ownerCommonGitDirectory -ChildPath "worktrees"
+        if (-not (Test-CanonicalPathDescendant -Path $resolvedGitDirectory -ParentPath $linkedWorktreeRoot)) {
+            throw ("Resolved linked-worktree gitdir is not beneath owner worktrees: {0}" -f $resolvedGitDirectory)
+        }
+        if (Test-CanonicalPathEquality -LeftPath $ownerCommonGitDirectory -RightPath $script:CanonicalRootCommonGitDirectory) {
+            throw ("Registered worktree is owned by the canonical root repository: {0}" -f $ownerCommonGitDirectory)
+        }
+
+        $registrationIdentity = [ordered]@{
+            canonicalWorktreePath = $resolvedWorktreePath
+            gitfileTarget = $gitfileTarget
+            linkedWorktreeGitDirectory = $resolvedGitDirectory
+            ownerCommonGitDirectory = $ownerCommonGitDirectory
+        }
+
+        return [pscustomobject]@{
+            isCandidate = $true
+            isValid = $true
+            errorReason = $null
+            record = [pscustomobject]@{
+                source = "registered-worktree-identity"
+                preservationKind = "mutable_registered_worktree"
+                digest = Get-TextDigest -Text (($registrationIdentity | ConvertTo-Json -Compress))
+                registrationIdentity = [pscustomobject]$registrationIdentity
+                registrationError = $null
+                volatileObservation = Get-RegisteredWorktreeVolatileObservation -WorkingDirectory $PathMetadata.absolutePath
+                contentDriftObserved = $false
+            }
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            isCandidate = $true
+            isValid = $false
+            errorReason = $_.Exception.Message
+            record = $null
+        }
+    }
 }
 
 function Add-DirectoryDigestEntries {
@@ -592,36 +822,84 @@ function Resolve-HeadObjectDigest {
 function Resolve-DigestValue {
     param(
         [string]$WorkingDirectory,
-        $PathMetadata
+        $PathMetadata,
+        [string]$StatusCode,
+        [string]$SnapshotPhase = "initial"
     )
 
     if ($PathMetadata.exists) {
         if ($PathMetadata.isDirectory) {
+            if ($StatusCode -eq "??") {
+                $registeredWorktreeCandidate = Resolve-MutableRegisteredWorktreeCandidate -PathMetadata $PathMetadata
+                if ($registeredWorktreeCandidate.isCandidate) {
+                    if ($registeredWorktreeCandidate.isValid) {
+                        return $registeredWorktreeCandidate.record
+                    }
+
+                    if ($SnapshotPhase -eq "initial") {
+                        throw ("Pre-existing dirty path cannot be classified as mutable_registered_worktree: {0}. {1}" -f $PathMetadata.relativePath, $registeredWorktreeCandidate.errorReason)
+                    }
+
+                    return [pscustomobject]@{
+                        source = "registered-worktree-identity"
+                        preservationKind = "mutable_registered_worktree"
+                        digest = $null
+                        registrationIdentity = $null
+                        registrationError = $registeredWorktreeCandidate.errorReason
+                        volatileObservation = $null
+                        contentDriftObserved = $false
+                    }
+                }
+            }
+
             return [pscustomobject]@{
                 source = "working-tree-directory"
                 digest = Get-WorkingTreeDirectoryDigest -AbsolutePath $PathMetadata.absolutePath -RelativePath $PathMetadata.relativePath -IsReparsePoint $PathMetadata.isReparsePoint
+                preservationKind = "protected_ordinary_dirt"
+                registrationIdentity = $null
+                registrationError = $null
+                volatileObservation = $null
+                contentDriftObserved = $false
             }
         }
 
         return [pscustomobject]@{
             source = "working-tree-file"
             digest = Get-WorkingTreeFileDigest -AbsolutePath $PathMetadata.absolutePath
+            preservationKind = "protected_ordinary_dirt"
+            registrationIdentity = $null
+            registrationError = $null
+            volatileObservation = $null
+            contentDriftObserved = $false
         }
     }
 
     $headDigest = Resolve-HeadObjectDigest -WorkingDirectory $WorkingDirectory -RelativePath $PathMetadata.relativePath
     if ($null -ne $headDigest) {
+        $headDigest | Add-Member -NotePropertyName preservationKind -NotePropertyValue "protected_ordinary_dirt"
+        $headDigest | Add-Member -NotePropertyName registrationIdentity -NotePropertyValue $null
+        $headDigest | Add-Member -NotePropertyName registrationError -NotePropertyValue $null
+        $headDigest | Add-Member -NotePropertyName volatileObservation -NotePropertyValue $null
+        $headDigest | Add-Member -NotePropertyName contentDriftObserved -NotePropertyValue $false
         return $headDigest
     }
 
     return [pscustomobject]@{
         source = "missing"
         digest = $null
+        preservationKind = "protected_ordinary_dirt"
+        registrationIdentity = $null
+        registrationError = $null
+        volatileObservation = $null
+        contentDriftObserved = $false
     }
 }
 
 function Get-DirtySnapshot {
-    param([string]$WorkingDirectory)
+    param(
+        [string]$WorkingDirectory,
+        [string]$SnapshotPhase = "initial"
+    )
 
     $statusResult = Invoke-Git -Arguments @("status", "--porcelain=v1", "--untracked-files=all") -WorkingDirectory $WorkingDirectory
     Assert-CommandSucceeded -Result $statusResult -Description "git status --porcelain=v1 --untracked-files=all"
@@ -641,15 +919,20 @@ function Get-DirtySnapshot {
 
         $relativePath = $pathText.Replace("\", "/")
         $pathMetadata = Get-CanonicalPathMetadata -RepoRoot $WorkingDirectory -RelativePath $relativePath
-        $digestRecord = Resolve-DigestValue -WorkingDirectory $WorkingDirectory -PathMetadata $pathMetadata
+        $digestRecord = Resolve-DigestValue -WorkingDirectory $WorkingDirectory -PathMetadata $pathMetadata -StatusCode $statusCode -SnapshotPhase $SnapshotPhase
         $entry = [pscustomobject]@{
             path = $relativePath
             status = $statusCode
             indexStatus = $statusCode.Substring(0, 1)
             worktreeStatus = $statusCode.Substring(1, 1)
             exists = $pathMetadata.exists
+            preservationKind = $digestRecord.preservationKind
             digestSource = $digestRecord.source
             digest = $digestRecord.digest
+            registrationIdentity = $digestRecord.registrationIdentity
+            registrationError = $digestRecord.registrationError
+            volatileObservation = $digestRecord.volatileObservation
+            contentDriftObserved = [bool]$digestRecord.contentDriftObserved
         }
         $entries.Add($entry) | Out-Null
         $map[$relativePath] = $entry
@@ -699,6 +982,35 @@ function Compare-DirtySnapshot {
         $currentEntry = Get-ObjectPropertyValue -Object $CurrentSnapshot.byPath -Name $entry.path -DefaultValue $null
         if ($null -eq $currentEntry) {
             [void]$violations.Add(("Pre-existing dirty path changed unexpectedly: {0} became clean or disappeared." -f $entry.path))
+            continue
+        }
+
+        if ([string]$entry.preservationKind -ne [string]$currentEntry.preservationKind) {
+            [void]$violations.Add(("Pre-existing dirty path changed unexpectedly: {0}" -f $entry.path))
+            continue
+        }
+
+        if ([string]$entry.preservationKind -eq "mutable_registered_worktree") {
+            if (-not [string]::IsNullOrWhiteSpace([string]$currentEntry.registrationError)) {
+                [void]$violations.Add(("Pre-existing dirty path changed unexpectedly: {0}" -f $entry.path))
+                continue
+            }
+
+            if (
+                [string]$entry.status -ne [string]$currentEntry.status -or
+                -not (Test-RegisteredWorktreeIdentityMatch -LeftIdentity $entry.registrationIdentity -RightIdentity $currentEntry.registrationIdentity)
+            ) {
+                [void]$violations.Add(("Pre-existing dirty path changed unexpectedly: {0}" -f $entry.path))
+                continue
+            }
+
+            $currentEntry.contentDriftObserved = (
+                [string](Get-ObjectPropertyValue -Object $entry.volatileObservation -Name "headCommit" -DefaultValue "") -ne
+                [string](Get-ObjectPropertyValue -Object $currentEntry.volatileObservation -Name "headCommit" -DefaultValue "")
+            ) -or (
+                [string](Get-ObjectPropertyValue -Object $entry.volatileObservation -Name "statusDigest" -DefaultValue "") -ne
+                [string](Get-ObjectPropertyValue -Object $currentEntry.volatileObservation -Name "statusDigest" -DefaultValue "")
+            )
             continue
         }
 
@@ -1194,7 +1506,7 @@ try {
         $verificationCommands = @($promptRecord.Verify)
     }
 
-    $initialDirtySnapshot = Filter-DirtySnapshot -Snapshot (Get-DirtySnapshot -WorkingDirectory $repoRoot) -ExactPaths $internalArtifactExactPaths -Prefixes $internalArtifactPathPrefixes
+    $initialDirtySnapshot = Filter-DirtySnapshot -Snapshot (Get-DirtySnapshot -WorkingDirectory $repoRoot -SnapshotPhase "initial") -ExactPaths $internalArtifactExactPaths -Prefixes $internalArtifactPathPrefixes
     $preExistingStagedPaths = @(Test-AnyInitialStagedDirt -Snapshot $initialDirtySnapshot)
     if ($preExistingStagedPaths.Count -gt 0) {
         $status = "mutation_admission_failed"
@@ -1298,7 +1610,7 @@ try {
         }
     }
 
-    $currentDirtySnapshot = Filter-DirtySnapshot -Snapshot (Get-DirtySnapshot -WorkingDirectory $repoRoot) -ExactPaths $internalArtifactExactPaths -Prefixes $internalArtifactPathPrefixes
+    $currentDirtySnapshot = Filter-DirtySnapshot -Snapshot (Get-DirtySnapshot -WorkingDirectory $repoRoot -SnapshotPhase "final") -ExactPaths $internalArtifactExactPaths -Prefixes $internalArtifactPathPrefixes
     $dirtyPreservationViolations = @(Compare-DirtySnapshot -InitialSnapshot $initialDirtySnapshot -CurrentSnapshot $currentDirtySnapshot -AdmittedPaths $admittedChangedPaths)
     if ($dirtyPreservationViolations.Count -gt 0) {
         $status = "dirty_preservation_failed"
