@@ -15,14 +15,26 @@
 - Contract: `ops/codex/execution-classes/atlas-workspace.writer.json`
 - Runtime defaults: `ops/codex/repos/stack/config.toml`
 
+## Native Codex Resolution
+
+- On Windows, the writer resolves the Codex executable with exact precedence: explicit `-CodexCommand`, then merged `[windows].codex_command`, then native PATH fallback.
+- Configured command strings still use the repo task runner expansion semantics: `${HOME}` and environment variables are expanded before resolution.
+- The Windows PATH fallback is native-only and prefers `codex.exe` before `codex`.
+- The writer never passes a PowerShell shim, `.cmd`, `.bat`, extensionless npm shim, or any other non-native wrapper directly to `ProcessStartInfo.FileName` while `UseShellExecute=false`.
+- Invalid pre-execution resolution fails closed with stable reason codes: `canonical_workspace_codex_native_executable_required` or `canonical_workspace_codex_native_executable_not_found`.
+
 ## Safety Contracts
 
 - Canonical root validation is explicit and fail-closed.
   The path must be absolute, must resolve to a directory named `ATLAS`, must be the git toplevel, and must expose a real `.git` directory rather than a linked-worktree gitfile. The rejection path preserves the stable reason code `canonical_workspace_git_directory_required`.
+- The writer resolves and validates the native Codex executable before runtime-policy probing or process execution.
+  If the chosen source does not resolve to a native Windows executable, the run stops before `Resolve-StackRuntimePolicy`, before `codex --version`, and before `codex exec`.
 - Mutation is read-only by default.
   A mutating prompt must explicitly admit exact repo-relative task-owned paths through `Mutation Admission Path(s)` or `Admitted Changed Path(s)` metadata, or matching explicit command arguments.
 - The writer acquires an exclusive lock at `.codex/locks/atlas-workspace-writer.lock.json`.
   The lock receipts owner metadata, blocks contention, preserves stale-lock crash diagnostics, and only releases when the current run still owns the lock file.
+- The writer creates the canonical artifact roots before use.
+  `.codex/archive`, `.codex/logs`, and `.codex/locks` are created before the run writes receipts, acquires the canonical writer lock, or starts Codex, so prompt archival succeeds even when `.codex/archive` was absent at run start.
 - The writer snapshots the initial dirty inventory before execution.
   Each dirty path is receipted with status, digest source, and digest so pre-existing operator-owned dirt can be preserved rather than restaged or recommitted.
 - Every admitted task-owned path must start clean.
@@ -48,6 +60,8 @@
   - `codex_version`
   - `warnings`
   - `blockers`
+- The receipt also records `codexCommand`.
+  The same resolved native executable path is receipted there, passed into `Resolve-StackRuntimePolicy`, and used for process execution so `codex_version` and the executed binary stay aligned.
 - The completed receipt also records:
   - `executionClass`
   - `canonicalRootValidation`

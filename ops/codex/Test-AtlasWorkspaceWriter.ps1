@@ -93,15 +93,17 @@ function New-FakeCodexTooling {
     param([string]$ToolRoot)
 
     $fakeCodexJsPath = Join-Path -Path $ToolRoot -ChildPath "fake-codex.mjs"
-    $fakeCodexCmdPath = Join-Path -Path $ToolRoot -ChildPath "fake-codex.cmd"
+    $fakeCodexExePath = Join-Path -Path $ToolRoot -ChildPath "fake-codex.exe"
+    $nodePath = (Get-Command node -ErrorAction Stop).Source
     $fakeCodexJs = @'
 import fs from "node:fs";
 import path from "node:path";
 
 const args = process.argv.slice(2);
+const wrapperPath = process.env.FAKE_CODEX_WRAPPER_PATH ?? "";
 
 if (args[0] === "--version") {
-  process.stdout.write("codex-cli 0.142.5-canonical-fixture\n");
+  process.stdout.write(`codex-cli 0.142.5-canonical-fixture ${path.basename(wrapperPath || "unknown")}\n`);
   process.exit(0);
 }
 
@@ -135,7 +137,17 @@ if (!summaryPath || !repoRoot) {
 }
 
 const prompt = fs.readFileSync(0, "utf8");
+const archiveRoot = path.join(repoRoot, ".codex", "archive");
+const locksRoot = path.join(repoRoot, ".codex", "locks");
 const logsRoot = path.join(repoRoot, ".codex", "logs");
+if (!fs.existsSync(archiveRoot)) {
+  process.stderr.write("Canonical writer did not create the archive directory before Codex execution.\n");
+  process.exit(29);
+}
+if (!fs.existsSync(locksRoot)) {
+  process.stderr.write("Canonical writer did not create the lock directory before Codex execution.\n");
+  process.exit(30);
+}
 const logDirectories = fs.existsSync(logsRoot)
   ? fs.readdirSync(logsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
   : [];
@@ -152,9 +164,21 @@ if (!fs.existsSync(manifestPath)) {
 }
 
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+if (!manifest.codexCommand || !manifest.codexCommand.path) {
+  process.stderr.write("Canonical writer did not receipt the resolved Codex command before execution.\n");
+  process.exit(36);
+}
 if (!manifest.runtimePolicy || !manifest.runtimePolicy.requested || !manifest.runtimePolicy.resolved || !manifest.runtimePolicy.sources) {
   process.stderr.write("Canonical writer did not receipt runtimePolicy before execution.\n");
   process.exit(33);
+}
+if (path.resolve(manifest.codexCommand.path) !== path.resolve(wrapperPath)) {
+  process.stderr.write(`Canonical writer receipted ${manifest.codexCommand.path} but executed ${wrapperPath}.\n`);
+  process.exit(37);
+}
+if (!String(manifest.runtimePolicy.codex_version ?? manifest.runtimePolicy.resolved?.codex_version ?? "").includes(path.basename(wrapperPath))) {
+  process.stderr.write("Canonical writer did not use the executed native binary for runtime-policy CLI receipt.\n");
+  process.exit(38);
 }
 
 if (prompt.includes("Scenario: runtime-policy-legacy")) {
@@ -214,26 +238,126 @@ if (prompt.includes("Scenario: mutate-preexisting-directory-path")) {
   writeArtifacts();
 }
 
+fs.writeFileSync(path.join(latestLogDirectory, "fake-codex.execution.json"), `${JSON.stringify({
+  wrapperPath,
+  summaryPath,
+  repoRoot,
+  args
+}, null, 2)}\n`, "utf8");
 fs.writeFileSync(summaryPath, "Fake Codex completed the canonical workspace fixture.\n", "utf8");
 process.stdout.write('{"status":"ok"}\n');
 '@
+    $wrapperSource = @'
+using System;
+using System.Diagnostics;
+using System.IO;
+
+public static class FakeCodexLauncher
+{
+    public static int Main(string[] args)
+    {
+        var nodePath = Environment.GetEnvironmentVariable("FAKE_CODEX_NODE_PATH");
+        var scriptPath = Environment.GetEnvironmentVariable("FAKE_CODEX_SCRIPT_PATH");
+        if (string.IsNullOrWhiteSpace(nodePath) || string.IsNullOrWhiteSpace(scriptPath))
+        {
+            Console.Error.WriteLine("FAKE_CODEX_NODE_PATH and FAKE_CODEX_SCRIPT_PATH are required.");
+            return 93;
+        }
+
+        var startInfo = new ProcessStartInfo();
+        startInfo.FileName = nodePath;
+        startInfo.Arguments = Quote(scriptPath) + BuildArguments(args);
+        startInfo.UseShellExecute = false;
+        startInfo.RedirectStandardInput = true;
+        startInfo.RedirectStandardOutput = true;
+        startInfo.RedirectStandardError = true;
+        startInfo.CreateNoWindow = true;
+        startInfo.EnvironmentVariables["FAKE_CODEX_WRAPPER_PATH"] = Process.GetCurrentProcess().MainModule.FileName;
+
+        using (var process = new Process())
+        {
+            process.StartInfo = startInfo;
+            process.Start();
+
+            var stdin = Console.IsInputRedirected ? Console.In.ReadToEnd() : string.Empty;
+            process.StandardInput.Write(stdin);
+            process.StandardInput.Close();
+
+            var stdout = process.StandardOutput.ReadToEnd();
+            var stderr = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (!string.IsNullOrEmpty(stdout))
+            {
+                Console.Out.Write(stdout);
+            }
+            if (!string.IsNullOrEmpty(stderr))
+            {
+                Console.Error.Write(stderr);
+            }
+
+            return process.ExitCode;
+        }
+    }
+
+    private static string BuildArguments(string[] args)
+    {
+        if (args == null || args.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var parts = new string[args.Length];
+        for (var i = 0; i < args.Length; i++)
+        {
+            parts[i] = Quote(args[i]);
+        }
+
+        return " " + string.Join(" ", parts);
+    }
+
+    private static string Quote(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "\"\"";
+        }
+
+        if (value.IndexOfAny(new[] { ' ', '\t', '"' }) < 0)
+        {
+            return value;
+        }
+
+        return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    }
+}
+'@
     [System.IO.File]::WriteAllText($fakeCodexJsPath, $fakeCodexJs.TrimStart("`r", "`n") + "`r`n")
-    [System.IO.File]::WriteAllText($fakeCodexCmdPath, "@echo off`r`nnode ""%~dp0fake-codex.mjs"" %*`r`n")
+    Add-Type -TypeDefinition $wrapperSource -Language CSharp -OutputAssembly $fakeCodexExePath -OutputType ConsoleApplication | Out-Null
 
     return [pscustomobject]@{
-        CommandPath = $fakeCodexCmdPath
+        CommandPath = $fakeCodexExePath
+        NativeCommandPath = $fakeCodexExePath
+        NodePath = $nodePath
+        ScriptPath = $fakeCodexJsPath
+        PathEntry = $ToolRoot
     }
 }
 
 function New-FixtureRepo {
     param(
         [string]$BaseRoot,
-        [string]$Name = "ATLAS"
+        [string]$Name = "ATLAS",
+        [switch]$SkipArchiveDirectory
     )
 
     $repoRoot = Join-Path -Path $BaseRoot -ChildPath $Name
     New-Item -ItemType Directory -Path $repoRoot -Force | Out-Null
-    foreach ($relativePath in @(".codex\archive", ".codex\exports", ".codex\inbox", ".codex\logs", ".codex\locks", "docs")) {
+    $fixtureDirectories = @(".codex\exports", ".codex\inbox", ".codex\logs", ".codex\locks", "docs")
+    if (-not $SkipArchiveDirectory.IsPresent) {
+        $fixtureDirectories = @(".codex\archive") + $fixtureDirectories
+    }
+    foreach ($relativePath in $fixtureDirectories) {
         New-Item -ItemType Directory -Path (Join-Path -Path $repoRoot -ChildPath $relativePath) -Force | Out-Null
     }
 
@@ -292,14 +416,35 @@ function New-PromptFile {
     return $promptPath
 }
 
+function New-RuntimeConfigFile {
+    param(
+        [string]$BaseRoot,
+        [string]$FileName,
+        [string]$WindowsCodexCommand
+    )
+
+    $configPath = Join-Path -Path $BaseRoot -ChildPath $FileName
+    $normalizedWindowsCodexCommand = $WindowsCodexCommand.Replace("\", "/")
+    $content = @(
+        "[windows]",
+        ('codex_command = "{0}"' -f $normalizedWindowsCodexCommand),
+        ""
+    ) -join "`r`n"
+    [System.IO.File]::WriteAllText($configPath, $content)
+    return $configPath
+}
+
 function Invoke-CanonicalWriterFixture {
     param(
         [string]$RunnerPath,
         [string]$RepoRoot,
         [string]$PromptPath,
-        [string]$FakeCodexPath,
+        $FakeCodex,
         $GitWrapper,
         [string]$CanonicalRootOverride = "",
+        [string]$RuntimeConfigPath = ".\ops\codex\repos\stack\config.toml",
+        [AllowNull()]
+        [string]$CodexCommandOverride = $null,
         [string[]]$AdditionalArguments = @()
     )
 
@@ -309,10 +454,12 @@ function Invoke-CanonicalWriterFixture {
     }
 
     $environment = @{
-        PATH = "{0};{1}" -f $GitWrapper.PathEntry, $env:PATH
+        PATH = "{0};{1};{2}" -f $GitWrapper.PathEntry, $FakeCodex.PathEntry, $env:PATH
         REAL_GIT = $GitWrapper.RealGit
         GIT_WRAPPER_LOG_PATH = $GitWrapper.LogPath
         STACK_GIT_COMMAND = (Join-Path -Path $GitWrapper.PathEntry -ChildPath "git.cmd")
+        FAKE_CODEX_NODE_PATH = $FakeCodex.NodePath
+        FAKE_CODEX_SCRIPT_PATH = $FakeCodex.ScriptPath
     }
 
     $arguments = @(
@@ -321,10 +468,12 @@ function Invoke-CanonicalWriterFixture {
         "-File", $RunnerPath,
         "-PromptPath", $PromptPath,
         "-CanonicalRootPath", $(if ([string]::IsNullOrWhiteSpace($CanonicalRootOverride)) { $RepoRoot } else { $CanonicalRootOverride }),
-        "-RuntimeConfigPath", ".\ops\codex\repos\stack\config.toml",
-        "-ExecutionClassPath", ".\ops\codex\execution-classes\atlas-workspace.writer.json",
-        "-CodexCommand", $FakeCodexPath
+        "-RuntimeConfigPath", $RuntimeConfigPath,
+        "-ExecutionClassPath", ".\ops\codex\execution-classes\atlas-workspace.writer.json"
     ) + $AdditionalArguments
+    if ($PSBoundParameters.ContainsKey("CodexCommandOverride") -and -not [string]::IsNullOrWhiteSpace($CodexCommandOverride)) {
+        $arguments += @("-CodexCommand", $CodexCommandOverride)
+    }
 
     $result = Invoke-ProcessCapture -FilePath $powershellExe -ArgumentList $arguments -WorkingDirectory (Resolve-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "..\..")).Path -Environment $environment
     $latestLogDirectory = Get-ChildItem -LiteralPath (Join-Path -Path $RepoRoot -ChildPath ".codex\logs") -Directory -ErrorAction SilentlyContinue |
@@ -337,11 +486,19 @@ function Invoke-CanonicalWriterFixture {
             $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
         }
     }
+    $executionRecord = $null
+    if ($null -ne $latestLogDirectory) {
+        $executionRecordPath = Join-Path -Path $latestLogDirectory.FullName -ChildPath "fake-codex.execution.json"
+        if (Test-Path -LiteralPath $executionRecordPath) {
+            $executionRecord = Get-Content -LiteralPath $executionRecordPath -Raw | ConvertFrom-Json
+        }
+    }
 
     return [pscustomobject]@{
         Result = $result
         Manifest = $manifest
         LogDirectory = if ($null -ne $latestLogDirectory) { $latestLogDirectory.FullName } else { $null }
+        ExecutionRecord = $executionRecord
     }
 }
 
@@ -362,7 +519,7 @@ Title: Invalid root
 Objective:
 Prove canonical root validation.
 "@
-    $invalidRootRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $invalidRoot -PromptPath $invalidPrompt -FakeCodexPath $fakeCodex.CommandPath -GitWrapper $gitWrapper -CanonicalRootOverride $invalidRoot
+    $invalidRootRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $invalidRoot -PromptPath $invalidPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CanonicalRootOverride $invalidRoot -CodexCommandOverride $fakeCodex.CommandPath
     Assert-Condition -Condition ($invalidRootRun.Result.ExitCode -ne 0) -Message "Canonical root validation fixture unexpectedly succeeded."
     Assert-Condition -Condition (($invalidRootRun.Result.StdOut + $invalidRootRun.Result.StdErr) -match "must end with 'ATLAS'") -Message "Canonical root validation fixture did not report the explicit ATLAS leaf-name requirement."
 
@@ -376,7 +533,7 @@ Prove the canonical writer accepts a real .git directory.
 
 Scenario: no-op
 "@
-    $realGitDirectoryRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $realGitDirectoryRepo -PromptPath $realGitDirectoryPrompt -FakeCodexPath $fakeCodex.CommandPath -GitWrapper $gitWrapper
+    $realGitDirectoryRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $realGitDirectoryRepo -PromptPath $realGitDirectoryPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
     Assert-Condition -Condition ($realGitDirectoryRun.Result.ExitCode -eq 0) -Message ("Real .git directory fixture failed. StdOut: {0} StdErr: {1}" -f $realGitDirectoryRun.Result.StdOut, $realGitDirectoryRun.Result.StdErr)
     Assert-Condition -Condition ($null -ne $realGitDirectoryRun.Manifest) -Message "Real .git directory fixture did not produce run.json."
     Assert-Condition -Condition ([string]$realGitDirectoryRun.Manifest.status -eq "success") -Message "Real .git directory fixture did not report success."
@@ -396,10 +553,85 @@ Title: Linked worktree gitfile
 Objective:
 Prove the canonical writer rejects a linked-worktree .git file.
 "@
-    $linkedWorktreeGitFileRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $linkedWorktreeGitFileRoot -PromptPath $linkedWorktreeGitFilePrompt -FakeCodexPath $fakeCodex.CommandPath -GitWrapper $gitWrapper
+    $linkedWorktreeGitFileRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $linkedWorktreeGitFileRoot -PromptPath $linkedWorktreeGitFilePrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
     $linkedWorktreeGitFileOutput = $linkedWorktreeGitFileRun.Result.StdOut + $linkedWorktreeGitFileRun.Result.StdErr
     Assert-Condition -Condition ($linkedWorktreeGitFileRun.Result.ExitCode -ne 0) -Message "Linked-worktree .git file fixture unexpectedly succeeded."
     Assert-Condition -Condition ($linkedWorktreeGitFileOutput -match "canonical_workspace_git_directory_required") -Message "Linked-worktree .git file fixture did not preserve the canonical_workspace_git_directory_required failure code."
+
+    $configuredNativeCommandPath = Join-Path -Path $toolRoot -ChildPath "configured-codex.exe"
+    Copy-Item -LiteralPath $fakeCodex.CommandPath -Destination $configuredNativeCommandPath -Force
+    $configuredRuntimeConfigPath = New-RuntimeConfigFile -BaseRoot $fixtureRoot -FileName "configured-runtime-config.toml" -WindowsCodexCommand $configuredNativeCommandPath
+    $configuredCommandRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "configured-command")
+    $configuredCommandPrompt = New-PromptFile -RepoRoot $configuredCommandRepo -FileName "configured-command.md" -Content @"
+Title: Configured native command
+Verify: git diff --check
+
+Objective:
+Prove the canonical writer resolves the configured native executable without -CodexCommand.
+
+Scenario: no-op
+"@
+    $configuredCommandRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $configuredCommandRepo -PromptPath $configuredCommandPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -RuntimeConfigPath $configuredRuntimeConfigPath
+    Assert-Condition -Condition ($configuredCommandRun.Result.ExitCode -eq 0) -Message ("Configured native command fixture failed. StdOut: {0} StdErr: {1}" -f $configuredCommandRun.Result.StdOut, $configuredCommandRun.Result.StdErr)
+    Assert-Condition -Condition ([string]$configuredCommandRun.Manifest.codexCommand.source -eq "runtime-config/windows.codex_command") -Message "Configured native command fixture did not receipt runtime-config/windows.codex_command as the source."
+    Assert-Condition -Condition ([string]$configuredCommandRun.Manifest.codexCommand.path -eq $configuredNativeCommandPath) -Message "Configured native command fixture did not receipt the configured native executable path."
+    Assert-Condition -Condition ($null -ne $configuredCommandRun.ExecutionRecord) -Message "Configured native command fixture did not record the executed fake Codex binary."
+    Assert-Condition -Condition ([string]$configuredCommandRun.ExecutionRecord.wrapperPath -eq $configuredNativeCommandPath) -Message "Configured native command fixture did not execute the configured native executable."
+    Assert-Condition -Condition ([string]$configuredCommandRun.Manifest.runtimePolicy.codex_version -match "configured-codex\.exe") -Message "Configured native command fixture did not receipt the configured native executable in runtime policy."
+
+    $pathFallbackNativeCommandPath = Join-Path -Path $toolRoot -ChildPath "codex.exe"
+    $pathFallbackShimPath = Join-Path -Path $toolRoot -ChildPath "codex.ps1"
+    Copy-Item -LiteralPath $fakeCodex.CommandPath -Destination $pathFallbackNativeCommandPath -Force
+    [System.IO.File]::WriteAllText($pathFallbackShimPath, "throw 'codex.ps1 shim should never be executed by the canonical writer.'`r`n")
+    $pathFallbackRuntimeConfigPath = New-RuntimeConfigFile -BaseRoot $fixtureRoot -FileName "path-fallback-runtime-config.toml" -WindowsCodexCommand ""
+    $pathFallbackRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "path-fallback")
+    $pathFallbackPrompt = New-PromptFile -RepoRoot $pathFallbackRepo -FileName "path-fallback.md" -Content @"
+Title: PATH native fallback
+Verify: git diff --check
+
+Objective:
+Prove the canonical writer prefers codex.exe over a PowerShell shim on PATH.
+
+Scenario: no-op
+"@
+    $pathFallbackRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $pathFallbackRepo -PromptPath $pathFallbackPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -RuntimeConfigPath $pathFallbackRuntimeConfigPath
+    Assert-Condition -Condition ($pathFallbackRun.Result.ExitCode -eq 0) -Message ("PATH native fallback fixture failed. StdOut: {0} StdErr: {1}" -f $pathFallbackRun.Result.StdOut, $pathFallbackRun.Result.StdErr)
+    Assert-Condition -Condition ([string]$pathFallbackRun.Manifest.codexCommand.source -eq "path-fallback") -Message "PATH native fallback fixture did not receipt path-fallback as the source."
+    Assert-Condition -Condition ([string]$pathFallbackRun.Manifest.codexCommand.path -eq $pathFallbackNativeCommandPath) -Message "PATH native fallback fixture did not resolve codex.exe."
+    Assert-Condition -Condition ($null -ne $pathFallbackRun.ExecutionRecord) -Message "PATH native fallback fixture did not record the executed fake Codex binary."
+    Assert-Condition -Condition ([string]$pathFallbackRun.ExecutionRecord.wrapperPath -eq $pathFallbackNativeCommandPath) -Message "PATH native fallback fixture did not execute codex.exe."
+    Assert-Condition -Condition ([string]$pathFallbackRun.Manifest.runtimePolicy.codex_version -match "codex\.exe") -Message "PATH native fallback fixture did not receipt codex.exe in runtime policy."
+
+    $missingNativeExplicitRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "missing-native-explicit")
+    $missingNativeExplicitPrompt = New-PromptFile -RepoRoot $missingNativeExplicitRepo -FileName "missing-native-explicit.md" -Content @"
+Title: Missing native explicit command
+
+Objective:
+Prove the canonical writer fails closed when an explicit native executable path is missing.
+"@
+    $missingNativeExplicitPath = Join-Path -Path $toolRoot -ChildPath "missing-codex.exe"
+    $missingNativeExplicitRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $missingNativeExplicitRepo -PromptPath $missingNativeExplicitPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $missingNativeExplicitPath
+    $missingNativeExplicitOutput = $missingNativeExplicitRun.Result.StdOut + $missingNativeExplicitRun.Result.StdErr
+    Assert-Condition -Condition ($missingNativeExplicitRun.Result.ExitCode -ne 0) -Message "Missing native explicit fixture unexpectedly succeeded."
+    Assert-Condition -Condition ([string]$missingNativeExplicitRun.Manifest.status -eq "codex_command_resolution_failed") -Message "Missing native explicit fixture did not fail with codex_command_resolution_failed."
+    Assert-Condition -Condition ([string]$missingNativeExplicitRun.Manifest.codexCommand.reasonCode -eq "canonical_workspace_codex_native_executable_not_found") -Message "Missing native explicit fixture did not receipt the stable not-found reason code."
+    Assert-Condition -Condition ($missingNativeExplicitOutput -match "canonical_workspace_codex_native_executable_not_found") -Message "Missing native explicit fixture did not report the stable not-found reason code."
+
+    $scriptOnlyExplicitPath = Join-Path -Path $toolRoot -ChildPath "script-only-codex.ps1"
+    [System.IO.File]::WriteAllText($scriptOnlyExplicitPath, "Write-Host 'script shim should never execute'`r`n")
+    $scriptOnlyExplicitRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "script-only-explicit")
+    $scriptOnlyExplicitPrompt = New-PromptFile -RepoRoot $scriptOnlyExplicitRepo -FileName "script-only-explicit.md" -Content @"
+Title: Script-only explicit command
+
+Objective:
+Prove the canonical writer rejects explicit PowerShell shims before execution.
+"@
+    $scriptOnlyExplicitRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $scriptOnlyExplicitRepo -PromptPath $scriptOnlyExplicitPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $scriptOnlyExplicitPath
+    $scriptOnlyExplicitOutput = $scriptOnlyExplicitRun.Result.StdOut + $scriptOnlyExplicitRun.Result.StdErr
+    Assert-Condition -Condition ($scriptOnlyExplicitRun.Result.ExitCode -ne 0) -Message "Script-only explicit fixture unexpectedly succeeded."
+    Assert-Condition -Condition ([string]$scriptOnlyExplicitRun.Manifest.status -eq "codex_command_resolution_failed") -Message "Script-only explicit fixture did not fail with codex_command_resolution_failed."
+    Assert-Condition -Condition ([string]$scriptOnlyExplicitRun.Manifest.codexCommand.reasonCode -eq "canonical_workspace_codex_native_executable_required") -Message "Script-only explicit fixture did not receipt the stable native-required reason code."
+    Assert-Condition -Condition ($scriptOnlyExplicitOutput -match "canonical_workspace_codex_native_executable_required") -Message "Script-only explicit fixture did not report the stable native-required reason code."
 
     $readOnlyRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "read-only")
     $readOnlyPrompt = New-PromptFile -RepoRoot $readOnlyRepo -FileName "read-only.md" -Content @"
@@ -411,7 +643,7 @@ Prove the canonical writer is read-only by default.
 
 Scenario: mutate-admitted
 "@
-    $readOnlyRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $readOnlyRepo -PromptPath $readOnlyPrompt -FakeCodexPath $fakeCodex.CommandPath -GitWrapper $gitWrapper
+    $readOnlyRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $readOnlyRepo -PromptPath $readOnlyPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
     Assert-Condition -Condition ($readOnlyRun.Result.ExitCode -ne 0) -Message "Read-only default fixture unexpectedly succeeded after mutation."
     Assert-Condition -Condition ($null -ne $readOnlyRun.Manifest) -Message ("Read-only default fixture did not produce run.json. StdOut: {0} StdErr: {1}" -f $readOnlyRun.Result.StdOut, $readOnlyRun.Result.StdErr)
     Assert-Condition -Condition ([string]$readOnlyRun.Manifest.status -eq "mutation_admission_failed") -Message ("Read-only default fixture did not fail with mutation_admission_failed. ManifestStatus: {0} StdOut: {1}" -f [string]$readOnlyRun.Manifest.status, $readOnlyRun.Result.StdOut)
@@ -435,14 +667,19 @@ Acceptance Criteria:
 Expected Changed Paths:
 - docs/task.md
 "@
-    $successRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $mutationRepo -PromptPath $successPrompt -FakeCodexPath $fakeCodex.CommandPath -GitWrapper $gitWrapper
+    $successRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $mutationRepo -PromptPath $successPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
     Assert-Condition -Condition ($successRun.Result.ExitCode -eq 0) -Message ("Canonical writer success fixture failed. StdOut: {0} StdErr: {1} ManifestStatus: {2}" -f $successRun.Result.StdOut, $successRun.Result.StdErr, $(if ($null -ne $successRun.Manifest) { $successRun.Manifest.status } else { "<missing>" }))
     Assert-Condition -Condition ($null -ne $successRun.Manifest) -Message "Canonical writer success fixture did not produce run.json."
     Assert-Condition -Condition ([string]$successRun.Manifest.status -eq "success") -Message "Canonical writer success fixture did not record success."
     Assert-Condition -Condition ([string]$successRun.Manifest.executionClass -eq "canonical_workspace") -Message "Canonical writer success fixture did not receipt the canonical_workspace execution class."
+    Assert-Condition -Condition ([string]$successRun.Manifest.codexCommand.source -eq "explicit-arg") -Message "Canonical writer success fixture did not preserve the explicit fake-native executable source."
+    Assert-Condition -Condition ([string]$successRun.Manifest.codexCommand.path -eq $fakeCodex.CommandPath) -Message "Canonical writer success fixture did not receipt the explicit fake-native executable path."
     Assert-Condition -Condition ([string]$successRun.Manifest.runtimePolicy.sources.permissions.sandbox_mode -match "prompt-metadata") -Message "Canonical writer success fixture did not receipt prompt metadata as the sandbox source."
     Assert-Condition -Condition ([string]$successRun.Manifest.runtimePolicy.resolved.permissions.sandbox_mode -eq "danger-full-access") -Message "Canonical writer success fixture did not resolve the legacy sandbox posture."
     Assert-Condition -Condition ($null -eq $successRun.Manifest.runtimePolicy.resolved.permissions.permission_profile) -Message "Canonical writer success fixture should not keep a modern permission profile active when the prompt requested a legacy sandbox."
+    Assert-Condition -Condition ([string]$successRun.Manifest.runtimePolicy.codex_version -match "fake-codex\.exe") -Message "Canonical writer success fixture did not receipt the explicit fake-native executable in runtime policy."
+    Assert-Condition -Condition ($null -ne $successRun.ExecutionRecord) -Message "Canonical writer success fixture did not record the executed fake-native executable."
+    Assert-Condition -Condition ([string]$successRun.ExecutionRecord.wrapperPath -eq $fakeCodex.CommandPath) -Message "Canonical writer success fixture did not execute the explicit fake-native executable."
     Assert-Condition -Condition ($successRun.Manifest.lock.acquired -and $successRun.Manifest.lock.released) -Message "Canonical writer success fixture did not record lock acquisition and release."
     Assert-Condition -Condition (@($successRun.Manifest.changedPaths) -contains "docs/task.md") -Message "Canonical writer success fixture did not record the admitted task-owned changed path."
     Assert-Condition -Condition (@($successRun.Manifest.dirtyInventory.initial | Where-Object { $_.path -eq "docs/operator-note.md" }).Count -eq 1) -Message "Canonical writer success fixture did not snapshot the pre-existing dirty path."
@@ -456,6 +693,32 @@ Expected Changed Paths:
     $successHead = Invoke-GitChecked -WorkingDirectory $mutationRepo -Arguments @("show", "--name-only", "--format=%B", "HEAD")
     Assert-Condition -Condition (($successHead.StdOut -split "`r?`n") -contains "docs/task.md") -Message "Canonical writer success fixture commit did not include docs/task.md."
     Assert-Condition -Condition (($successHead.StdOut -split "`r?`n") -notcontains "docs/operator-note.md") -Message "Canonical writer success fixture commit included pre-existing dirt."
+
+    $archiveCreationRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "archive-creation") -SkipArchiveDirectory
+    $archiveCreationPrompt = New-PromptFile -RepoRoot $archiveCreationRepo -FileName "archive-creation.md" -Content @"
+Title: Archive creation
+Mutation Admission Path: docs/task.md
+Verify: git diff --check
+
+Objective:
+Prove the canonical writer creates the archive directory and archives the prompt when it was absent at run start.
+
+Scenario: mutate-admitted
+
+Acceptance Criteria:
+- [ac-01] Update docs/task.md with canonical workspace proof.
+
+Expected Changed Paths:
+- docs/task.md
+"@
+    $archiveCreationPromptPath = $archiveCreationPrompt
+    $archiveCreationRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $archiveCreationRepo -PromptPath $archiveCreationPromptPath -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
+    Assert-Condition -Condition ($archiveCreationRun.Result.ExitCode -eq 0) -Message ("Archive creation fixture failed. StdOut: {0} StdErr: {1}" -f $archiveCreationRun.Result.StdOut, $archiveCreationRun.Result.StdErr)
+    Assert-Condition -Condition (Test-Path -LiteralPath (Join-Path -Path $archiveCreationRepo -ChildPath ".codex\archive") -PathType Container) -Message "Archive creation fixture did not create the archive directory."
+    Assert-Condition -Condition (-not (Test-Path -LiteralPath $archiveCreationPromptPath)) -Message "Archive creation fixture did not archive the prompt out of .codex/inbox."
+    $archivedPromptFiles = @(Get-ChildItem -LiteralPath (Join-Path -Path $archiveCreationRepo -ChildPath ".codex\archive") -File)
+    Assert-Condition -Condition ($archivedPromptFiles.Count -eq 1) -Message "Archive creation fixture did not create exactly one archived prompt."
+    Assert-Condition -Condition ([string]$archivedPromptFiles[0].Extension -eq ".md") -Message "Archive creation fixture did not preserve the prompt extension during archival."
 
     $nestedDirectoryRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "nested-directory")
     $nestedDirectoryFixture = New-NestedRepoDirtyDirectory -RepoRoot $nestedDirectoryRepo
@@ -475,7 +738,7 @@ Acceptance Criteria:
 Expected Changed Paths:
 - docs/task.md
 "@
-    $nestedDirectoryRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $nestedDirectoryRepo -PromptPath $nestedDirectoryPrompt -FakeCodexPath $fakeCodex.CommandPath -GitWrapper $gitWrapper
+    $nestedDirectoryRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $nestedDirectoryRepo -PromptPath $nestedDirectoryPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
     Assert-Condition -Condition ($nestedDirectoryRun.Result.ExitCode -eq 0) -Message ("Nested-directory preservation fixture failed. StdOut: {0} StdErr: {1} ManifestStatus: {2}" -f $nestedDirectoryRun.Result.StdOut, $nestedDirectoryRun.Result.StdErr, $(if ($null -ne $nestedDirectoryRun.Manifest) { $nestedDirectoryRun.Manifest.status } else { "<missing>" }))
     Assert-Condition -Condition ($null -ne $nestedDirectoryRun.Manifest) -Message "Nested-directory preservation fixture did not produce run.json."
     Assert-Condition -Condition ([string]$nestedDirectoryRun.Manifest.status -eq "success") -Message "Nested-directory preservation fixture did not record success."
@@ -503,7 +766,7 @@ Prove exact mutation admission.
 
 Scenario: mutate-unadmitted
 "@
-    $unadmittedRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $unadmittedRepo -PromptPath $unadmittedPrompt -FakeCodexPath $fakeCodex.CommandPath -GitWrapper $gitWrapper
+    $unadmittedRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $unadmittedRepo -PromptPath $unadmittedPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
     Assert-Condition -Condition ($unadmittedRun.Result.ExitCode -ne 0) -Message "Unadmitted mutation fixture unexpectedly succeeded."
     Assert-Condition -Condition ($null -ne $unadmittedRun.Manifest) -Message "Unadmitted mutation fixture did not produce run.json."
     Assert-Condition -Condition ([string]$unadmittedRun.Manifest.status -eq "mutation_admission_failed") -Message "Unadmitted mutation fixture did not fail with mutation_admission_failed."
@@ -521,7 +784,7 @@ Prove dirty path preservation.
 
 Scenario: touch-preexisting-dirt
 "@
-    $dirtRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $dirtRepo -PromptPath $dirtPrompt -FakeCodexPath $fakeCodex.CommandPath -GitWrapper $gitWrapper
+    $dirtRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $dirtRepo -PromptPath $dirtPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
     Assert-Condition -Condition ($dirtRun.Result.ExitCode -ne 0) -Message "Dirty-preservation fixture unexpectedly succeeded."
     Assert-Condition -Condition ($null -ne $dirtRun.Manifest) -Message "Dirty-preservation fixture did not produce run.json."
     Assert-Condition -Condition ([string]$dirtRun.Manifest.status -eq "dirty_preservation_failed") -Message "Dirty-preservation fixture did not fail with dirty_preservation_failed."
@@ -545,7 +808,7 @@ Acceptance Criteria:
 Expected Changed Paths:
 - docs/task.md
 "@
-    $nestedDirectoryDriftRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $nestedDirectoryDriftRepo -PromptPath $nestedDirectoryDriftPrompt -FakeCodexPath $fakeCodex.CommandPath -GitWrapper $gitWrapper
+    $nestedDirectoryDriftRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $nestedDirectoryDriftRepo -PromptPath $nestedDirectoryDriftPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
     Assert-Condition -Condition ($nestedDirectoryDriftRun.Result.ExitCode -ne 0) -Message "Nested-directory drift fixture unexpectedly succeeded."
     Assert-Condition -Condition ($null -ne $nestedDirectoryDriftRun.Manifest) -Message "Nested-directory drift fixture did not produce run.json."
     Assert-Condition -Condition ([string]$nestedDirectoryDriftRun.Manifest.status -eq "dirty_preservation_failed") -Message "Nested-directory drift fixture did not fail with dirty_preservation_failed."
@@ -585,7 +848,7 @@ Prove canonical writer lock contention.
 
 Scenario: no-op
 "@
-    $contentionRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $contentionRepo -PromptPath $contentionPrompt -FakeCodexPath $fakeCodex.CommandPath -GitWrapper $gitWrapper
+    $contentionRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $contentionRepo -PromptPath $contentionPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
     Assert-Condition -Condition ($contentionRun.Result.ExitCode -ne 0) -Message "Lock contention fixture unexpectedly succeeded."
     Assert-Condition -Condition (($contentionRun.Result.StdOut + $contentionRun.Result.StdErr) -match "lock is already held") -Message "Lock contention fixture did not report the live owner lock failure."
 
@@ -623,7 +886,7 @@ Acceptance Criteria:
 Expected Changed Paths:
 - docs/task.md
 "@
-    $staleRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $staleRepo -PromptPath $stalePrompt -FakeCodexPath $fakeCodex.CommandPath -GitWrapper $gitWrapper
+    $staleRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $staleRepo -PromptPath $stalePrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
     Assert-Condition -Condition ($staleRun.Result.ExitCode -eq 0) -Message ("Stale lock fixture failed. StdOut: {0} StdErr: {1} ManifestStatus: {2}" -f $staleRun.Result.StdOut, $staleRun.Result.StdErr, $(if ($null -ne $staleRun.Manifest) { $staleRun.Manifest.status } else { "<missing>" }))
     Assert-Condition -Condition ($null -ne $staleRun.Manifest) -Message "Stale lock fixture did not produce run.json."
     Assert-Condition -Condition ($null -ne $staleRun.Manifest.lock.staleDiagnostic) -Message "Stale lock fixture did not receipt stale-lock diagnostics."

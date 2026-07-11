@@ -64,6 +64,207 @@ function Import-CanonicalRuntimeConfiguration {
     }
 }
 
+function Test-WindowsPlatform {
+    return $env:OS -eq "Windows_NT"
+}
+
+function Test-CodexCommandPathLike {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $false
+    }
+
+    return [System.IO.Path]::IsPathRooted($Value) -or $Value.Contains("\") -or $Value.Contains("/") -or $Value.StartsWith(".")
+}
+
+function Test-WindowsNativeExecutablePath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
+    $extension = [System.IO.Path]::GetExtension($Path)
+    if ([string]::IsNullOrWhiteSpace($extension)) {
+        return $false
+    }
+
+    return @(".exe", ".com") -contains $extension.ToLowerInvariant()
+}
+
+function New-CodexCommandResolutionRecord {
+    param(
+        [string]$Source,
+        [string]$RequestedValue
+    )
+
+    return [ordered]@{
+        source = $Source
+        requestedValue = $RequestedValue
+        expandedValue = $null
+        path = $null
+        resolutionMethod = $null
+        isNativeExecutable = $false
+        reasonCode = $null
+        searchedCommands = @()
+    }
+}
+
+function Resolve-WindowsCodexCommandCandidate {
+    param(
+        [string]$RequestedValue,
+        [string]$Source,
+        [string]$BasePath
+    )
+
+    $record = New-CodexCommandResolutionRecord -Source $Source -RequestedValue $RequestedValue
+    $expandedValue = Expand-ConfigString -Value $RequestedValue
+    $record.expandedValue = $expandedValue
+    if ([string]::IsNullOrWhiteSpace($expandedValue)) {
+        $record.reasonCode = "canonical_workspace_codex_native_executable_not_found"
+        return [pscustomobject]$record
+    }
+
+    if (Test-CodexCommandPathLike -Value $expandedValue) {
+        $resolvedPath = Resolve-PathFromBase -BasePath $BasePath -Value $expandedValue
+        $record.path = $resolvedPath
+        $record.resolutionMethod = "literal-path"
+        if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {
+            $record.reasonCode = "canonical_workspace_codex_native_executable_not_found"
+            return [pscustomobject]$record
+        }
+        if (-not (Test-WindowsNativeExecutablePath -Path $resolvedPath)) {
+            $record.reasonCode = "canonical_workspace_codex_native_executable_required"
+            return [pscustomobject]$record
+        }
+
+        $record.isNativeExecutable = $true
+        return [pscustomobject]$record
+    }
+
+    $requestedExtension = [System.IO.Path]::GetExtension($expandedValue)
+    if (-not [string]::IsNullOrWhiteSpace($requestedExtension) -and -not (Test-WindowsNativeExecutablePath -Path $expandedValue)) {
+        $record.reasonCode = "canonical_workspace_codex_native_executable_required"
+        return [pscustomobject]$record
+    }
+
+    $searchNames = New-Object System.Collections.Generic.List[string]
+    if ([string]::IsNullOrWhiteSpace($requestedExtension)) {
+        [void]$searchNames.Add(("{0}.exe" -f $expandedValue))
+        [void]$searchNames.Add($expandedValue)
+    }
+    else {
+        [void]$searchNames.Add($expandedValue)
+    }
+
+    foreach ($searchName in @($searchNames.ToArray())) {
+        $record.searchedCommands = @($record.searchedCommands + $searchName)
+        $commandCandidate = Get-Command -Name $searchName -ErrorAction SilentlyContinue
+        if ($null -eq $commandCandidate) {
+            continue
+        }
+
+        $candidatePath = [string]$commandCandidate.Source
+        $record.path = $candidatePath
+        $record.resolutionMethod = "path-search:{0}" -f $searchName
+        if (-not (Test-WindowsNativeExecutablePath -Path $candidatePath)) {
+            $record.reasonCode = "canonical_workspace_codex_native_executable_required"
+            continue
+        }
+
+        $record.isNativeExecutable = $true
+        $record.reasonCode = $null
+        return [pscustomobject]$record
+    }
+
+    if ([string]::IsNullOrWhiteSpace($record.reasonCode)) {
+        $record.reasonCode = "canonical_workspace_codex_native_executable_not_found"
+    }
+
+    return [pscustomobject]$record
+}
+
+function Resolve-CanonicalCodexCommand {
+    param(
+        [string]$ExplicitCodexCommand,
+        [hashtable]$Config,
+        [string]$BasePath
+    )
+
+    if (-not (Test-WindowsPlatform)) {
+        $requestedValue = if (-not [string]::IsNullOrWhiteSpace($ExplicitCodexCommand)) {
+            $ExplicitCodexCommand
+        }
+        else {
+            [string](Get-ConfigValue -Config $Config -Path @("windows", "codex_command") -DefaultValue "codex")
+        }
+        $expandedValue = Expand-ConfigString -Value $requestedValue
+        $record = New-CodexCommandResolutionRecord -Source $(if (-not [string]::IsNullOrWhiteSpace($ExplicitCodexCommand)) { "explicit-arg" } else { "runtime-config/windows.codex_command" }) -RequestedValue $requestedValue
+        $record.expandedValue = $expandedValue
+        if (-not (Test-Path -LiteralPath $expandedValue)) {
+            $commandCandidate = Get-Command -Name $expandedValue -ErrorAction SilentlyContinue
+            if ($null -ne $commandCandidate) {
+                $record.path = [string]$commandCandidate.Source
+                $record.resolutionMethod = "command-discovery"
+            }
+        }
+        else {
+            $record.path = $expandedValue
+            $record.resolutionMethod = "literal-path"
+        }
+        if (-not (Test-Path -LiteralPath $record.path -PathType Leaf)) {
+            $record.reasonCode = "canonical_workspace_codex_native_executable_not_found"
+            return [pscustomobject]$record
+        }
+        $record.isNativeExecutable = $true
+        return [pscustomobject]$record
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitCodexCommand)) {
+        return Resolve-WindowsCodexCommandCandidate -RequestedValue $ExplicitCodexCommand -Source "explicit-arg" -BasePath $BasePath
+    }
+
+    $configuredCommand = [string](Get-ConfigValue -Config $Config -Path @("windows", "codex_command") -DefaultValue "")
+    if (-not [string]::IsNullOrWhiteSpace($configuredCommand)) {
+        return Resolve-WindowsCodexCommandCandidate -RequestedValue $configuredCommand -Source "runtime-config/windows.codex_command" -BasePath $BasePath
+    }
+
+    return Resolve-WindowsCodexCommandCandidate -RequestedValue "codex" -Source "path-fallback" -BasePath $BasePath
+}
+
+function Get-CodexCommandResolutionFailureMessage {
+    param($ResolutionRecord)
+
+    $reasonCode = [string](Get-ObjectPropertyValue -Object $ResolutionRecord -Name "reasonCode" -DefaultValue "canonical_workspace_codex_native_executable_not_found")
+    $source = [string](Get-ObjectPropertyValue -Object $ResolutionRecord -Name "source" -DefaultValue "unknown")
+    $requestedValue = [string](Get-ObjectPropertyValue -Object $ResolutionRecord -Name "requestedValue" -DefaultValue "")
+    $candidatePath = [string](Get-ObjectPropertyValue -Object $ResolutionRecord -Name "path" -DefaultValue "")
+    $searchedCommands = @(Get-ObjectPropertyValue -Object $ResolutionRecord -Name "searchedCommands" -DefaultValue @())
+
+    $details = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($requestedValue)) {
+        [void]$details.Add(("requested='{0}'" -f $requestedValue))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($candidatePath)) {
+        [void]$details.Add(("resolved='{0}'" -f $candidatePath))
+    }
+    if ($searchedCommands.Count -gt 0) {
+        [void]$details.Add(("searched={0}" -f ($searchedCommands -join ", ")))
+    }
+
+    $reasonText = switch ($reasonCode) {
+        "canonical_workspace_codex_native_executable_required" { "Codex command must resolve to a native Windows executable before runtime-policy probing or execution." }
+        default { "Codex command was not found as a native Windows executable before runtime-policy probing or execution." }
+    }
+
+    if ($details.Count -gt 0) {
+        return ("{0}: {1} Source={2}; {3}" -f $reasonCode, $reasonText, $source, ($details -join "; "))
+    }
+
+    return ("{0}: {1} Source={2}" -f $reasonCode, $reasonText, $source)
+}
+
 function Test-ExactRepoRelativePath {
     param([string]$Path)
 
@@ -775,6 +976,8 @@ $lockRelease = $null
 $lockPath = $null
 $lockDirectory = $null
 $archiveDirectory = $null
+$codexCommandRecord = $null
+$codexCommandValue = $null
 $executionClass = "canonical_workspace"
 $lockStaleAfterMinutes = 30
 $localLandingRecord = $null
@@ -795,6 +998,7 @@ function Write-CanonicalManifest {
         canonicalRoot = $repoRoot
         canonicalRootValidation = $script:CanonicalRootValidationState
         runtimeConfigPath = if ($null -ne $runtimeConfig) { $runtimeConfig.ConfigPath } else { $null }
+        codexCommand = $codexCommandRecord
         runtimePolicy = $runtimePolicy
         mutationAdmission = if ($null -ne $mutationAdmissionRecord) { $mutationAdmissionRecord } else { $null }
         dirtyInventory = [ordered]@{
@@ -876,6 +1080,11 @@ try {
     $lockFileName = [string](Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $executionContract -Name "lock" -DefaultValue $null) -Name "fileName" -DefaultValue "atlas-workspace-writer.lock.json")
     $lockStaleAfterMinutes = [int](Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $executionContract -Name "lock" -DefaultValue $null) -Name "staleAfterMinutes" -DefaultValue 30)
     $lockPath = Join-Path -Path $lockDirectory -ChildPath $lockFileName
+    foreach ($artifactDirectory in @($archiveDirectory, $logRoot, $lockDirectory)) {
+        if (-not [string]::IsNullOrWhiteSpace($artifactDirectory)) {
+            New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
+        }
+    }
 
     $runId = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ") + "-" + (ConvertTo-Slug -Value $promptRecord.Title)
     $logDirectory = Join-Path -Path $logRoot -ChildPath $runId
@@ -884,6 +1093,13 @@ try {
     $codexStdOutPath = Join-Path -Path $logDirectory -ChildPath "codex.stdout.log"
     $codexStdErrPath = Join-Path -Path $logDirectory -ChildPath "codex.stderr.log"
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+
+    $codexCommandRecord = Resolve-CanonicalCodexCommand -ExplicitCodexCommand $CodexCommand -Config $runtimeConfig.Config -BasePath $repoRoot
+    if (-not [bool](Get-ObjectPropertyValue -Object $codexCommandRecord -Name "isNativeExecutable" -DefaultValue $false)) {
+        $status = "codex_command_resolution_failed"
+        throw (Get-CodexCommandResolutionFailureMessage -ResolutionRecord $codexCommandRecord)
+    }
+    $codexCommandValue = [string](Get-ObjectPropertyValue -Object $codexCommandRecord -Name "path" -DefaultValue "")
 
     $runtimePolicy = Resolve-StackRuntimePolicy `
         -Config $runtimeConfig.Config `
@@ -900,7 +1116,7 @@ try {
             approval = $ApprovalPolicy
             web_search = $WebSearch
         }) `
-        -CodexCommand $CodexCommand
+        -CodexCommand $codexCommandValue
     Write-CanonicalManifest
 
     $commitMetadataPolicy = Get-ObjectPropertyValue -Object (Get-ObjectPropertyValue -Object $executionContract -Name "autoCommitPolicy" -DefaultValue $null) -Name "commitMetadata" -DefaultValue $null
@@ -908,20 +1124,6 @@ try {
         throw "Canonical workspace execution class must declare autoCommitPolicy.commitMetadata."
     }
     $specToDiffPolicy = Get-SpecToDiffPromptPolicy -PromptRecord $promptRecord
-
-    $codexCommandValue = $CodexCommand
-    if ([string]::IsNullOrWhiteSpace($codexCommandValue)) {
-        $commandCandidate = Get-Command "codex" -ErrorAction SilentlyContinue
-        if ($null -eq $commandCandidate) {
-            $commandCandidate = Get-Command "codex.exe" -ErrorAction SilentlyContinue
-        }
-        if ($null -ne $commandCandidate) {
-            $codexCommandValue = $commandCandidate.Source
-        }
-    }
-    if (-not (Test-Path -LiteralPath $codexCommandValue)) {
-        throw ("Codex command was not found: {0}" -f $codexCommandValue)
-    }
 
     $effectivePrompt = $promptRecord.Body.Trim()
     if (-not [string]::IsNullOrWhiteSpace($promptRecord.DocsUpdateNote)) {
