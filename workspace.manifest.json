@@ -65,6 +65,17 @@
       "deployProd": "pnpm dlx vercel@51.6.1 --cwd ../fawxzzy-fitness deploy --prod --yes",
       "deployProdPrebuilt": "pnpm dlx vercel@51.6.1 --cwd ../fawxzzy-fitness deploy --prebuilt --prod"
     },
+    "discordos": {
+      "path": "../DiscordOS",
+      "verify": "npm run verify",
+      "deployModel": "vercel-cli",
+      "deployPreview": "pnpm dlx vercel --cwd ../DiscordOS deploy",
+      "productionApproval": {
+        "required": true,
+        "scope": "current-thread-per-project",
+        "contract": "Vercel production deployment requires explicit current-thread approval for the named DiscordOS project; generic approval does not qualify."
+      }
+    },
     "mazer": {
       "path": "../fawxzzy-mazer",
       "verify": "npm run lint && npm run test && npm run build",

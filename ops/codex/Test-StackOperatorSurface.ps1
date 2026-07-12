@@ -111,6 +111,8 @@ $requiredFiles = @(
     "ops/codex/execution-classes/atlas-workspace.writer.json",
     "ops/codex/repos/stack/adapter.json",
     "ops/codex/repos/stack/config.toml",
+    "ops/codex/repos/discordos/adapter.json",
+    "ops/codex/repos/discordos/config.toml",
     "ops/stack/StackWorkerArtifacts.ps1",
     "ops/stack/Test-StackWorkerArtifacts.ps1",
     "ops/branding/Invoke-AtlasBrand.mjs",
@@ -149,6 +151,9 @@ $requiredScripts = @(
     "ops:install-shortcut",
     "release:launcher",
     "codex:atlas-workspace:task",
+    "codex:discordos:inbox",
+    "codex:discordos:inbox:once",
+    "codex:discordos:task",
     "codex:stack:inbox",
     "codex:stack:inbox:once",
     "codex:stack:inbox:bootstrap:once",
@@ -163,6 +168,16 @@ $missingScripts = @(
 )
 if ($missingScripts.Count -gt 0) {
     throw ("Missing required _stack Codex scripts: {0}" -f ($missingScripts -join ", "))
+}
+
+$requiredDiscordOsScripts = @{
+    "codex:discordos:inbox" = "powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\discordos\config.toml"
+    "codex:discordos:inbox:once" = "powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\discordos\config.toml -RunOnce"
+    "codex:discordos:task" = "powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\discordos\config.toml"
+}
+foreach ($scriptName in $requiredDiscordOsScripts.Keys) {
+    $actualScript = [string]$package.scripts.PSObject.Properties[$scriptName].Value
+    Assert-Condition -Condition ($actualScript -eq $requiredDiscordOsScripts[$scriptName]) -Message ("DiscordOS package script '{0}' must use its shared-runner config." -f $scriptName)
 }
 
 $brandScripts = @{
@@ -532,6 +547,85 @@ $canonicalOwnerRoots = @{
 }
 $workspaceManifest = Get-Content -LiteralPath "workspace.manifest.json" -Raw | ConvertFrom-Json
 
+# A linked worktree holds the physical config while the Git common directory identifies _stack/main.
+# Resolve DiscordOS from that logical root so the same config reaches the canonical checkout in both modes.
+$discordosPhysicalConfigPath = Join-Path -Path $physicalStackRoot -ChildPath "ops\\codex\\repos\\discordos\\config.toml"
+$discordosLogicalConfigDirectory = Join-Path -Path $logicalStackRoot -ChildPath "ops\\codex\\repos\\discordos"
+$discordosConfig = ConvertFrom-SimpleToml -Path $discordosPhysicalConfigPath
+$expectedDiscordosConfigKeys = @("adapter_path", "repo_root")
+$actualDiscordosConfigKeys = @($discordosConfig.Keys | Sort-Object)
+Assert-Condition -Condition ($null -eq (Compare-Object -ReferenceObject $expectedDiscordosConfigKeys -DifferenceObject $actualDiscordosConfigKeys)) -Message "DiscordOS config must contain only repo_root and adapter_path."
+Assert-Condition -Condition ([string]$discordosConfig.repo_root -eq "../../../../../DiscordOS") -Message "DiscordOS config repo_root must retain the canonical relative path."
+Assert-Condition -Condition ([string]$discordosConfig.adapter_path -eq "./adapter.json") -Message "DiscordOS config adapter_path must stay local."
+
+$canonicalDiscordosRoot = (Resolve-Path -LiteralPath (Join-Path -Path (Split-Path -Parent $logicalStackRoot) -ChildPath "DiscordOS")).Path
+$discordosLogicalConfigCandidate = [System.IO.Path]::GetFullPath((Join-Path -Path $discordosLogicalConfigDirectory -ChildPath ([string]$discordosConfig.repo_root)))
+$resolvedDiscordosConfigRoot = (Resolve-Path -LiteralPath $discordosLogicalConfigCandidate).Path
+Assert-Condition -Condition ($resolvedDiscordosConfigRoot -eq $canonicalDiscordosRoot) -Message "DiscordOS config repo_root must resolve from _stack/main and isolated _stack worktrees to the canonical DiscordOS checkout."
+
+$discordosAdapter = Get-Content -LiteralPath (Join-Path -Path $physicalStackRoot -ChildPath "ops\\codex\\repos\\discordos\\adapter.json") -Raw | ConvertFrom-Json
+Assert-Condition -Condition ([string]$discordosAdapter.schemaVersion -eq "1.2") -Message "DiscordOS adapter schemaVersion must be 1.2."
+Assert-Condition -Condition ([string]$discordosAdapter.repoId -eq "discordos") -Message "DiscordOS adapter repoId must be discordos."
+Assert-Condition -Condition ([string]$discordosAdapter.description -match "canonical board and Discord writer") -Message "DiscordOS adapter description must identify the canonical board and Discord writer."
+Assert-Condition -Condition (@($discordosAdapter.verify.bootstrapCommands).Count -eq 1 -and [string]$discordosAdapter.verify.bootstrapCommands[0] -eq "npm ci") -Message "DiscordOS verification bootstrap must be npm ci."
+
+$expectedDiscordosVerificationCommands = @(
+    "npm run verify",
+    "npm run verify:discord-update-post",
+    "npm run verify:discord-update-target-admission",
+    "npm run verify:discord-forum-card-lifecycle",
+    "npm run verify:discord-publication-status",
+    "npm run verify:discordos-board-lifecycle-sync",
+    "npm run verify:discordos-product-workflow-live-readback",
+    "git diff --check"
+)
+$actualDiscordosVerificationCommands = @($discordosAdapter.verify.defaultCommands | ForEach-Object { [string]$_ })
+Assert-Condition -Condition ($actualDiscordosVerificationCommands.Count -eq $expectedDiscordosVerificationCommands.Count -and $null -eq (Compare-Object -ReferenceObject $expectedDiscordosVerificationCommands -DifferenceObject $actualDiscordosVerificationCommands)) -Message "DiscordOS adapter verification commands must match the complete owner contract."
+
+$expectedDiscordosMutationSurfaces = @(
+    ".codex/**",
+    ".github/**",
+    ".gitignore",
+    "AGENTS.md",
+    "README.md",
+    "api/**",
+    "config/**",
+    "docs/**",
+    "package.json",
+    "package-lock.json",
+    "public/**",
+    "scripts/**",
+    "src/**",
+    "supabase/**",
+    "tests/**",
+    "tsconfig.json",
+    "vercel.json"
+)
+$actualDiscordosMutationSurfaces = @($discordosAdapter.allowedMutationSurfaces | ForEach-Object { [string]$_ })
+Assert-Condition -Condition ($actualDiscordosMutationSurfaces.Count -eq $expectedDiscordosMutationSurfaces.Count -and $null -eq (Compare-Object -ReferenceObject $expectedDiscordosMutationSurfaces -DifferenceObject $actualDiscordosMutationSurfaces)) -Message "DiscordOS adapter mutation allowlist must match the complete owner contract."
+
+Assert-Condition -Condition ([string]$discordosAdapter.pushPolicy.mode -eq "manual-only" -and [bool]$discordosAdapter.pushPolicy.skipPush -and -not [bool]$discordosAdapter.pushPolicy.allowAutoPush) -Message "DiscordOS push policy must stay manual-only with auto-push disabled."
+Assert-Condition -Condition ([bool]$discordosAdapter.autoCommitPolicy.enabled -and [string]$discordosAdapter.autoCommitPolicy.mode -eq "on-successful-mutation" -and [bool]$discordosAdapter.autoCommitPolicy.requireVerificationPass) -Message "DiscordOS auto-commit must require verified successful mutation."
+Assert-Condition -Condition ([string]$discordosAdapter.localLandingPolicy.mode -eq "disabled") -Message "DiscordOS local landing must stay disabled."
+Assert-Condition -Condition ([string]$discordosAdapter.execution.baseRef -eq "origin/main" -and [string]$discordosAdapter.execution.branchPrefix -eq "codex/" -and -not [bool]$discordosAdapter.execution.fetchOrigin -and -not [bool]$discordosAdapter.execution.cleanupWorktreeOnSuccess) -Message "DiscordOS execution policy must preserve its owner Git contract."
+Assert-Condition -Condition ($null -eq (Get-ObjectPropertyValue -Object $discordosAdapter.execution -Name "defaultSandbox" -DefaultValue $null) -and $null -eq (Get-ObjectPropertyValue -Object $discordosAdapter.execution -Name "documentedWindowsFallback" -DefaultValue $null)) -Message "DiscordOS adapter must not carry runtime-policy defaults."
+
+$discordosAuthorityRules = @($discordosAdapter.docsUpdateRules) -join "`n"
+foreach ($requiredDiscordosAuthorityPhrase in @("one logical writer", "Host capability is not authority", "production-environment readiness", "exact bot-backed readback", "current-thread", "per named project")) {
+    Assert-Condition -Condition ($discordosAuthorityRules.Contains($requiredDiscordosAuthorityPhrase)) -Message ("DiscordOS authority rule is missing: {0}" -f $requiredDiscordosAuthorityPhrase)
+}
+
+$discordosManifest = $workspaceManifest.repos.discordos
+Assert-Condition -Condition ($null -ne $discordosManifest) -Message "Workspace manifest must declare DiscordOS."
+Assert-Condition -Condition ([string]$discordosManifest.path -eq "../DiscordOS" -and [string]$discordosManifest.verify -eq "npm run verify" -and [string]$discordosManifest.deployModel -eq "vercel-cli") -Message "Workspace manifest must retain the DiscordOS path, verify command, and Vercel CLI deployment model."
+Assert-Condition -Condition ([string]$discordosManifest.deployPreview -match "vercel.*deploy" -and [string]$discordosManifest.deployPreview -notmatch "--prod") -Message "Workspace manifest must declare a non-production DiscordOS preview deploy path."
+Assert-Condition -Condition ([bool]$discordosManifest.productionApproval.required -and [string]$discordosManifest.productionApproval.scope -eq "current-thread-per-project" -and [string]$discordosManifest.productionApproval.contract -match "explicit current-thread approval") -Message "Workspace manifest must declare current-thread-per-project DiscordOS production approval."
+
+$discordosOperatorDocumentation = (Get-Content -LiteralPath "README.md" -Raw) + "`n" + (Get-Content -LiteralPath "docs/codex-orchestration.md" -Raw)
+foreach ($requiredDiscordosDocumentationPhrase in @('`_stack` is the execution operator', "single logical canonical board and Discord writer", "production-environment readiness", "exact bot-backed readback", "current-thread", "per named project")) {
+    Assert-Condition -Condition ($discordosOperatorDocumentation.Contains($requiredDiscordosDocumentationPhrase)) -Message ("DiscordOS operator documentation is missing: {0}" -f $requiredDiscordosDocumentationPhrase)
+}
+
 foreach ($ownerId in @("playbook", "lifeline")) {
     $configPath = Join-Path -Path $physicalStackRoot -ChildPath ("ops\codex\repos\{0}\config.toml" -f $ownerId)
     $config = ConvertFrom-SimpleToml -Path $configPath
@@ -579,7 +673,8 @@ foreach ($surfacePath in $activeOwnerPathSurfaces) {
 $disabledLandingAdapters = @(
     "ops/codex/repos/atlas/adapter.json",
     "ops/codex/repos/playbook/adapter.json",
-    "ops/codex/repos/lifeline/adapter.json"
+    "ops/codex/repos/lifeline/adapter.json",
+    "ops/codex/repos/discordos/adapter.json"
 )
 foreach ($adapterPath in $disabledLandingAdapters) {
     $adapter = Get-Content -LiteralPath $adapterPath -Raw | ConvertFrom-Json

@@ -21,6 +21,9 @@
 - `pnpm run codex:atlas:inbox:once`
 - `pnpm run codex:atlas:task -- -PromptPath C:\path\to\prompt.md`
 - `pnpm run codex:atlas-workspace:task -- -PromptPath C:\path\to\prompt.md -CanonicalRootPath C:\ATLAS`
+- `pnpm run codex:discordos:inbox`
+- `pnpm run codex:discordos:inbox:once`
+- `pnpm run codex:discordos:task -- -PromptPath C:\path\to\prompt.md`
 - `pnpm run codex:lifeline:inbox`
 - `pnpm run codex:lifeline:inbox:once`
 - `pnpm run codex:lifeline:task -- -PromptPath C:\path\to\prompt.md`
@@ -41,6 +44,7 @@
 - Playbook remains the first adapter example through `ops/codex/repos/playbook`.
 - Atlas is the first non-Playbook thin adapter through `ops/codex/repos/atlas`.
 - Lifeline is the next thin non-Vercel adapter through `ops/codex/repos/lifeline`.
+- DiscordOS is a first-class adapter through `ops/codex/repos/discordos`; `_stack` is its execution operator, while DiscordOS remains the single logical canonical board and Discord writer.
 - `_stack` is now also a first-class thin adapter through `ops/codex/repos/stack`.
 - `_stack` owns the runner; repo-local `.codex/` folders still own inbox, archive, logs, worktrees, and exports.
 - `_stack` worker runs stamp `stack_lock_digest` from the root `stack.lock.yaml` and write assignment, status, merge-request, and completion status artifacts alongside the run logs.
@@ -51,6 +55,7 @@
 - The canonical workspace writer preserves pre-existing dirt through digest receipts, acquires an exclusive writer lock with stale-lock diagnostics, rejects non-directory `.git` entries with `canonical_workspace_git_directory_required`, stages only exact admitted paths, and keeps push manual-only.
 - Canonical workspace writer details live in `docs/canonical-atlas-workspace-writer.md`.
 - Lifeline stays repo-local and self-hosted; push remains manual-only and successful mutating tasks still auto-commit by default.
+- DiscordOS can only claim a live Discord or board write after production-environment readiness and exact bot-backed readback of the target; host access alone is not Discord, deployment, production, or live-data authority. Vercel production approval remains explicit, current-thread, and per named project.
 - `_stack` self-manages through the same runner path with repo-local `_stack\.codex\` artifacts, manual-only push, the same validated commit metadata contract used by the other adapters, and optional local auto-land to local `main` in `ff-only` mode.
 - Governed `_stack` jobs now default to the modern `:danger-full-access` permission profile from repo config, while the last accepted bootstrap path remains available through the explicit legacy `danger-full-access` sandbox scripts above.
 - Shared base-ref selection is local-first: prefer `origin/main` when it exists locally, otherwise fall back to local `main`, and record the resolved ref in each run manifest.
@@ -201,8 +206,8 @@
 - `_stack` now also owns the shared Codex inbox/worktree orchestration engine and can self-manage those same operator surfaces through its own thin adapter, but not repo implementation policy.
 - `_stack` also owns one canonical Atlas workspace writer surface for tasks that must operate directly against `C:\ATLAS` without creating a worktree.
 - Fitness, Mazer, and Trove use Vercel from the local CLI path.
-- Playbook, Lifeline, and Atlas are currently non-Vercel and self-hosted.
-- Playbook, Atlas, Lifeline, and `_stack` are wired as thin shared-runner adapters only; `_stack` still does not add dispatcher-level multi-repo Codex orchestration in this pass.
+- Playbook, Lifeline, and Atlas are currently non-Vercel and self-hosted. DiscordOS is Vercel-backed but production approval remains current-thread and per project.
+- Playbook, Atlas, Lifeline, DiscordOS, and `_stack` are wired as thin shared-runner adapters only; `_stack` still does not add dispatcher-level multi-repo Codex orchestration in this pass.
 - Keep commands manual and explicit; no automatic commit-triggered receipts yet.
 
 ## Vercel notes

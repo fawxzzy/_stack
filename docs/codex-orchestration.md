@@ -241,6 +241,23 @@ Lifeline stays intentionally repo-local:
 - push remains manual-only
 - auto-commit remains enabled by default for successful mutating tasks using the shared commit metadata artifact contract
 
+DiscordOS is a first-class owner adapter:
+
+- config: `ops/codex/repos/discordos/config.toml`
+- adapter: `ops/codex/repos/discordos/adapter.json`
+- commands: `pnpm run codex:discordos:inbox`, `pnpm run codex:discordos:inbox:once`, and `pnpm run codex:discordos:task -- -PromptPath C:\path\to\prompt.md`
+
+`_stack` is the execution operator only. DiscordOS remains the single logical canonical board and Discord writer. Its fresh worktrees bootstrap with `npm ci` and use the owner’s default verification set; this preparation task does not execute those commands or a DiscordOS task.
+
+Authority remains explicit:
+
+- host capability does not authorize Discord, deployment, production, or live-data access
+- a live-write claim requires production-environment readiness and exact bot-backed readback of the target channel, thread, or card
+- the next governed canary is no-send; it must not send a message or mutate a board card
+- Vercel production deploy, promotion, rollback, or alias cutover requires explicit approval in the current thread for the named project; generic approval is not sufficient
+
+Push stays manual-only, successful verified mutations auto-commit, and DiscordOS local landing stays disabled.
+
 `_stack` is also a first-class self-managed adapter:
 
 - config: `ops/codex/repos/stack/config.toml`
@@ -395,6 +412,24 @@ Run the Lifeline watcher:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\lifeline\config.toml
+```
+
+Run the DiscordOS watcher:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\discordos\config.toml
+```
+
+Run DiscordOS inbox processing once:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\discordos\config.toml -RunOnce
+```
+
+Run one DiscordOS prompt directly:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\discordos\config.toml -PromptPath C:\path\to\prompt.md
 ```
 
 Run one specific prompt directly:

@@ -1,0 +1,101 @@
+{
+  "$schema": "../../adapter.schema.json",
+  "schemaVersion": "1.2",
+  "kind": "stack-codex-repo-adapter",
+  "repoId": "discordos",
+  "description": "DiscordOS adapter for the canonical board and Discord writer.",
+  "verify": {
+    "bootstrapCommands": [
+      "npm ci"
+    ],
+    "defaultCommands": [
+      "npm run verify",
+      "npm run verify:discord-update-post",
+      "npm run verify:discord-update-target-admission",
+      "npm run verify:discord-forum-card-lifecycle",
+      "npm run verify:discord-publication-status",
+      "npm run verify:discordos-board-lifecycle-sync",
+      "npm run verify:discordos-product-workflow-live-readback",
+      "git diff --check"
+    ],
+    "notes": [
+      "Verification is repo-local and must not send Discord messages, mutate board cards, load production environment, deploy, or call live readback.",
+      "The governed canary that follows this preparation remains no-send; live-write claims require production-environment readiness and exact bot-backed readback of the target after the write."
+    ]
+  },
+  "allowedMutationSurfaces": [
+    ".codex/**",
+    ".github/**",
+    ".gitignore",
+    "AGENTS.md",
+    "README.md",
+    "api/**",
+    "config/**",
+    "docs/**",
+    "package.json",
+    "package-lock.json",
+    "public/**",
+    "scripts/**",
+    "src/**",
+    "supabase/**",
+    "tests/**",
+    "tsconfig.json",
+    "vercel.json"
+  ],
+  "docsUpdateRules": [
+    "DiscordOS is the one logical writer for the canonical board and Discord. Do not introduce a second board or Discord writer through this adapter.",
+    "Host capability is not authority to access Discord, deploy, production, or live data. Live-write claims require production-environment readiness plus exact bot-backed readback of the target channel, thread, or card.",
+    "Vercel production actions remain approval-gated: explicit approval must be current-thread and per named project; generic approval does not authorize a production deployment, promotion, rollback, or alias cutover."
+  ],
+  "artifacts": {
+    "inboxDir": ".codex/inbox",
+    "archiveDir": ".codex/archive",
+    "logsDir": ".codex/logs",
+    "worktreeRoot": ".codex/worktrees",
+    "exportsDir": ".codex/exports"
+  },
+  "exports": {
+    "patch": true,
+    "bundle": false,
+    "formatPatchBaseRef": "origin/main"
+  },
+  "pushPolicy": {
+    "mode": "manual-only",
+    "skipPush": true,
+    "allowAutoPush": false
+  },
+  "autoCommitPolicy": {
+    "enabled": true,
+    "mode": "on-successful-mutation",
+    "skipEmptyCommit": true,
+    "requireVerificationPass": true,
+    "commitMetadata": {
+      "artifactPath": ".codex/commit-meta.json",
+      "allowedTypes": [
+        "feat",
+        "fix",
+        "docs",
+        "refactor",
+        "test",
+        "chore"
+      ],
+      "rejectedSummaries": [
+        "update",
+        "done",
+        "fixes",
+        "misc changes"
+      ],
+      "fallbackScope": "discordos"
+    }
+  },
+  "localLandingPolicy": {
+    "mode": "disabled",
+    "targetBranch": "main"
+  },
+  "execution": {
+    "baseRef": "origin/main",
+    "branchPrefix": "codex/",
+    "cleanupWorktreeOnSuccess": false,
+    "fetchOrigin": false
+  }
+}
