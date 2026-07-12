@@ -4,6 +4,12 @@
 
 `_stack` also owns one separate canonical Atlas workspace writer execution class for tasks that must operate directly against the real canonical `ATLAS` root without creating a git worktree.
 
+## Shared Atlas Branding Assets
+
+The `atlas:brand:*` commands resolve shared Atlas-root branding assets through the logical canonical `_stack` checkout, not from the physical depth of the current worktree. The wrapper asks Git for the common Git directory, derives the canonical `_stack` and Atlas roots, then delegates to `branding/scripts/build-brand-assets.mjs` or `branding/scripts/sync-brand-assets.mjs`. This keeps canonical and linked-worktree verification on the same assets and fails closed if the canonical script cannot be found.
+
+`atlas:brand:sync` and `atlas:brand:verify` are `_stack` owner-scoped: they select only the `stack-launcher-icon` consumer from the canonical branding manifest. Repo-local verification follows ownership boundaries, so unrelated Fitness or Trove product-brand drift does not block an `_stack` task. `atlas:brand:sync:all` and `atlas:brand:verify:all` deliberately remain root-wide diagnostics; use them for Atlas-root brand reconciliation, never as a repo-local mutation gate.
+
 ## Responsibility Split
 
 `_stack` owns:

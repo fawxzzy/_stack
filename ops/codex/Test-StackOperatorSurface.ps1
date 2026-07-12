@@ -113,6 +113,8 @@ $requiredFiles = @(
     "ops/codex/repos/stack/config.toml",
     "ops/stack/StackWorkerArtifacts.ps1",
     "ops/stack/Test-StackWorkerArtifacts.ps1",
+    "ops/branding/Invoke-AtlasBrand.mjs",
+    "ops/branding/Invoke-AtlasBrand.test.mjs",
     "ops/bin/release-launcher.cmd",
     "package.json",
     "config/mazer-deploy.identity.json",
@@ -161,6 +163,42 @@ $missingScripts = @(
 )
 if ($missingScripts.Count -gt 0) {
     throw ("Missing required _stack Codex scripts: {0}" -f ($missingScripts -join ", "))
+}
+
+$brandScripts = @{
+    "atlas:brand:build" = "node ops\branding\Invoke-AtlasBrand.mjs build"
+    "atlas:brand:sync" = "node ops\branding\Invoke-AtlasBrand.mjs sync --consumer-id stack-launcher-icon"
+    "atlas:brand:verify" = "node ops\branding\Invoke-AtlasBrand.mjs verify --consumer-id stack-launcher-icon"
+    "atlas:brand:sync:all" = "node ops\branding\Invoke-AtlasBrand.mjs sync"
+    "atlas:brand:verify:all" = "node ops\branding\Invoke-AtlasBrand.mjs verify"
+}
+foreach ($brandScriptName in $brandScripts.Keys) {
+    $actualBrandScript = [string]$package.scripts.PSObject.Properties[$brandScriptName].Value
+    if ($actualBrandScript -ne $brandScripts[$brandScriptName]) {
+        throw ("Package script '{0}' must use the Atlas brand wrapper contract." -f $brandScriptName)
+    }
+}
+
+$atlasBrandWrapperText = Get-Content -LiteralPath "ops/branding/Invoke-AtlasBrand.mjs" -Raw
+foreach ($requiredSnippet in @(
+    "--git-common-dir",
+    "logicalStackRoot",
+    "atlas_brand_canonical_script_not_found",
+    "--consumer-id",
+    "atlas_brand_consumer_not_found",
+    "atlas_brand_consumer_duplicate",
+    "temporaryManifestPath",
+    "build-brand-assets.mjs",
+    "sync-brand-assets.mjs"
+)) {
+    if (-not $atlasBrandWrapperText.Contains($requiredSnippet)) {
+        throw ("Invoke-AtlasBrand.mjs is missing required worktree-safe scope snippet: {0}" -f $requiredSnippet)
+    }
+}
+
+& node --test ".\ops\branding\Invoke-AtlasBrand.test.mjs"
+if ($LASTEXITCODE -ne 0) {
+    throw ("Atlas brand wrapper Node tests failed with exit code {0}." -f $LASTEXITCODE)
 }
 
 $tasks = Get-Content -LiteralPath ".vscode/tasks.json" -Raw | ConvertFrom-Json
