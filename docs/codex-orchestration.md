@@ -246,6 +246,7 @@ Lifeline stays intentionally repo-local:
 - verification stays lightweight and checks required operator files, `_stack` Codex scripts/tasks, worker artifacts, and whitespace safety with `git diff --check`
 - `git diff --check` remains hygiene only; it is not proof that the requested source edits were applied
 - mutation scope stays limited to `_stack` operator surfaces such as `ops/**`, `docs/**`, `.vscode/**`, templates, queue, receipts scaffolding, and repo metadata
+- `_stack` admits `exports/**` and `tests/**` only for `_stack`-owned contract evidence, repo-owned adoption exports, verification reports, schemas, and deterministic owner tests. This does not authorize product or application implementation, or cross-repo writes.
 - docs rules keep README, orchestration docs, dispatcher docs, workspace manifest, and handoff templates aligned when `_stack` runner behavior or workflow boundaries change
 - governed `_stack` jobs default to `permissions = "full-access"` with the modern `permission_profile = ":danger-full-access"` from repo config
 - the last accepted bootstrap path remains available through explicit legacy `sandbox_mode = "danger-full-access"` entrypoints for compatibility with existing callers

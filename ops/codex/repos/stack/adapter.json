@@ -27,11 +27,13 @@
     "AGENTS.md",
     "README.md",
     "docs/**",
+    "exports/**",
     "ops/**",
     "package.json",
     "queue/**",
     "receipts/**",
     "templates/**",
+    "tests/**",
     "workspace.manifest.json"
   ],
   "docsUpdateRules": [

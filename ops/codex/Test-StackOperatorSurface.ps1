@@ -409,6 +409,28 @@ $stackAdapter = Get-Content -LiteralPath "ops/codex/repos/stack/adapter.json" -R
 if ($stackAdapter.pushPolicy.mode -ne "manual-only" -or -not $stackAdapter.pushPolicy.skipPush -or $stackAdapter.pushPolicy.allowAutoPush) {
     throw "_stack adapter pushPolicy must stay manual-only with auto-push disabled."
 }
+$requiredStackEvidenceMutationSurfaces = @(
+    "exports/**",
+    "tests/**"
+)
+$actualStackEvidenceMutationSurfaces = @(
+    $stackAdapter.allowedMutationSurfaces |
+        Where-Object { $_ -match '^(exports|tests)/\*\*$' } |
+        Sort-Object -Unique
+)
+if ($null -ne (Compare-Object -ReferenceObject $requiredStackEvidenceMutationSurfaces -DifferenceObject $actualStackEvidenceMutationSurfaces)) {
+    throw "_stack adapter evidence admission must contain exactly exports/** and tests/**."
+}
+$stackOperatorEvidenceDocumentation = Get-Content -LiteralPath "docs/codex-orchestration.md" -Raw
+$requiredStackEvidenceContractPhrases = @(
+    '`_stack` admits `exports/**` and `tests/**` only for `_stack`-owned contract evidence, repo-owned adoption exports, verification reports, schemas, and deterministic owner tests.',
+    "This does not authorize product or application implementation, or cross-repo writes."
+)
+foreach ($requiredPhrase in $requiredStackEvidenceContractPhrases) {
+    if (-not $stackOperatorEvidenceDocumentation.Contains($requiredPhrase)) {
+        throw ("_stack operator evidence boundary documentation is missing: {0}" -f $requiredPhrase)
+    }
+}
 if ($stackAdapter.execution.baseRef -ne "origin/main") {
     throw "_stack adapter execution.baseRef must keep origin/main as the preferred base ref."
 }
