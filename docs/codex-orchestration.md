@@ -336,6 +336,14 @@ Push remains manual-only. This pass does not add any auto-push or multi-repo dis
 
 ## Runtime Posture
 
+## Native CLI And Model Capability Contract
+
+On Windows, both governed execution classes select Codex in this order: explicit `-CodexCommand`, merged `[windows].codex_command`, then native PATH fallback. The shared and repo-local default is the user-global native executable `%APPDATA%/npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe`.
+
+Configured values are environment-expanded before resolution. A missing path, wrapper, shim, or non-native executable fails closed before policy probing or execution. Each receipt includes `requestedPath`, `expandedPath`, `resolvedNativePath`, `source`, and `codex_version`.
+
+Before execution, the same resolved native executable performs a repository-read-only model capability probe. Its only outcomes are `accepted`, `unsupported_model`, `unavailable`, and `probe_failed`; no static model catalog is used. Runtime receipts preserve `requested_model`, `effective_model`, and `model_capability` so effective model truth comes from the probe.
+
 Shared defaults keep legacy `workspace-write` compatibility through `sandbox_mode = "workspace-write"`.
 
 Repo overrides may switch to the modern permission mechanism:

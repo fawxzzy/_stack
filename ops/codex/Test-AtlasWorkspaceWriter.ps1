@@ -104,23 +104,15 @@ const args = process.argv.slice(2);
 const wrapperPath = process.env.FAKE_CODEX_WRAPPER_PATH ?? "";
 
 if (args[0] === "--version") {
-  process.stdout.write(`codex-cli 0.142.5-canonical-fixture ${path.basename(wrapperPath || "unknown")}\n`);
-  process.exit(0);
-}
-
-if (args[0] === "debug" && args[1] === "models") {
-  process.stdout.write(JSON.stringify({
-    models: [
-      { slug: "gpt-5.4", additional_speed_tiers: ["fast"] },
-      { slug: "gpt-5.4-mini", additional_speed_tiers: [] }
-    ]
-  }));
+  process.stdout.write(`codex-cli 0.144.1-canonical-fixture ${path.basename(wrapperPath || "unknown")}\n`);
   process.exit(0);
 }
 
 let summaryPath = null;
 let repoRoot = null;
+let requestedModel = null;
 for (let index = 0; index < args.length; index += 1) {
+  if (args[index] === "-m") { requestedModel = args[index + 1] ?? null; index += 1; continue; }
   if (args[index] === "-o") {
     summaryPath = args[index + 1] ?? null;
     index += 1;
@@ -138,6 +130,15 @@ if (!summaryPath || !repoRoot) {
 }
 
 const prompt = fs.readFileSync(0, "utf8");
+if (prompt.includes("ATLAS_MODEL_CAPABILITY_ACCEPTED")) {
+  if (String(requestedModel ?? "").includes("unsupported")) {
+    process.stdout.write('{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The model is not supported when using Codex."}}\n');
+    process.exit(1);
+  }
+  fs.writeFileSync(summaryPath, "Fake Codex accepted the model capability probe.\n", "utf8");
+  process.stdout.write('{"status":"accepted"}\n');
+  process.exit(0);
+}
 const archiveRoot = path.join(repoRoot, ".codex", "archive");
 const locksRoot = path.join(repoRoot, ".codex", "locks");
 const logsRoot = path.join(repoRoot, ".codex", "logs");
@@ -165,7 +166,7 @@ if (!fs.existsSync(manifestPath)) {
 }
 
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-if (!manifest.codexCommand || !manifest.codexCommand.path) {
+if (!manifest.codexCommand || !manifest.codexCommand.resolvedNativePath) {
   process.stderr.write("Canonical writer did not receipt the resolved Codex command before execution.\n");
   process.exit(36);
 }
@@ -173,8 +174,12 @@ if (!manifest.runtimePolicy || !manifest.runtimePolicy.requested || !manifest.ru
   process.stderr.write("Canonical writer did not receipt runtimePolicy before execution.\n");
   process.exit(33);
 }
-if (path.resolve(manifest.codexCommand.path) !== path.resolve(wrapperPath)) {
-  process.stderr.write(`Canonical writer receipted ${manifest.codexCommand.path} but executed ${wrapperPath}.\n`);
+if (!manifest.runtimePolicy.model_capability || manifest.runtimePolicy.model_capability.status !== "accepted") {
+  process.stderr.write("Canonical writer did not receipt an accepted model capability probe before execution.\n");
+  process.exit(40);
+}
+if (path.resolve(manifest.codexCommand.resolvedNativePath) !== path.resolve(wrapperPath)) {
+  process.stderr.write(`Canonical writer receipted ${manifest.codexCommand.resolvedNativePath} but executed ${wrapperPath}.\n`);
   process.exit(37);
 }
 if (!String(manifest.runtimePolicy.codex_version ?? manifest.runtimePolicy.resolved?.codex_version ?? "").includes(path.basename(wrapperPath))) {
@@ -625,9 +630,11 @@ function Invoke-CanonicalWriterFixture {
 }
 
 $fixtureRoot = $null
+$originalAppData = $env:APPDATA
 
 try {
     $fixtureRoot = New-TempFixtureRoot
+    $env:APPDATA = Join-Path -Path $fixtureRoot -ChildPath "appdata"
     $toolRoot = Join-Path -Path $fixtureRoot -ChildPath "tools"
     New-Item -ItemType Directory -Path $toolRoot -Force | Out-Null
     $gitWrapper = New-GitWrapperTooling -ToolRoot $toolRoot
@@ -659,9 +666,23 @@ Scenario: no-op
     Assert-Condition -Condition ($realGitDirectoryRun.Result.ExitCode -eq 0) -Message ("Real .git directory fixture failed. StdOut: {0} StdErr: {1}" -f $realGitDirectoryRun.Result.StdOut, $realGitDirectoryRun.Result.StdErr)
     Assert-Condition -Condition ($null -ne $realGitDirectoryRun.Manifest) -Message "Real .git directory fixture did not produce run.json."
     Assert-Condition -Condition ([string]$realGitDirectoryRun.Manifest.status -eq "success") -Message "Real .git directory fixture did not report success."
+    Assert-Condition -Condition ([string]$realGitDirectoryRun.Manifest.codexCommand.source -eq "explicit-arg") -Message "Explicit -CodexCommand fixture did not take precedence over configured windows.codex_command."
+    Assert-Condition -Condition ([string]$realGitDirectoryRun.Manifest.codexCommand.resolvedNativePath -eq $fakeCodex.CommandPath) -Message "Explicit -CodexCommand fixture did not receipt the resolved native executable."
     Assert-Condition -Condition ([bool]$realGitDirectoryRun.Manifest.canonicalRootValidation.gitEntryExists) -Message "Real .git directory fixture did not receipt the canonical .git entry."
     Assert-Condition -Condition ([bool]$realGitDirectoryRun.Manifest.canonicalRootValidation.gitEntryIsDirectory) -Message "Real .git directory fixture did not prove the canonical .git entry is a directory."
     Assert-Condition -Condition ([string]::IsNullOrWhiteSpace([string]$realGitDirectoryRun.Manifest.canonicalRootValidation.reasonCode)) -Message "Real .git directory fixture unexpectedly receipted a canonical git-directory failure code."
+
+    $unsupportedModelRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "unsupported-model")
+    $unsupportedModelPrompt = New-PromptFile -RepoRoot $unsupportedModelRepo -FileName "unsupported-model.md" -Content @"
+Title: Unsupported model
+
+Objective:
+Prove the canonical writer distinguishes unsupported_model from probe_failed.
+"@
+    $unsupportedModelRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $unsupportedModelRepo -PromptPath $unsupportedModelPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath -AdditionalArguments @("-Model", "unsupported-fixture")
+    Assert-Condition -Condition ($unsupportedModelRun.Result.ExitCode -ne 0) -Message "Canonical unsupported_model fixture unexpectedly succeeded."
+    Assert-Condition -Condition ([string]$unsupportedModelRun.Manifest.status -eq "runtime_policy_blocked") -Message "Canonical unsupported_model fixture did not stop before execution."
+    Assert-Condition -Condition ([string]$unsupportedModelRun.Manifest.runtimePolicy.model_capability.status -eq "unsupported_model") -Message "Canonical fixture did not classify the clear unsupported-model response."
 
     $linkedWorktreeGitFileRoot = Join-Path -Path $fixtureRoot -ChildPath "linked-worktree-gitfile\ATLAS"
     foreach ($relativePath in @(".codex\inbox", "docs")) {
@@ -680,9 +701,11 @@ Prove the canonical writer rejects a linked-worktree .git file.
     Assert-Condition -Condition ($linkedWorktreeGitFileRun.Result.ExitCode -ne 0) -Message "Linked-worktree .git file fixture unexpectedly succeeded."
     Assert-Condition -Condition ($linkedWorktreeGitFileOutput -match "canonical_workspace_git_directory_required") -Message "Linked-worktree .git file fixture did not preserve the canonical_workspace_git_directory_required failure code."
 
-    $configuredNativeCommandPath = Join-Path -Path $toolRoot -ChildPath "configured-codex.exe"
+    $configuredNativeCommandPath = Join-Path -Path $env:APPDATA -ChildPath "npm\node_modules\@openai\codex\node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe"
+    New-Item -ItemType Directory -Path ([System.IO.Path]::GetDirectoryName($configuredNativeCommandPath)) -Force | Out-Null
     Copy-Item -LiteralPath $fakeCodex.CommandPath -Destination $configuredNativeCommandPath -Force
-    $configuredRuntimeConfigPath = New-RuntimeConfigFile -BaseRoot $fixtureRoot -FileName "configured-runtime-config.toml" -WindowsCodexCommand $configuredNativeCommandPath
+    $configuredRequestedPath = "%APPDATA%/npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe"
+    $configuredRuntimeConfigPath = New-RuntimeConfigFile -BaseRoot $fixtureRoot -FileName "configured-runtime-config.toml" -WindowsCodexCommand $configuredRequestedPath
     $configuredCommandRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "configured-command")
     $configuredCommandPrompt = New-PromptFile -RepoRoot $configuredCommandRepo -FileName "configured-command.md" -Content @"
 Title: Configured native command
@@ -696,10 +719,12 @@ Scenario: no-op
     $configuredCommandRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $configuredCommandRepo -PromptPath $configuredCommandPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -RuntimeConfigPath $configuredRuntimeConfigPath
     Assert-Condition -Condition ($configuredCommandRun.Result.ExitCode -eq 0) -Message ("Configured native command fixture failed. StdOut: {0} StdErr: {1}" -f $configuredCommandRun.Result.StdOut, $configuredCommandRun.Result.StdErr)
     Assert-Condition -Condition ([string]$configuredCommandRun.Manifest.codexCommand.source -eq "runtime-config/windows.codex_command") -Message "Configured native command fixture did not receipt runtime-config/windows.codex_command as the source."
-    Assert-Condition -Condition ([string]$configuredCommandRun.Manifest.codexCommand.path -eq $configuredNativeCommandPath) -Message "Configured native command fixture did not receipt the configured native executable path."
+    Assert-Condition -Condition ([string]$configuredCommandRun.Manifest.codexCommand.requestedPath -eq $configuredRequestedPath) -Message "Configured %APPDATA% fixture did not receipt requestedPath."
+    Assert-Condition -Condition ([string]$configuredCommandRun.Manifest.codexCommand.expandedPath -eq $configuredNativeCommandPath) -Message "Configured %APPDATA% fixture did not receipt expandedPath."
+    Assert-Condition -Condition ([string]$configuredCommandRun.Manifest.codexCommand.resolvedNativePath -eq $configuredNativeCommandPath) -Message "Configured native command fixture did not receipt resolvedNativePath."
     Assert-Condition -Condition ($null -ne $configuredCommandRun.ExecutionRecord) -Message "Configured native command fixture did not record the executed fake Codex binary."
     Assert-Condition -Condition ([string]$configuredCommandRun.ExecutionRecord.wrapperPath -eq $configuredNativeCommandPath) -Message "Configured native command fixture did not execute the configured native executable."
-    Assert-Condition -Condition ([string]$configuredCommandRun.Manifest.runtimePolicy.codex_version -match "configured-codex\.exe") -Message "Configured native command fixture did not receipt the configured native executable in runtime policy."
+    Assert-Condition -Condition ([string]$configuredCommandRun.Manifest.runtimePolicy.codex_version -match "codex-cli 0\.144\.1-canonical-fixture codex\.exe") -Message "Configured native command fixture did not receipt the configured native executable version in runtime policy."
 
     $pathFallbackNativeCommandPath = Join-Path -Path $toolRoot -ChildPath "codex.exe"
     $pathFallbackShimPath = Join-Path -Path $toolRoot -ChildPath "codex.ps1"
@@ -736,8 +761,8 @@ Prove the canonical writer fails closed when an explicit native executable path 
     $missingNativeExplicitOutput = $missingNativeExplicitRun.Result.StdOut + $missingNativeExplicitRun.Result.StdErr
     Assert-Condition -Condition ($missingNativeExplicitRun.Result.ExitCode -ne 0) -Message "Missing native explicit fixture unexpectedly succeeded."
     Assert-Condition -Condition ([string]$missingNativeExplicitRun.Manifest.status -eq "codex_command_resolution_failed") -Message "Missing native explicit fixture did not fail with codex_command_resolution_failed."
-    Assert-Condition -Condition ([string]$missingNativeExplicitRun.Manifest.codexCommand.reasonCode -eq "canonical_workspace_codex_native_executable_not_found") -Message "Missing native explicit fixture did not receipt the stable not-found reason code."
-    Assert-Condition -Condition ($missingNativeExplicitOutput -match "canonical_workspace_codex_native_executable_not_found") -Message "Missing native explicit fixture did not report the stable not-found reason code."
+    Assert-Condition -Condition ([string]$missingNativeExplicitRun.Manifest.codexCommand.reasonCode -eq "codex_native_executable_not_found") -Message "Missing native explicit fixture did not receipt the stable not-found reason code."
+    Assert-Condition -Condition ($missingNativeExplicitOutput -match "codex_native_executable_not_found") -Message "Missing native explicit fixture did not report the stable not-found reason code."
 
     $scriptOnlyExplicitPath = Join-Path -Path $toolRoot -ChildPath "script-only-codex.ps1"
     [System.IO.File]::WriteAllText($scriptOnlyExplicitPath, "Write-Host 'script shim should never execute'`r`n")
@@ -752,8 +777,8 @@ Prove the canonical writer rejects explicit PowerShell shims before execution.
     $scriptOnlyExplicitOutput = $scriptOnlyExplicitRun.Result.StdOut + $scriptOnlyExplicitRun.Result.StdErr
     Assert-Condition -Condition ($scriptOnlyExplicitRun.Result.ExitCode -ne 0) -Message "Script-only explicit fixture unexpectedly succeeded."
     Assert-Condition -Condition ([string]$scriptOnlyExplicitRun.Manifest.status -eq "codex_command_resolution_failed") -Message "Script-only explicit fixture did not fail with codex_command_resolution_failed."
-    Assert-Condition -Condition ([string]$scriptOnlyExplicitRun.Manifest.codexCommand.reasonCode -eq "canonical_workspace_codex_native_executable_required") -Message "Script-only explicit fixture did not receipt the stable native-required reason code."
-    Assert-Condition -Condition ($scriptOnlyExplicitOutput -match "canonical_workspace_codex_native_executable_required") -Message "Script-only explicit fixture did not report the stable native-required reason code."
+    Assert-Condition -Condition ([string]$scriptOnlyExplicitRun.Manifest.codexCommand.reasonCode -eq "codex_native_executable_required") -Message "Script-only explicit fixture did not receipt the stable native-required reason code."
+    Assert-Condition -Condition ($scriptOnlyExplicitOutput -match "codex_native_executable_required") -Message "Script-only explicit fixture did not report the stable native-required reason code."
 
     $readOnlyRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "read-only")
     $readOnlyPrompt = New-PromptFile -RepoRoot $readOnlyRepo -FileName "read-only.md" -Content @"
@@ -1110,6 +1135,7 @@ Expected Changed Paths:
     Assert-Condition -Condition (Test-Path -LiteralPath ([string]$staleRun.Manifest.lock.staleDiagnostic.staleLockPath)) -Message "Stale lock fixture did not preserve the stale lock diagnostic file."
 }
 finally {
+    $env:APPDATA = $originalAppData
     if (-not [string]::IsNullOrWhiteSpace($fixtureRoot) -and (Test-Path -LiteralPath $fixtureRoot)) {
         Remove-Item -LiteralPath $fixtureRoot -Recurse -Force
     }

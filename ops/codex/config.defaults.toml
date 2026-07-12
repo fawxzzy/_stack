@@ -5,7 +5,7 @@
 personality = "pragmatic"
 
 [windows]
-codex_command = "%USERPROFILE%/.codex/.sandbox-bin/codex.exe"
+codex_command = "%APPDATA%/npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe"
 
 [runtime_policy]
 model = "gpt-5.4"

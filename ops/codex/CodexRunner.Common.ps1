@@ -252,6 +252,71 @@ function Import-StackCodexConfiguration {
     }
 }
 
+function Test-WindowsPlatform { return $env:OS -eq "Windows_NT" }
+
+function Test-CodexCommandPathLike {
+    param([string]$Value)
+    return -not [string]::IsNullOrWhiteSpace($Value) -and ([System.IO.Path]::IsPathRooted($Value) -or $Value.Contains("\\") -or $Value.Contains("/") -or $Value.StartsWith("."))
+}
+
+function Test-WindowsNativeExecutablePath {
+    param([string]$Path)
+    return -not [string]::IsNullOrWhiteSpace($Path) -and (@(".exe", ".com") -contains [System.IO.Path]::GetExtension($Path).ToLowerInvariant())
+}
+
+function New-CodexCommandResolutionRecord {
+    param([string]$Source, [string]$RequestedPath)
+    return [ordered]@{ source = $Source; requestedPath = $RequestedPath; expandedPath = $null; resolvedNativePath = $null; codex_version = $null; requestedValue = $RequestedPath; expandedValue = $null; path = $null; resolutionMethod = $null; isNativeExecutable = $false; reasonCode = $null; searchedCommands = @() }
+}
+
+function Set-CodexCommandVersion {
+    param($ResolutionRecord, [string]$CodexVersion)
+    if ($null -ne $ResolutionRecord) { $ResolutionRecord.codex_version = if ([string]::IsNullOrWhiteSpace($CodexVersion)) { $null } else { $CodexVersion } }
+    return $ResolutionRecord
+}
+
+function Resolve-WindowsCodexCommandCandidate {
+    param([string]$RequestedPath, [string]$Source, [string]$BasePath)
+    $record = New-CodexCommandResolutionRecord -Source $Source -RequestedPath $RequestedPath
+    $expandedPath = Expand-ConfigString -Value $RequestedPath
+    $record.expandedPath = if (Test-CodexCommandPathLike -Value $expandedPath) { Resolve-PathFromBase -BasePath $BasePath -Value $expandedPath } else { $expandedPath }
+    $record.expandedValue = $record.expandedPath
+    if ([string]::IsNullOrWhiteSpace($record.expandedPath)) { $record.reasonCode = "codex_native_executable_not_found"; return [pscustomobject]$record }
+    if (Test-CodexCommandPathLike -Value $record.expandedPath) {
+        $record.resolvedNativePath = $record.expandedPath; $record.path = $record.resolvedNativePath; $record.resolutionMethod = "literal-path"
+        if (-not (Test-Path -LiteralPath $record.resolvedNativePath -PathType Leaf)) { $record.reasonCode = "codex_native_executable_not_found"; return [pscustomobject]$record }
+        if (-not (Test-WindowsNativeExecutablePath -Path $record.resolvedNativePath)) { $record.reasonCode = "codex_native_executable_required"; return [pscustomobject]$record }
+        $record.isNativeExecutable = $true; return [pscustomobject]$record
+    }
+    $extension = [System.IO.Path]::GetExtension($record.expandedPath)
+    if (-not [string]::IsNullOrWhiteSpace($extension) -and -not (Test-WindowsNativeExecutablePath -Path $record.expandedPath)) { $record.reasonCode = "codex_native_executable_required"; return [pscustomobject]$record }
+    foreach ($name in $(if ([string]::IsNullOrWhiteSpace($extension)) { @(("{0}.exe" -f $record.expandedPath), $record.expandedPath) } else { @($record.expandedPath) })) {
+        $record.searchedCommands = @($record.searchedCommands + $name); $candidate = Get-Command -Name $name -ErrorAction SilentlyContinue
+        if ($null -eq $candidate) { continue }
+        $record.resolvedNativePath = [string]$candidate.Source; $record.path = $record.resolvedNativePath; $record.resolutionMethod = "path-search:$name"
+        if (Test-WindowsNativeExecutablePath -Path $record.resolvedNativePath) { $record.isNativeExecutable = $true; return [pscustomobject]$record }
+        $record.reasonCode = "codex_native_executable_required"
+    }
+    if ([string]::IsNullOrWhiteSpace($record.reasonCode)) { $record.reasonCode = "codex_native_executable_not_found" }
+    return [pscustomobject]$record
+}
+
+function Resolve-CodexCommand {
+    param([string]$ExplicitCodexCommand, [hashtable]$Config, [string]$BasePath)
+    $requested = if (-not [string]::IsNullOrWhiteSpace($ExplicitCodexCommand)) { $ExplicitCodexCommand } else { [string](Get-ConfigValue -Config $Config -Path @("windows", "codex_command") -DefaultValue "") }
+    $source = if (-not [string]::IsNullOrWhiteSpace($ExplicitCodexCommand)) { "explicit-arg" } elseif (-not [string]::IsNullOrWhiteSpace($requested)) { "runtime-config/windows.codex_command" } else { "path-fallback" }
+    if ([string]::IsNullOrWhiteSpace($requested)) { $requested = "codex" }
+    return Resolve-WindowsCodexCommandCandidate -RequestedPath $requested -Source $source -BasePath $BasePath
+}
+
+function Get-CodexCommandResolutionFailureMessage {
+    param($ResolutionRecord)
+    $reason = [string](Get-ObjectPropertyValue -Object $ResolutionRecord -Name "reasonCode" -DefaultValue "codex_native_executable_not_found")
+    $source = [string](Get-ObjectPropertyValue -Object $ResolutionRecord -Name "source" -DefaultValue "unknown")
+    $requested = [string](Get-ObjectPropertyValue -Object $ResolutionRecord -Name "requestedPath" -DefaultValue "")
+    return ("{0}: Codex command must resolve to an existing native Windows executable before runtime-policy probing or execution. Source={1}; requested='{2}'" -f $reason, $source, $requested)
+}
+
 function ConvertTo-RunnerBoolean {
     param(
         $Value,
@@ -1220,33 +1285,8 @@ function Get-CodexCliContext {
         }
     }
 
-    $models = @()
-    $modelsError = $null
-    $modelsResult = Invoke-ProcessCapture -FilePath $CodexCommand -ArgumentList @("debug", "models") -WorkingDirectory $hostDirectory
-    if ($modelsResult.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($modelsResult.StdOut)) {
-        try {
-            $modelsPayload = $modelsResult.StdOut | ConvertFrom-Json
-            if ($null -ne $modelsPayload -and $modelsPayload.PSObject.Properties.Name -contains "models") {
-                $models = @($modelsPayload.models)
-            }
-        }
-        catch {
-            $modelsError = $_.Exception.Message
-        }
-    }
-    elseif ($modelsResult.ExitCode -ne 0) {
-        $modelsError = if (-not [string]::IsNullOrWhiteSpace($modelsResult.StdErr)) {
-            $modelsResult.StdErr.Trim()
-        }
-        else {
-            $modelsResult.StdOut.Trim()
-        }
-    }
-
     return [pscustomobject]@{
         codexVersion = $version
-        modelCatalog = @($models)
-        modelCatalogError = $modelsError
         hostDirectory = $hostDirectory
     }
 }
@@ -1263,60 +1303,20 @@ function Get-RuntimePolicySourcePrecedence {
     }
 }
 
-function Get-CodexSpeedCapability {
-    param(
-        $CliContext,
-        [string]$Model
-    )
-
-    if ($null -eq $CliContext) {
-        return [pscustomobject]@{
-            supported = $false
-            status = "unavailable"
-            note = "Codex model catalog was not available for Fast capability detection."
-        }
+function Invoke-CodexModelCapabilityProbe {
+    param([string]$CodexCommand, [string]$ProbeTargetPath, [string]$Model)
+    if ([string]::IsNullOrWhiteSpace($Model)) { return [pscustomobject]@{ requested_model = $null; effective_model = $null; status = "probe_failed"; note = "Model capability probe requires a requested model."; exit_code = $null } }
+    if ([string]::IsNullOrWhiteSpace($CodexCommand) -or -not (Test-Path -LiteralPath $CodexCommand -PathType Leaf)) { return [pscustomobject]@{ requested_model = $Model; effective_model = $null; status = "unavailable"; note = "Resolved native Codex executable was unavailable before model capability probing."; exit_code = $null } }
+    $probeDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("atlas-codex-model-probe-" + [guid]::NewGuid().ToString("N")); New-Item -ItemType Directory -Path $probeDirectory -Force | Out-Null
+    try {
+        $result = Invoke-ProcessCapture -FilePath $CodexCommand -ArgumentList @("-a", "never", "-m", $Model, "-s", "read-only", "exec", "--json", "-o", (Join-Path $probeDirectory "summary.jsonl"), "-C", $ProbeTargetPath, "-") -WorkingDirectory $probeDirectory -StandardInputText "Reply with EXACTLY ATLAS_MODEL_CAPABILITY_ACCEPTED."
     }
-
-    $models = @(Get-ObjectPropertyValue -Object $CliContext -Name "modelCatalog" -DefaultValue @())
-    if ($models.Count -eq 0) {
-        $catalogError = [string](Get-ObjectPropertyValue -Object $CliContext -Name "modelCatalogError" -DefaultValue "")
-        $note = if ([string]::IsNullOrWhiteSpace($catalogError)) {
-            "Codex model catalog was not available for Fast capability detection."
-        }
-        else {
-            "Codex model catalog was not available for Fast capability detection: $catalogError"
-        }
-
-        return [pscustomobject]@{
-            supported = $false
-            status = "unavailable"
-            note = $note
-        }
-    }
-
-    $matchingModels = @($models | Where-Object { [string]$_.slug -eq $Model } | Select-Object -First 1)
-    if ($matchingModels.Count -eq 0) {
-        return [pscustomobject]@{
-            supported = $false
-            status = "unknown-model"
-            note = ("Codex model catalog did not include '{0}' for Fast capability detection." -f $Model)
-        }
-    }
-
-    $matchingModel = $matchingModels[0]
-    $speedTiers = @(ConvertTo-StringArray -Value (Get-ObjectPropertyValue -Object $matchingModel -Name "additional_speed_tiers" -DefaultValue @()))
-    $supportsFast = @($speedTiers | Where-Object { ([string]$_).Trim().ToLowerInvariant() -eq "fast" }).Count -gt 0
-
-    return [pscustomobject]@{
-        supported = $supportsFast
-        status = if ($supportsFast) { "supported" } else { "unsupported" }
-        note = if ($supportsFast) {
-            "Fast speed is supported for the requested model."
-        }
-        else {
-            ("Fast speed is not available for model '{0}' in the installed Codex catalog." -f $Model)
-        }
-    }
+    catch { $status = if ($_.Exception.Message -match "cannot find|could not find|failed to start") { "unavailable" } else { "probe_failed" }; return [pscustomobject]@{ requested_model = $Model; effective_model = $null; status = $status; note = $_.Exception.Message; exit_code = $null } }
+    finally { if (Test-Path -LiteralPath $probeDirectory) { Remove-Item -LiteralPath $probeDirectory -Recurse -Force -ErrorAction SilentlyContinue } }
+    if ($result.ExitCode -eq 0) { return [pscustomobject]@{ requested_model = $Model; effective_model = $Model; status = "accepted"; note = $null; exit_code = $result.ExitCode } }
+    $output = @($result.StdOut, $result.StdErr) -join "`n"
+    $status = if ($output.ToLowerInvariant() -match "model(?:\s+\S+)?\s+is not supported|unsupported model|model_not_supported") { "unsupported_model" } else { "probe_failed" }
+    return [pscustomobject]@{ requested_model = $Model; effective_model = $null; status = $status; note = "Codex model capability probe failed with exit code $($result.ExitCode)."; exit_code = $result.ExitCode }
 }
 
 function Resolve-StackRuntimePolicy {
@@ -1327,7 +1327,8 @@ function Resolve-StackRuntimePolicy {
         $PromptRecord,
         $ExplicitPolicy,
         [string]$CodexCommand,
-        $CliContext = $null
+        $CliContext = $null,
+        [string]$ProbeTargetPath = $null
     )
 
     $repoConfigPolicy = Get-RuntimePolicyConfigLayer -Config $(if ($null -ne $RepoConfig) { $RepoConfig } else { @{} })
@@ -1471,22 +1472,15 @@ function Resolve-StackRuntimePolicy {
 
     $resolvedSpeed = if ([string]::IsNullOrWhiteSpace($speedResult.value)) { "standard" } else { [string]$speedResult.value }
     $speedSource = if ([string]::IsNullOrWhiteSpace($speedResult.source)) { "shared-default" } else { [string]$speedResult.source }
-    if ($resolvedSpeed -eq "fast") {
-        $effectiveCliContext = if ($null -ne $CliContext) { $CliContext } elseif (-not [string]::IsNullOrWhiteSpace($CodexCommand)) { Get-CodexCliContext -CodexCommand $CodexCommand } else { $null }
-        $speedCapability = Get-CodexSpeedCapability -CliContext $effectiveCliContext -Model ([string]$modelResult.value)
-        if (-not [bool]$speedCapability.supported) {
-            $resolvedSpeed = "standard"
-            $speedSource = "{0}; fallback-standard" -f $speedSource
-            if (-not [string]::IsNullOrWhiteSpace([string]$speedCapability.note)) {
-                $warnings.Add([string]$speedCapability.note) | Out-Null
-            }
-        }
-
-        $CliContext = $effectiveCliContext
-    }
-
     if ($null -eq $CliContext -and -not [string]::IsNullOrWhiteSpace($CodexCommand)) {
         $CliContext = Get-CodexCliContext -CodexCommand $CodexCommand
+    }
+
+    $requestedModel = if ([string]::IsNullOrWhiteSpace($modelResult.value)) { $null } else { [string]$modelResult.value }
+    $modelCapability = Invoke-CodexModelCapabilityProbe -CodexCommand $CodexCommand -ProbeTargetPath $(if ([string]::IsNullOrWhiteSpace($ProbeTargetPath)) { (Get-CodexRuntimeHostDirectory) } else { $ProbeTargetPath }) -Model $requestedModel
+    $effectiveModel = [string](Get-ObjectPropertyValue -Object $modelCapability -Name "effective_model" -DefaultValue $null)
+    if ([string](Get-ObjectPropertyValue -Object $modelCapability -Name "status" -DefaultValue "") -ne "accepted") {
+        [void]$blockers.Add([string](Get-ObjectPropertyValue -Object $modelCapability -Name "note" -DefaultValue "Requested model did not pass capability probing."))
     }
 
     $resolvedApproval = if ([string]::IsNullOrWhiteSpace($approvalResult.value)) { "never" } else { [string]$approvalResult.value }
@@ -1494,7 +1488,7 @@ function Resolve-StackRuntimePolicy {
 
     return [pscustomobject]@{
         requested = [ordered]@{
-            model = if ([string]::IsNullOrWhiteSpace($modelResult.value)) { $null } else { [string]$modelResult.value }
+            model = $requestedModel
             reasoning = if ([string]::IsNullOrWhiteSpace($reasoningResult.value)) { $null } else { [string]$reasoningResult.value }
             speed = if ([string]::IsNullOrWhiteSpace($speedResult.value)) { "standard" } else { [string]$speedResult.value }
             permissions = [ordered]@{
@@ -1504,7 +1498,7 @@ function Resolve-StackRuntimePolicy {
             }
         }
         resolved = [ordered]@{
-            model = if ([string]::IsNullOrWhiteSpace($modelResult.value)) { $null } else { [string]$modelResult.value }
+            model = $effectiveModel
             reasoning = if ([string]::IsNullOrWhiteSpace($reasoningResult.value)) { $null } else { [string]$reasoningResult.value }
             speed = $resolvedSpeed
             permissions = [ordered]@{
@@ -1526,11 +1520,20 @@ function Resolve-StackRuntimePolicy {
                 sandbox_mode = if ([string]::IsNullOrWhiteSpace($sandboxSource)) { $null } else { [string]$sandboxSource }
             }
         }
+        requested_model = $requestedModel
+        effective_model = $effectiveModel
+        model_capability = $modelCapability
         codex_version = [string](Get-ObjectPropertyValue -Object $CliContext -Name "codexVersion" -DefaultValue $null)
         warnings = @($warnings.ToArray())
         blockers = @($blockers.ToArray())
         cliContext = $CliContext
     }
+}
+
+function Get-RuntimePolicyReceipt {
+    param($RuntimePolicy)
+    if ($null -eq $RuntimePolicy) { return $null }
+    return [ordered]@{ requested = $RuntimePolicy.requested; resolved = $RuntimePolicy.resolved; sources = $RuntimePolicy.sources; requested_model = $RuntimePolicy.requested_model; effective_model = $RuntimePolicy.effective_model; model_capability = $RuntimePolicy.model_capability; codex_version = $RuntimePolicy.codex_version; warnings = @($RuntimePolicy.warnings); blockers = @($RuntimePolicy.blockers) }
 }
 
 function New-CodexInvocationPlan {

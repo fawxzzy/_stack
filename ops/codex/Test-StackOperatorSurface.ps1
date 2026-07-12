@@ -952,14 +952,51 @@ Blocked / Skipped Reporting Rules:
     $defaultsConfig = ConvertFrom-SimpleToml -Path "ops/codex/config.defaults.toml"
     $stackRepoConfig = ConvertFrom-SimpleToml -Path "ops/codex/repos/stack/config.toml"
     $mergedStackConfig = Merge-Hashtable -Base $defaultsConfig -Overlay $stackRepoConfig
+
+    $resolutionFixtureRoot = Join-Path -Path $parserTestRoot -ChildPath "native-resolution"
+    $fixtureAppData = Join-Path -Path $resolutionFixtureRoot -ChildPath "appdata"
+    $configuredNativePath = Join-Path -Path $fixtureAppData -ChildPath "npm\node_modules\@openai\codex\node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe"
+    $explicitNativePath = Join-Path -Path $resolutionFixtureRoot -ChildPath "explicit-codex.exe"
+    New-Item -ItemType Directory -Path ([System.IO.Path]::GetDirectoryName($configuredNativePath)) -Force | Out-Null
+    [System.IO.File]::WriteAllText($configuredNativePath, "configured native fixture")
+    [System.IO.File]::WriteAllText($explicitNativePath, "explicit native fixture")
+    $configuredCommand = "%APPDATA%/npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe"
+    $originalAppData = $env:APPDATA
+    try {
+        $env:APPDATA = $fixtureAppData
+        $configuredResolution = Resolve-CodexCommand -ExplicitCodexCommand "" -Config @{ windows = @{ codex_command = $configuredCommand } } -BasePath $resolutionFixtureRoot
+        if ([string]$configuredResolution.requestedPath -ne $configuredCommand -or [string]$configuredResolution.expandedPath -ne $configuredNativePath -or [string]$configuredResolution.resolvedNativePath -ne $configuredNativePath) {
+            throw "Configured %APPDATA% native executable fixture did not preserve requestedPath, expandedPath, and resolvedNativePath."
+        }
+
+        $explicitResolution = Resolve-CodexCommand -ExplicitCodexCommand $explicitNativePath -Config @{ windows = @{ codex_command = $configuredCommand } } -BasePath $resolutionFixtureRoot
+        if ([string]$explicitResolution.source -ne "explicit-arg" -or [string]$explicitResolution.resolvedNativePath -ne $explicitNativePath) {
+            throw "Explicit -CodexCommand fixture did not take precedence over merged windows.codex_command."
+        }
+
+        $missingConfiguredPath = Join-Path -Path $resolutionFixtureRoot -ChildPath "missing-configured-codex.exe"
+        $missingConfiguredResolution = Resolve-CodexCommand -ExplicitCodexCommand "" -Config @{ windows = @{ codex_command = $missingConfiguredPath } } -BasePath $resolutionFixtureRoot
+        if ([string]$missingConfiguredResolution.source -ne "runtime-config/windows.codex_command" -or [string]$missingConfiguredResolution.reasonCode -ne "codex_native_executable_not_found") {
+            throw "Configured missing native executable fixture did not fail closed before probing."
+        }
+    }
+    finally {
+        $env:APPDATA = $originalAppData
+    }
+
+    function Invoke-CodexModelCapabilityProbe {
+        param([string]$CodexCommand, [string]$ProbeTargetPath, [string]$Model)
+        return [pscustomobject]@{
+            requested_model = $Model
+            effective_model = $Model
+            status = "accepted"
+            note = $null
+            exit_code = 0
+        }
+    }
+
     $fakeCliContext = [pscustomobject]@{
-        codexVersion = "codex-cli 0.142.5"
-        modelCatalog = @(
-            [pscustomobject]@{ slug = "gpt-5.5"; additional_speed_tiers = @("fast") },
-            [pscustomobject]@{ slug = "gpt-5.4"; additional_speed_tiers = @("fast") },
-            [pscustomobject]@{ slug = "gpt-5.4-mini"; additional_speed_tiers = @() }
-        )
-        modelCatalogError = $null
+        codexVersion = "codex-cli 0.144.1"
     }
 
     $stackDefaultRuntimePolicy = Resolve-StackRuntimePolicy `
@@ -979,7 +1016,7 @@ Blocked / Skipped Reporting Rules:
     if ([string]$stackDefaultRuntimePolicy.sources.permissions.mode -ne "repo-config") {
         throw "_stack default runtime policy must report repo-config as the source for its default full-access posture."
     }
-    if ([string]$stackDefaultRuntimePolicy.codex_version -ne "codex-cli 0.142.5") {
+    if ([string]$stackDefaultRuntimePolicy.codex_version -ne "codex-cli 0.144.1") {
         throw "Runtime policy receipts must expose the installed Codex version at the envelope level."
     }
     if ($null -eq $stackDefaultRuntimePolicy.warnings -or $null -eq $stackDefaultRuntimePolicy.blockers) {
@@ -999,7 +1036,7 @@ Blocked / Skipped Reporting Rules:
         }) `
         -CodexCommand "codex.exe" `
         -CliContext $fakeCliContext
-    if ([string]$precedencePolicy.resolved.model -ne "gpt-5.5" -or [string]$precedencePolicy.sources.model -ne "explicit-arg") {
+    if ([string]$precedencePolicy.requested_model -ne "gpt-5.5" -or [string]$precedencePolicy.sources.model -ne "explicit-arg") {
         throw "Runtime policy precedence must prefer explicit model arguments."
     }
     if ([string]$precedencePolicy.resolved.reasoning -ne "medium" -or [string]$precedencePolicy.sources.reasoning -ne "prompt-metadata") {
@@ -1022,17 +1059,8 @@ Blocked / Skipped Reporting Rules:
         }) `
         -CodexCommand "codex.exe" `
         -CliContext $fakeCliContext
-    if ([string]$fastFallbackPolicy.resolved.speed -ne "standard") {
-        throw "Runtime policy must fall back to standard when Fast is unavailable for the selected model."
-    }
-    if ([string]$fastFallbackPolicy.sources.speed -notmatch "fallback-standard") {
-        throw "Runtime policy must receipt the Fast fallback in the speed source."
-    }
-    if ((@($fastFallbackPolicy.warnings) -join "`n") -notmatch "Fast speed is not available") {
-        throw "Runtime policy must expose the Fast fallback as a runtime-policy warning."
-    }
-    if (@($fastFallbackPolicy.blockers).Count -ne 0) {
-        throw "Successful runtime policy resolution must not add blockers."
+    if ([string]$fastFallbackPolicy.resolved.speed -ne "fast" -or [string]$fastFallbackPolicy.sources.speed -ne "explicit-arg") {
+        throw "Runtime policy must retain the requested speed without a static model catalog."
     }
 
     $modernInvocation = New-CodexInvocationPlan `
@@ -1098,7 +1126,7 @@ Blocked / Skipped Reporting Rules:
     if ($null -eq $stackDefaultRuntimePolicy.requested -or $null -eq $stackDefaultRuntimePolicy.resolved -or $null -eq $stackDefaultRuntimePolicy.sources) {
         throw "Runtime policy receipts must include requested, resolved, and sources sections."
     }
-    if ([string]$stackDefaultRuntimePolicy.resolved.codex_version -ne "codex-cli 0.142.5") {
+    if ([string]$stackDefaultRuntimePolicy.resolved.codex_version -ne "codex-cli 0.144.1") {
         throw "Runtime policy receipts must capture the installed Codex version when it is available."
     }
 }
@@ -1224,25 +1252,15 @@ import path from "node:path";
 const args = process.argv.slice(2);
 
 if (args[0] === "--version") {
-  process.stdout.write("codex-cli 0.142.5-fixture\n");
-  process.exit(0);
-}
-
-if (args[0] === "debug" && args[1] === "models") {
-  process.stdout.write(
-    JSON.stringify({
-      models: [
-        { slug: "gpt-5.4", additional_speed_tiers: ["fast"] },
-        { slug: "gpt-5.4-mini", additional_speed_tiers: [] }
-      ]
-    })
-  );
+  process.stdout.write("codex-cli 0.144.1-fixture\n");
   process.exit(0);
 }
 
 let summaryPath = null;
 let worktreePath = null;
+let requestedModel = null;
 for (let index = 0; index < args.length; index += 1) {
+  if (args[index] === "-m") { requestedModel = args[index + 1] ?? null; index += 1; continue; }
   if (args[index] === "-o") {
     summaryPath = args[index + 1] ?? null;
     index += 1;
@@ -1255,6 +1273,11 @@ for (let index = 0; index < args.length; index += 1) {
   }
 }
 
+const prompt = fs.readFileSync(0, "utf8");
+if (prompt.includes("ATLAS_MODEL_CAPABILITY_ACCEPTED")) {
+  if (String(requestedModel ?? "").includes("unsupported")) { process.stderr.write("The model is not supported when using Codex.\n"); process.exit(1); }
+  fs.writeFileSync(summaryPath, "accepted\n", "utf8"); process.exit(0);
+}
 if (!summaryPath || !worktreePath) {
   process.stderr.write("Fake Codex did not receive both -o and -C.\n");
   process.exit(1);
@@ -1304,12 +1327,13 @@ process.stdout.write('{"status":"ok"}\n');
 '@
     [System.IO.File]::WriteAllText($fakeCodexJsPath, $fakeCodexJs.TrimStart("`r", "`n") + "`r`n")
 
-    $fakeCodexCmdPath = Join-Path -Path $integrationRepoRoot -ChildPath "fake-codex.cmd"
-    $fakeCodexCmd = @'
-@echo off
-node "%~dp0fake-codex.mjs" %*
+    $fakeCodexCmdPath = Join-Path -Path $integrationRepoRoot -ChildPath "fake-codex.exe"
+    $launcherSource = @'
+using System; using System.Diagnostics; public static class FixtureLauncher { public static int Main(string[] a) { var s=new ProcessStartInfo(); s.FileName=Environment.GetEnvironmentVariable("FAKE_CODEX_NODE_PATH"); s.Arguments="\""+Environment.GetEnvironmentVariable("FAKE_CODEX_SCRIPT_PATH")+"\" "+String.Join(" ",a); s.UseShellExecute=false; s.RedirectStandardInput=true; s.RedirectStandardOutput=true; s.RedirectStandardError=true; using(var p=Process.Start(s)){p.StandardInput.Write(Console.In.ReadToEnd());p.StandardInput.Close();Console.Out.Write(p.StandardOutput.ReadToEnd());Console.Error.Write(p.StandardError.ReadToEnd());p.WaitForExit();return p.ExitCode;}}}
 '@
-    [System.IO.File]::WriteAllText($fakeCodexCmdPath, $fakeCodexCmd.TrimStart("`r", "`n") + "`r`n")
+    $env:FAKE_CODEX_NODE_PATH = (Get-Command node -ErrorAction Stop).Source
+    $env:FAKE_CODEX_SCRIPT_PATH = $fakeCodexJsPath
+    Add-Type -TypeDefinition $launcherSource -Language CSharp -OutputAssembly $fakeCodexCmdPath -OutputType ConsoleApplication | Out-Null
 
     $integrationPromptPath = Join-Path -Path $integrationRepoRoot -ChildPath ".codex\inbox\runtime-policy-fixture.md"
     $integrationPrompt = @"
@@ -1379,26 +1403,43 @@ Blocked / Skipped Reporting Rules:
     if ([string]$runtimePolicyRecord.requested.speed -ne "fast") {
         throw "Integration fixture did not receipt the prompt-requested speed."
     }
-    if ([string]$runtimePolicyRecord.resolved.speed -ne "standard") {
-        throw "Integration fixture did not receipt the Fast-to-Standard fallback."
+    if ([string]$runtimePolicyRecord.resolved.speed -ne "fast" -or [string]$runtimePolicyRecord.sources.speed -ne "prompt-metadata") {
+        throw "Integration fixture did not preserve requested speed without a static model catalog."
     }
-    if ([string]$runtimePolicyRecord.sources.speed -notmatch "prompt-metadata" -or [string]$runtimePolicyRecord.sources.speed -notmatch "fallback-standard") {
-        throw "Integration fixture did not receipt both the prompt source and fallback-standard speed outcome."
-    }
-    if ([string]$runtimePolicyRecord.codex_version -ne "codex-cli 0.142.5-fixture") {
+    if ([string]$runtimePolicyRecord.codex_version -ne "codex-cli 0.144.1-fixture") {
         throw "Integration fixture did not receipt the fake Codex version at the runtime-policy envelope level."
     }
-    if ((@($runtimePolicyRecord.warnings) -join "`n") -notmatch "Fast speed is not available for model 'gpt-5.4-mini'") {
-        throw "Integration fixture did not receipt the Fast capability fallback warning."
-    }
-    if (@($runtimePolicyRecord.blockers).Count -ne 0) {
-        throw "Completed integration runs must not receipt runtime-policy blockers."
+    if ([string]$runtimePolicyRecord.model_capability.status -ne "accepted" -or [string]$runtimePolicyRecord.effective_model -ne "gpt-5.4-mini") {
+        throw "Integration fixture did not receipt accepted requested-versus-effective model capability truth."
     }
     if ([string]$runtimePolicyRecord.resolved.permissions.permission_profile -ne ":danger-full-access") {
         throw "Integration fixture did not keep the repo-config full-access permission profile."
     }
     if ($null -ne $runtimePolicyRecord.resolved.permissions.sandbox_mode) {
         throw "Integration fixture must not activate a legacy sandbox mode when the repo config selects the modern permission profile."
+    }
+
+    $unsupportedPromptPath = Join-Path -Path $integrationRepoRoot -ChildPath ".codex\inbox\unsupported-model-fixture.md"
+    [System.IO.File]::WriteAllText($unsupportedPromptPath, "Title: Unsupported model fixture`r`n`r`nObjective:`r`nProve unsupported_model classification.`r`n")
+    & $powershellExe `
+        -NoProfile `
+        -ExecutionPolicy Bypass `
+        -File (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-CodexRepoTask.ps1") `
+        -PromptPath $unsupportedPromptPath `
+        -ConfigPath $fixtureConfigPath `
+        -CodexCommand $fakeCodexCmdPath `
+        -Model "unsupported-fixture"
+    if ($LASTEXITCODE -eq 0) {
+        throw "Repo runner unsupported_model fixture unexpectedly succeeded."
+    }
+    $unsupportedLogDirectory = @(
+        Get-ChildItem -LiteralPath (Join-Path -Path $integrationRepoRoot -ChildPath ".codex\logs") -Directory |
+        Sort-Object Name |
+        Select-Object -Last 1
+    )[0]
+    $unsupportedManifest = Get-Content -LiteralPath (Join-Path -Path $unsupportedLogDirectory.FullName -ChildPath "run.json") -Raw | ConvertFrom-Json
+    if ([string]$unsupportedManifest.status -ne "runtime_policy_blocked" -or [string]$unsupportedManifest.runtimePolicy.model_capability.status -ne "unsupported_model") {
+        throw "Repo runner fixture did not distinguish unsupported_model from probe_failed."
     }
 
     if ([string]$integrationManifest.specToDiff.validationPassed -ne "True") {

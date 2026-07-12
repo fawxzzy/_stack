@@ -21,7 +21,11 @@
 - Configured command strings still use the repo task runner expansion semantics: `${HOME}` and environment variables are expanded before resolution.
 - The Windows PATH fallback is native-only and prefers `codex.exe` before `codex`.
 - The writer never passes a PowerShell shim, `.cmd`, `.bat`, extensionless npm shim, or any other non-native wrapper directly to `ProcessStartInfo.FileName` while `UseShellExecute=false`.
-- Invalid pre-execution resolution fails closed with stable reason codes: `canonical_workspace_codex_native_executable_required` or `canonical_workspace_codex_native_executable_not_found`.
+- Invalid pre-execution resolution fails closed with the shared stable reason codes `codex_native_executable_required` or `codex_native_executable_not_found`.
+
+Both execution classes now share the native resolution record: `requestedPath`, `expandedPath`, `resolvedNativePath`, `source`, and `codex_version`. The normal Windows default is `%APPDATA%/npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe`; explicit commands still take precedence, and wrappers or missing native paths fail before probing.
+
+The writer asks that resolved native executable to make a repository-read-only model capability probe before execution. `accepted`, `unsupported_model`, `unavailable`, and `probe_failed` are distinguishable receipt outcomes. The runtime receipt records `requested_model` and probe-derived `effective_model`; it never guesses model capability from a static catalog.
 
 ## Safety Contracts
 

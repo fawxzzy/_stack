@@ -53,6 +53,7 @@ $effectiveVerifyCommands = @()
 $verificationSource = "prompt"
 $effectiveSandboxMode = $null
 $runtimePolicy = $null
+$codexCommandRecord = $null
 $stackLockContext = $null
 $workerAssignmentPath = $null
 $workerRunningStatusPath = $null
@@ -217,20 +218,9 @@ try {
         throw "Prompt body is empty."
     }
 
-    $codexCommandValue = $CodexCommand
-    if ([string]::IsNullOrWhiteSpace($codexCommandValue)) {
-        $codexCommandValue = [string](Get-ConfigValue -Config $config -Path @("windows", "codex_command") -DefaultValue "codex")
-    }
-    $codexCommandValue = Expand-ConfigString -Value $codexCommandValue
-    if (-not (Test-Path -LiteralPath $codexCommandValue)) {
-        $commandCandidate = Get-Command -Name $codexCommandValue -ErrorAction SilentlyContinue
-        if ($null -ne $commandCandidate) {
-            $codexCommandValue = $commandCandidate.Source
-        }
-    }
-    if (-not (Test-Path -LiteralPath $codexCommandValue)) {
-        throw ("Codex command was not found: {0}" -f $codexCommandValue)
-    }
+    $codexCommandRecord = Resolve-CodexCommand -ExplicitCodexCommand $CodexCommand -Config $config -BasePath $repoRoot
+    if (-not [bool](Get-ObjectPropertyValue -Object $codexCommandRecord -Name "isNativeExecutable" -DefaultValue $false)) { $status = "codex_command_resolution_failed"; throw (Get-CodexCommandResolutionFailureMessage -ResolutionRecord $codexCommandRecord) }
+    $codexCommandValue = [string](Get-ObjectPropertyValue -Object $codexCommandRecord -Name "resolvedNativePath" -DefaultValue "")
 
     if ($fetchOrigin) {
         Write-RunnerMessage -Message ("Fetching {0} before worktree creation" -f $configuredBaseRef)
@@ -528,7 +518,10 @@ try {
             approval = $ApprovalPolicy
             web_search = $WebSearch
         }) `
-        -CodexCommand $codexCommandValue
+        -CodexCommand $codexCommandValue `
+        -ProbeTargetPath $repoRoot
+    $null = Set-CodexCommandVersion -ResolutionRecord $codexCommandRecord -CodexVersion ([string]$runtimePolicy.codex_version)
+    if (@($runtimePolicy.blockers).Count -gt 0) { $status = "runtime_policy_blocked"; throw (@($runtimePolicy.blockers) -join "; ") }
     foreach ($runtimeNote in @($runtimePolicy.warnings)) {
         if (-not [string]::IsNullOrWhiteSpace([string]$runtimeNote)) {
             Write-RunnerMessage -Message ([string]$runtimeNote) -Level "WARN"
@@ -1079,19 +1072,8 @@ finally {
                 blockedSkippedRules = if ($null -ne $specToDiffPolicy) { @($specToDiffPolicy.blockedSkippedRules) } else { @() }
             }
             sandboxMode = $effectiveSandboxMode
-            runtimePolicy = if ($null -ne $runtimePolicy) {
-                [ordered]@{
-                    requested = $runtimePolicy.requested
-                    resolved = $runtimePolicy.resolved
-                    sources = $runtimePolicy.sources
-                    codex_version = $runtimePolicy.codex_version
-                    warnings = @($runtimePolicy.warnings)
-                    blockers = @($runtimePolicy.blockers)
-                }
-            }
-            else {
-                $null
-            }
+            codexCommand = $codexCommandRecord
+            runtimePolicy = Get-RuntimePolicyReceipt -RuntimePolicy $runtimePolicy
             logs = [ordered]@{
                 directory = $logDirectory
                 manifest = $manifestPath

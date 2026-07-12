@@ -5,7 +5,7 @@ model_reasoning_effort = "high"
 personality = "pragmatic"
 
 [windows]
-codex_command = "codex.exe"
+codex_command = "%APPDATA%/npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe"
 sandbox = "elevated"
 approval_policy = "never"
 
