@@ -1092,7 +1092,10 @@ finally {
                 runningStatus = if ($null -ne $workerAssignmentRecord) { $workerRunningStatusPath } else { $null }
                 completedStatus = if ($null -ne $workerAssignmentRecord) { $workerCompletedStatusPath } else { $null }
                 context = $workerContextRef
-                mergeRequest = if (Test-Path -LiteralPath $workerMergeRequestPath) { $workerMergeRequestPath } else { $null }
+                mergeRequest = if (
+                    -not [string]::IsNullOrWhiteSpace($workerMergeRequestPath) -and
+                    (Test-Path -LiteralPath $workerMergeRequestPath)
+                ) { $workerMergeRequestPath } else { $null }
             }
             supervisorLoop = [ordered]@{
                 reportPath = $supervisorReportPath

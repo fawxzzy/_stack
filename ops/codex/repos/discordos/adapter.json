@@ -48,11 +48,11 @@
     "Vercel production actions remain approval-gated: explicit approval must be current-thread and per named project; generic approval does not authorize a production deployment, promotion, rollback, or alias cutover."
   ],
   "artifacts": {
-    "inboxDir": ".codex/inbox",
-    "archiveDir": ".codex/archive",
-    "logsDir": ".codex/logs",
-    "worktreeRoot": ".codex/worktrees",
-    "exportsDir": ".codex/exports"
+    "inboxDir": "../../runtime/codex/discordos/inbox",
+    "archiveDir": "../../runtime/codex/discordos/archive",
+    "logsDir": "../../runtime/codex/discordos/logs",
+    "worktreeRoot": "../../runtime/codex/discordos/worktrees",
+    "exportsDir": "../../runtime/codex/discordos/exports"
   },
   "exports": {
     "patch": true,

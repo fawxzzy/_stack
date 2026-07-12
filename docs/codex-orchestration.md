@@ -22,12 +22,24 @@ The `atlas:brand:*` commands resolve shared Atlas-root branding assets through t
 
 Each repo still owns:
 
-- its own inbox, archive, logs, worktrees, and exports under repo-local paths
+- its own inbox, archive, logs, worktrees, and exports under repo-local paths, except for DiscordOS's externalized owner runtime
 - its own verification bootstrap and default verify commands
 - its own allowed mutation surfaces and docs alignment rules
 - its own push and auto-commit policy declaration through the adapter and repo config
 
-The shared runner operates inside repo-local worktrees. It does not move repo artifacts into `_stack`.
+The shared runner operates inside governed repo worktrees. It does not move owner code into `_stack`.
+
+Pattern: `Externalized Owner Runtime`
+
+DiscordOS keeps owner code in its repository, but its transient orchestration state is rooted under Atlas `runtime/codex/discordos`. This keeps canonical owner source checkouts clean while implementation work still occurs in governed Git worktrees.
+
+Rule: `Failure Receipts Preserve Original Blockers`
+
+Failure receipts must preserve the original blocker and must not call path APIs with absent optional artifact paths.
+
+Failure Mode: `Finalizer Masking`
+
+Failure cleanup or receipt generation throws a second exception that replaces the actionable original failure.
 
 The canonical Atlas workspace writer is intentionally different: it operates directly in the explicit canonical root, defaults to read-only, and uses exact-path mutation admission instead of broad repo-local worktree staging.
 
@@ -160,7 +172,7 @@ The adapter contract is JSON and intentionally thin:
 - `verify.proofGate`: optional post-verify completion gate that consumes a machine-readable status artifact
 - `allowedMutationSurfaces`: fail-closed mutation boundary
 - `docsUpdateRules`: repo-specific documentation alignment rules
-- `artifacts`: repo-local inbox/archive/log/worktree/export paths
+- `artifacts`: inbox/archive/log/worktree/export paths resolved from the adapter repo root; DiscordOS externalizes these transient paths into Atlas runtime
 - `exports`: patch and bundle policy plus patch base ref
 - `pushPolicy`: must stay manual-only unless a repo explicitly opts out later
 - `autoCommitPolicy`: explicit commit behavior for successful mutating runs, including the commit metadata contract
@@ -257,6 +269,16 @@ Authority remains explicit:
 - Vercel production deploy, promotion, rollback, or alias cutover requires explicit approval in the current thread for the named project; generic approval is not sufficient
 
 Push stays manual-only, successful verified mutations auto-commit, and DiscordOS local landing stays disabled.
+
+DiscordOS runtime task artifacts are externalized to Atlas runtime so the canonical DiscordOS owner checkout remains clean:
+
+- `../../runtime/codex/discordos/inbox`
+- `../../runtime/codex/discordos/archive`
+- `../../runtime/codex/discordos/logs`
+- `../../runtime/codex/discordos/worktrees`
+- `../../runtime/codex/discordos/exports`
+
+These paths stay relative to the canonical DiscordOS root and portable across `_stack/main` and linked `_stack` worktrees. They govern only transient inbox, archive, log, worktree, and export state; implementation work remains in governed Git worktrees.
 
 `_stack` is also a first-class self-managed adapter:
 

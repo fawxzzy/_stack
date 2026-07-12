@@ -569,6 +569,40 @@ Assert-Condition -Condition ([string]$discordosAdapter.repoId -eq "discordos") -
 Assert-Condition -Condition ([string]$discordosAdapter.description -match "canonical board and Discord writer") -Message "DiscordOS adapter description must identify the canonical board and Discord writer."
 Assert-Condition -Condition (@($discordosAdapter.verify.bootstrapCommands).Count -eq 1 -and [string]$discordosAdapter.verify.bootstrapCommands[0] -eq "npm ci") -Message "DiscordOS verification bootstrap must be npm ci."
 
+$expectedDiscordosArtifactPaths = [ordered]@{
+    inboxDir = "../../runtime/codex/discordos/inbox"
+    archiveDir = "../../runtime/codex/discordos/archive"
+    logsDir = "../../runtime/codex/discordos/logs"
+    worktreeRoot = "../../runtime/codex/discordos/worktrees"
+    exportsDir = "../../runtime/codex/discordos/exports"
+}
+$expectedDiscordosRuntimeRoot = [System.IO.Path]::GetFullPath((Join-Path -Path $canonicalDiscordosRoot -ChildPath "../../runtime/codex/discordos"))
+$expectedDiscordosArtifactDestinations = [ordered]@{
+    inboxDir = (Join-Path -Path $expectedDiscordosRuntimeRoot -ChildPath "inbox")
+    archiveDir = (Join-Path -Path $expectedDiscordosRuntimeRoot -ChildPath "archive")
+    logsDir = (Join-Path -Path $expectedDiscordosRuntimeRoot -ChildPath "logs")
+    worktreeRoot = (Join-Path -Path $expectedDiscordosRuntimeRoot -ChildPath "worktrees")
+    exportsDir = (Join-Path -Path $expectedDiscordosRuntimeRoot -ChildPath "exports")
+}
+foreach ($artifactName in $expectedDiscordosArtifactPaths.Keys) {
+    $artifactPath = [string]$discordosAdapter.artifacts.$artifactName
+    Assert-Condition -Condition ($artifactPath -eq $expectedDiscordosArtifactPaths[$artifactName]) -Message ("DiscordOS artifact path '{0}' must use the exact portable Atlas runtime path." -f $artifactName)
+    Assert-Condition -Condition (-not $artifactPath.Contains(".codex")) -Message ("DiscordOS artifact path '{0}' must not target a .codex destination in the owner checkout." -f $artifactName)
+}
+
+# The config resolves DiscordOS to this canonical owner root from both _stack/main and a linked worktree.
+# Resolve every adapter artifact from that owner root in each caller context; the destinations must stay in Atlas runtime.
+$discordosArtifactResolutionContexts = @(
+    [pscustomobject]@{ name = "_stack/main"; repoRoot = $canonicalDiscordosRoot },
+    [pscustomobject]@{ name = "isolated _stack worktree"; repoRoot = $resolvedDiscordosConfigRoot }
+)
+foreach ($context in $discordosArtifactResolutionContexts) {
+    foreach ($artifactName in $expectedDiscordosArtifactPaths.Keys) {
+        $resolvedArtifactPath = Resolve-RepoPath -Root $context.repoRoot -Value ([string]$discordosAdapter.artifacts.$artifactName)
+        Assert-Condition -Condition ([string]::Equals($resolvedArtifactPath, $expectedDiscordosArtifactDestinations[$artifactName], [System.StringComparison]::OrdinalIgnoreCase)) -Message ("DiscordOS artifact path '{0}' must resolve from {1} into Atlas runtime/codex/discordos." -f $artifactName, $context.name)
+    }
+}
+
 $expectedDiscordosVerificationCommands = @(
     "npm run verify",
     "npm run verify:discord-update-post",
@@ -1651,6 +1685,40 @@ Blocked / Skipped Reporting Rules:
     $unsupportedManifest = Get-Content -LiteralPath (Join-Path -Path $unsupportedLogDirectory.FullName -ChildPath "run.json") -Raw | ConvertFrom-Json
     if ([string]$unsupportedManifest.status -ne "runtime_policy_blocked" -or [string]$unsupportedManifest.runtimePolicy.model_capability.status -ne "unsupported_model") {
         throw "Repo runner fixture did not distinguish unsupported_model from probe_failed."
+    }
+
+    $setupFailurePromptPath = Join-Path -Path $integrationRepoRoot -ChildPath ".codex\inbox\setup-failure-fixture.md"
+    [System.IO.File]::WriteAllText($setupFailurePromptPath, "Title: Setup failure fixture`r`n`r`nObjective:`r`nProve a pre-worker failure receipts its original classification.`r`n")
+    $missingCodexCommandPath = Join-Path -Path $integrationRepoRoot -ChildPath "missing-codex.exe"
+    & $powershellExe `
+        -NoProfile `
+        -ExecutionPolicy Bypass `
+        -File (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-CodexRepoTask.ps1") `
+        -PromptPath $setupFailurePromptPath `
+        -ConfigPath $fixtureConfigPath `
+        -CodexCommand $missingCodexCommandPath
+    if ($LASTEXITCODE -eq 0) {
+        throw "Repo runner pre-worker setup-failure fixture unexpectedly succeeded."
+    }
+    $setupFailureLogDirectory = @(
+        Get-ChildItem -LiteralPath (Join-Path -Path $integrationRepoRoot -ChildPath ".codex\logs") -Directory |
+        Sort-Object Name |
+        Select-Object -Last 1
+    )[0]
+    if ($null -eq $setupFailureLogDirectory) {
+        throw "Repo runner pre-worker setup-failure fixture did not create a run log directory."
+    }
+    $setupFailureManifestPath = Join-Path -Path $setupFailureLogDirectory.FullName -ChildPath "run.json"
+    $setupFailureManifestRaw = Get-Content -LiteralPath $setupFailureManifestPath -Raw
+    $setupFailureManifest = $setupFailureManifestRaw | ConvertFrom-Json
+    if ([string]$setupFailureManifest.status -ne "codex_command_resolution_failed") {
+        throw ("Repo runner pre-worker setup-failure fixture must preserve codex_command_resolution_failed, found '{0}'." -f [string]$setupFailureManifest.status)
+    }
+    if ($null -ne $setupFailureManifest.workerArtifacts.mergeRequest) {
+        throw "Repo runner pre-worker setup-failure fixture must receipt a null workerArtifacts.mergeRequest."
+    }
+    if ($setupFailureManifestRaw.Contains("ParameterArgumentValidationErrorNullNotAllowed")) {
+        throw "Repo runner pre-worker setup-failure fixture must not let manifest finalization mask the original failure."
     }
 
     if ([string]$integrationManifest.specToDiff.validationPassed -ne "True") {
