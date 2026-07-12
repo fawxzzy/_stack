@@ -349,6 +349,28 @@ function ConvertTo-RunnerBoolean {
     }
 }
 
+function ConvertTo-StrictPromptBoolean {
+    param(
+        $Value,
+        [bool]$DefaultValue = $false,
+        [string]$Name = "boolean metadata"
+    )
+
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
+        return $DefaultValue
+    }
+
+    if ($Value -is [bool]) {
+        return [bool]$Value
+    }
+
+    switch (([string]$Value).Trim().ToLowerInvariant()) {
+        "true" { return $true }
+        "false" { return $false }
+        default { throw ("{0} must be true or false." -f $Name) }
+    }
+}
+
 function ConvertTo-Slug {
     param([string]$Value)
 
@@ -515,6 +537,27 @@ function Read-SpecToDiffArtifact {
         parseError = $null
         payload = $payload
     }
+}
+
+function Read-NoChangeProofArtifact {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    $raw = Get-Content -LiteralPath $Path -Raw
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return [pscustomobject]@{ path = $Path; rawContent = $raw; parseError = "Verified no-change proof artifact is empty."; payload = $null }
+    }
+    if ([System.Text.Encoding]::UTF8.GetByteCount($raw) -gt 65536) {
+        return [pscustomobject]@{ path = $Path; rawContent = $raw; parseError = "Verified no-change proof artifact exceeds the 64 KiB bound."; payload = $null }
+    }
+
+    try { $payload = $raw | ConvertFrom-Json }
+    catch { return [pscustomobject]@{ path = $Path; rawContent = $raw; parseError = $_.Exception.Message; payload = $null } }
+
+    return [pscustomobject]@{ path = $Path; rawContent = $raw; parseError = $null; payload = $payload }
 }
 
 function ConvertTo-StringArray {
@@ -734,6 +777,7 @@ function Parse-PromptFile {
         QueryTerms = New-Object System.Collections.Generic.List[string]
         TaskTags = New-Object System.Collections.Generic.List[string]
         MutationAdmissionPaths = New-Object System.Collections.Generic.List[string]
+        NoChangeAssertionIds = New-Object System.Collections.Generic.List[string]
     }
 
     $bodyStartIndex = 0
@@ -841,6 +885,16 @@ function Parse-PromptFile {
                     }
                 }
             }
+            "allownochanges" { $metadata.AllowNoChanges = $value }
+            "nochangeproofpath" { $metadata.NoChangeProofPath = $value }
+            "nochangeassertionids" {
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    foreach ($entry in ($value -split ',')) {
+                        $trimmedEntry = $entry.Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($trimmedEntry)) { [void]$metadata.NoChangeAssertionIds.Add($trimmedEntry) }
+                    }
+                }
+            }
             "admittedchangedpath" {
                 if (-not [string]::IsNullOrWhiteSpace($value)) {
                     [void]$metadata.MutationAdmissionPaths.Add($value)
@@ -937,6 +991,9 @@ function Parse-PromptFile {
     $runtimeSandboxMode = if ($metadata.ContainsKey("RuntimeSandboxMode")) { $metadata["RuntimeSandboxMode"] } else { $null }
     $runtimeApproval = if ($metadata.ContainsKey("RuntimeApproval")) { $metadata["RuntimeApproval"] } else { $null }
     $runtimeWebSearch = if ($metadata.ContainsKey("RuntimeWebSearch")) { $metadata["RuntimeWebSearch"] } else { $null }
+    $allowNoChangesRaw = if ($metadata.ContainsKey("AllowNoChanges")) { $metadata["AllowNoChanges"] } else { $null }
+    $allowNoChanges = ConvertTo-StrictPromptBoolean -Value $allowNoChangesRaw -DefaultValue $false -Name "Allow No Changes"
+    $noChangeProofPath = if ($metadata.ContainsKey("NoChangeProofPath")) { $metadata["NoChangeProofPath"] } else { $null }
 
     return [pscustomobject]@{
         Title = $title
@@ -949,6 +1006,9 @@ function Parse-PromptFile {
         QueryTerms = @($metadata.QueryTerms.ToArray())
         TaskTags = @($metadata.TaskTags.ToArray())
         MutationAdmissionPaths = @(Normalize-RepoRelativePathList -Paths @($metadata.MutationAdmissionPaths.ToArray()))
+        AllowNoChanges = $allowNoChanges
+        NoChangeProofPath = $noChangeProofPath
+        NoChangeAssertionIds = @(Normalize-RepoRelativePathList -Paths @($metadata.NoChangeAssertionIds.ToArray()))
         DocsUpdateNote = $docsUpdateNote
         ExportPatch = $exportPatch
         ExportBundle = $exportBundle
@@ -967,6 +1027,63 @@ function Parse-PromptFile {
         Body = $body
         RawContent = $rawContent
     }
+}
+
+function Get-NoChangePromptPolicy {
+    param($PromptRecord)
+
+    $allowed = $false
+    if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "AllowNoChanges") { $allowed = [bool]$PromptRecord.AllowNoChanges }
+    $proofPath = if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "NoChangeProofPath") { [string]$PromptRecord.NoChangeProofPath } else { "" }
+    $assertionIds = if ($null -ne $PromptRecord -and $PromptRecord.PSObject.Properties.Name -contains "NoChangeAssertionIds") { @(Normalize-RepoRelativePathList -Paths @($PromptRecord.NoChangeAssertionIds)) } else { @() }
+    $result = [ordered]@{ allowed = $allowed; proofPath = $proofPath; declaredAssertionIds = @($assertionIds); admissionValid = $true; blockingReasons = @() }
+    if (-not $allowed) { return [pscustomobject]$result }
+
+    if ($assertionIds.Count -eq 0) { $result.admissionValid = $false; $result.blockingReasons += "Allow No Changes requires at least one No-Change Assertion IDs value." }
+    if (@($assertionIds | Where-Object { $_ -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' }).Count -gt 0) { $result.admissionValid = $false; $result.blockingReasons += "No-Change Assertion IDs must be stable IDs containing only letters, digits, dot, underscore, or hyphen." }
+    if (@($assertionIds | Select-Object -Unique).Count -ne $assertionIds.Count) { $result.admissionValid = $false; $result.blockingReasons += "No-Change Assertion IDs must not contain duplicates." }
+    $normalizedProofPath = $proofPath.Trim().Replace("\\", "/")
+    if ([string]::IsNullOrWhiteSpace($normalizedProofPath) -or [System.IO.Path]::IsPathRooted($proofPath) -or -not $normalizedProofPath.StartsWith(".codex/") -or $normalizedProofPath -match '(^|/)\.\.(/|$)' -or $normalizedProofPath -eq ".codex/") { $result.admissionValid = $false; $result.blockingReasons += "Allow No Changes requires a safe repo-relative No-Change Proof Path under .codex/." }
+    if (@($PromptRecord.AcceptanceCriteria).Count -ne 0) { $result.admissionValid = $false; $result.blockingReasons += "Allow No Changes cannot be combined with acceptance criteria." }
+    if (@($PromptRecord.ExpectedChangedPaths).Count -ne 0) { $result.admissionValid = $false; $result.blockingReasons += "Allow No Changes cannot declare expected changed paths." }
+    if (@($PromptRecord.MutationAdmissionPaths).Count -ne 0) { $result.admissionValid = $false; $result.blockingReasons += "Allow No Changes cannot declare mutation admission paths." }
+    $result.proofPath = $normalizedProofPath
+    return [pscustomobject]$result
+}
+
+function Test-NoChangeCompletionProof {
+    param($Policy, $ArtifactRecord)
+
+    $result = [ordered]@{ isValid = $true; blockingReasons = @(); summary = $null; provenAssertionIds = @() }
+    if ($null -eq $ArtifactRecord) { $result.isValid = $false; $result.blockingReasons += "Verified no-change proof artifact is required."; return [pscustomobject]$result }
+    if (-not [string]::IsNullOrWhiteSpace([string]$ArtifactRecord.parseError)) { $result.isValid = $false; $result.blockingReasons += ("Verified no-change proof artifact could not be parsed: {0}" -f $ArtifactRecord.parseError); return [pscustomobject]$result }
+    $payload = $ArtifactRecord.payload
+    if ($null -eq $payload) { $result.isValid = $false; $result.blockingReasons += "Verified no-change proof artifact payload is missing."; return [pscustomobject]$result }
+    if ([string](Get-ObjectPropertyValue -Object $payload -Name "schemaVersion" -DefaultValue "") -ne "1.0") { $result.isValid = $false; $result.blockingReasons += "Verified no-change proof must declare schemaVersion=1.0." }
+    if ([string](Get-ObjectPropertyValue -Object $payload -Name "status" -DefaultValue "") -ne "passed") { $result.isValid = $false; $result.blockingReasons += "Verified no-change proof top-level status must be passed." }
+    $summary = [string](Get-ObjectPropertyValue -Object $payload -Name "summary" -DefaultValue "")
+    if ([string]::IsNullOrWhiteSpace($summary) -or [System.Text.Encoding]::UTF8.GetByteCount($summary) -gt 2048) { $result.isValid = $false; $result.blockingReasons += "Verified no-change proof summary must be non-empty and at most 2 KiB." } else { $result.summary = $summary }
+    $hasBlockersProperty = $payload.PSObject.Properties.Name -contains "blockers"
+    $blockers = @(Get-ObjectPropertyValue -Object $payload -Name "blockers" -DefaultValue @())
+    if (-not $hasBlockersProperty -or $blockers.Count -ne 0) { $result.isValid = $false; $result.blockingReasons += "Verified no-change proof blockers must be an empty array." }
+    $assertions = @(Get-ObjectPropertyValue -Object $payload -Name "assertions" -DefaultValue @())
+    $byId = @{}
+    foreach ($assertion in $assertions) {
+        $id = [string](Get-ObjectPropertyValue -Object $assertion -Name "id" -DefaultValue "")
+        if ([string]::IsNullOrWhiteSpace($id)) { $result.isValid = $false; $result.blockingReasons += "Each verified no-change assertion must declare id."; continue }
+        if ($byId.ContainsKey($id)) { $result.isValid = $false; $result.blockingReasons += ("Verified no-change proof contains duplicate assertion '{0}'." -f $id); continue }
+        $byId[$id] = $assertion
+    }
+    foreach ($id in $byId.Keys) { if ($id -notin @($Policy.declaredAssertionIds)) { $result.isValid = $false; $result.blockingReasons += ("Verified no-change proof contains unknown assertion '{0}'." -f $id) } }
+    foreach ($id in @($Policy.declaredAssertionIds)) {
+        if (-not $byId.ContainsKey($id)) { $result.isValid = $false; $result.blockingReasons += ("Verified no-change proof is missing declared assertion '{0}'." -f $id); continue }
+        $assertion = $byId[$id]
+        if ([string](Get-ObjectPropertyValue -Object $assertion -Name "status" -DefaultValue "") -ne "passed") { $result.isValid = $false; $result.blockingReasons += ("Verified no-change assertion '{0}' must have status passed." -f $id) }
+        $evidence = Get-ObjectPropertyValue -Object $assertion -Name "evidence" -DefaultValue $null
+        if ($null -eq $evidence -or [System.Text.Encoding]::UTF8.GetByteCount(($evidence | ConvertTo-Json -Compress -Depth 12)) -gt 8192) { $result.isValid = $false; $result.blockingReasons += ("Verified no-change assertion '{0}' evidence must be present and at most 8 KiB." -f $id) }
+        $result.provenAssertionIds += $id
+    }
+    return [pscustomobject]$result
 }
 
 function Get-SpecToDiffPromptPolicy {
@@ -2785,6 +2902,7 @@ function Get-StatusExitCode {
 
     switch ($Status) {
         "success" { return 0 }
+        "success_no_changes" { return 0 }
         "verification_failed" { return 11 }
         "codex_failed" { return 12 }
         "commit_failed" { return 13 }

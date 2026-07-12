@@ -939,6 +939,25 @@ Blocked / Skipped Reporting Rules:
             ExpectedChangedPaths = @("ops/codex/**", "docs/**")
             ExpectedUnchangedPaths = @("package.json")
             ExpectedBlockedSkippedRules = @("Report blocked criteria explicitly.")
+        },
+        @{
+            Name = "verified no-change metadata"
+            FileName = "verified-no-change-prompt.md"
+            Content = @"
+Title: Verified no-change canary
+Allow No Changes: true
+No-Change Proof Path: .codex/no-change-proof.json
+No-Change Assertion IDs: canary-invoked, no-send-confirmed
+
+Objective:
+Prove the bounded no-send canary completed without repository changes.
+"@
+            ExpectedTitle = "Verified no-change canary"
+            ExpectedVerify = @()
+            ExpectedBranchSlug = $null
+            ExpectedAllowNoChanges = $true
+            ExpectedNoChangeProofPath = ".codex/no-change-proof.json"
+            ExpectedNoChangeAssertionIds = @("canary-invoked", "no-send-confirmed")
         }
     )
 
@@ -993,6 +1012,16 @@ Blocked / Skipped Reporting Rules:
         }
         if ([string](Get-ObjectPropertyValue -Object $parsedPrompt -Name "RuntimeWebSearch" -DefaultValue $null) -ne $(if ($promptCase.ContainsKey("ExpectedRuntimeWebSearch")) { [string]$promptCase.ExpectedRuntimeWebSearch } else { "" })) {
             throw ("Parse-PromptFile resolved the wrong runtime web-search mode for the {0} case." -f $promptCase.Name)
+        }
+        if ([bool](Get-ObjectPropertyValue -Object $parsedPrompt -Name "AllowNoChanges" -DefaultValue $false) -ne $(if ($promptCase.ContainsKey("ExpectedAllowNoChanges")) { [bool]$promptCase.ExpectedAllowNoChanges } else { $false })) {
+            throw ("Parse-PromptFile resolved the wrong Allow No Changes value for the {0} case." -f $promptCase.Name)
+        }
+        if ([string](Get-ObjectPropertyValue -Object $parsedPrompt -Name "NoChangeProofPath" -DefaultValue "") -ne $(if ($promptCase.ContainsKey("ExpectedNoChangeProofPath")) { [string]$promptCase.ExpectedNoChangeProofPath } else { "" })) {
+            throw ("Parse-PromptFile resolved the wrong No-Change Proof Path for the {0} case." -f $promptCase.Name)
+        }
+        $expectedNoChangeAssertionIds = if ($promptCase.ContainsKey("ExpectedNoChangeAssertionIds")) { @($promptCase.ExpectedNoChangeAssertionIds) } else { @() }
+        if ((@($parsedPrompt.NoChangeAssertionIds) -join "|") -ne ($expectedNoChangeAssertionIds -join "|")) {
+            throw ("Parse-PromptFile resolved the wrong No-Change Assertion IDs for the {0} case." -f $promptCase.Name)
         }
 
         $expectedAcceptanceCriteria = if ($promptCase.ContainsKey("ExpectedAcceptanceCriteria")) {
@@ -1055,6 +1084,39 @@ Blocked / Skipped Reporting Rules:
         if ((@($actualBlockedSkippedRules) -join "|") -ne (@($expectedBlockedSkippedRules) -join "|")) {
             throw ("Parse-PromptFile resolved the wrong blocked/skipped rules for the {0} case." -f $promptCase.Name)
         }
+    }
+
+    $invalidNoChangePromptPath = Join-Path -Path $parserTestRoot -ChildPath "invalid-no-change-prompt.md"
+    [System.IO.File]::WriteAllText($invalidNoChangePromptPath, "Title: Invalid no change`r`nAllow No Changes: maybe`r`n`r`nObjective:`r`nReject invalid boolean metadata.`r`n")
+    try { $null = Parse-PromptFile -Path $invalidNoChangePromptPath; throw "Invalid Allow No Changes metadata unexpectedly parsed." }
+    catch { if ($_.Exception.Message -notmatch "Allow No Changes must be true or false") { throw } }
+
+    $noChangePromptPath = Join-Path -Path $parserTestRoot -ChildPath "no-change-proof-prompt.md"
+    [System.IO.File]::WriteAllText($noChangePromptPath, @"
+Title: No-change proof fixture
+Allow No Changes: true
+No-Change Proof Path: .codex/no-change-proof.json
+No-Change Assertion IDs: first-check, second-check
+
+Objective:
+Validate the verified no-change schema.
+"@)
+    $noChangePrompt = Parse-PromptFile -Path $noChangePromptPath
+    $noChangePolicy = Get-NoChangePromptPolicy -PromptRecord $noChangePrompt
+    if (-not $noChangePolicy.admissionValid) { throw ("Verified no-change admission fixture should be valid: {0}" -f ($noChangePolicy.blockingReasons -join "; ")) }
+    $validNoChangeProof = [pscustomobject]@{ parseError = $null; payload = [pscustomobject]@{ schemaVersion = "1.0"; status = "passed"; summary = "Both bounded checks passed without a send."; assertions = @([pscustomobject]@{ id = "first-check"; status = "passed"; evidence = [pscustomobject]@{ command = "npm.cmd run canary" } }, [pscustomobject]@{ id = "second-check"; status = "passed"; evidence = [pscustomobject]@{ send = $false } }); blockers = @() } }
+    $validNoChangeResult = Test-NoChangeCompletionProof -Policy $noChangePolicy -ArtifactRecord $validNoChangeProof
+    if (-not $validNoChangeResult.isValid -or @($validNoChangeResult.provenAssertionIds).Count -ne 2) { throw "Verified no-change proof fixture should pass with complete, unique passed assertions." }
+    foreach ($invalidNoChangeCase in @(
+        @{ name = "missing"; proof = $null },
+        @{ name = "malformed"; proof = [pscustomobject]@{ parseError = "Unexpected token"; payload = $null } },
+        @{ name = "missing assertion"; proof = [pscustomobject]@{ parseError = $null; payload = [pscustomobject]@{ schemaVersion = "1.0"; status = "passed"; summary = "bounded"; assertions = @([pscustomobject]@{ id = "first-check"; status = "passed"; evidence = @{} }); blockers = @() } } },
+        @{ name = "duplicate assertion"; proof = [pscustomobject]@{ parseError = $null; payload = [pscustomobject]@{ schemaVersion = "1.0"; status = "passed"; summary = "bounded"; assertions = @([pscustomobject]@{ id = "first-check"; status = "passed"; evidence = @{} }, [pscustomobject]@{ id = "first-check"; status = "passed"; evidence = @{} }, [pscustomobject]@{ id = "second-check"; status = "passed"; evidence = @{} }); blockers = @() } } },
+        @{ name = "unknown assertion"; proof = [pscustomobject]@{ parseError = $null; payload = [pscustomobject]@{ schemaVersion = "1.0"; status = "passed"; summary = "bounded"; assertions = @([pscustomobject]@{ id = "first-check"; status = "passed"; evidence = @{} }, [pscustomobject]@{ id = "second-check"; status = "passed"; evidence = @{} }, [pscustomobject]@{ id = "unknown"; status = "passed"; evidence = @{} }); blockers = @() } } },
+        @{ name = "non-passed assertion"; proof = [pscustomobject]@{ parseError = $null; payload = [pscustomobject]@{ schemaVersion = "1.0"; status = "passed"; summary = "bounded"; assertions = @([pscustomobject]@{ id = "first-check"; status = "failed"; evidence = @{} }, [pscustomobject]@{ id = "second-check"; status = "passed"; evidence = @{} }); blockers = @() } } },
+        @{ name = "blocker"; proof = [pscustomobject]@{ parseError = $null; payload = [pscustomobject]@{ schemaVersion = "1.0"; status = "passed"; summary = "bounded"; assertions = @([pscustomobject]@{ id = "first-check"; status = "passed"; evidence = @{} }, [pscustomobject]@{ id = "second-check"; status = "passed"; evidence = @{} }); blockers = @("blocked") } } }
+    )) {
+        if ((Test-NoChangeCompletionProof -Policy $noChangePolicy -ArtifactRecord $invalidNoChangeCase.proof).isValid) { throw ("Verified no-change proof fixture '{0}' unexpectedly passed." -f $invalidNoChangeCase.name) }
     }
 
     $proofPromptPath = Join-Path -Path $parserTestRoot -ChildPath "proof-gate-prompt.md"
@@ -1707,6 +1769,33 @@ if (!summaryPath || !worktreePath) {
 const codexArtifactDirectory = path.join(worktreePath, ".codex");
 fs.mkdirSync(codexArtifactDirectory, { recursive: true });
 
+const noChangeFixture = prompt.includes("Allow No Changes: true");
+const noChangeMode = (prompt.match(/NO_CHANGE_FIXTURE=([a-z-]+)/)?.[1] ?? "passed");
+if (noChangeFixture || noChangeMode === "unapproved") {
+  const proofPath = prompt.match(/Write UTF-8 JSON to `([^`]+)`/)?.[1] ?? ".codex/no-change-proof.json";
+  if (noChangeFixture && noChangeMode !== "missing") {
+    const assertions = [
+      { id: "canary-invoked", status: "passed", evidence: { command: "npm.cmd run canary" } },
+      { id: "no-send-confirmed", status: "passed", evidence: { send: false } }
+    ];
+    if (noChangeMode === "duplicate") assertions.push({ id: "canary-invoked", status: "passed", evidence: {} });
+    if (noChangeMode === "unknown") assertions.push({ id: "unknown", status: "passed", evidence: {} });
+    if (noChangeMode === "failed") assertions[0].status = "failed";
+    const proof = noChangeMode === "malformed" ? "{bad json" : JSON.stringify({
+      schemaVersion: "1.0",
+      status: "passed",
+      summary: "Fixture canary ran without a send.",
+      assertions: noChangeMode === "partial" ? assertions.slice(0, 1) : assertions,
+      blockers: noChangeMode === "blocker" ? ["fixture blocker"] : []
+    }, null, 2) + "\n";
+    fs.mkdirSync(path.dirname(path.join(worktreePath, proofPath)), { recursive: true });
+    fs.writeFileSync(path.join(worktreePath, proofPath), proof, "utf8");
+  }
+  fs.writeFileSync(summaryPath, "Fake Codex completed the no-change fixture.\n", "utf8");
+  process.stdout.write('{"status":"ok"}\n');
+  process.exit(0);
+}
+
 const executionRecord = {
   cwd: process.cwd(),
   worktreePath,
@@ -1909,6 +1998,42 @@ Blocked / Skipped Reporting Rules:
     if ("docs/fixture.md" -notin @($integrationManifest.changedPaths)) {
         throw "Integration fixture did not record the expected changed path."
     }
+
+    function Invoke-NoChangeRunnerFixture {
+        param([string]$Name, [string]$Mode, [bool]$OptIn = $true, [string]$ProofPath = ".codex/no-change-proof.json", [string]$Verify = "")
+        $path = Join-Path -Path $integrationRepoRoot -ChildPath (".codex\inbox\{0}.md" -f $Name)
+        $metadata = if ($OptIn) { "Allow No Changes: true`r`nNo-Change Proof Path: $ProofPath`r`nNo-Change Assertion IDs: canary-invoked, no-send-confirmed`r`n" } else { "" }
+        $verifyLine = if ([string]::IsNullOrWhiteSpace($Verify)) { "" } else { "Verify: $Verify`r`n" }
+        [System.IO.File]::WriteAllText($path, ("Title: $Name`r`n$metadata$verifyLine`r`nObjective:`r`nNO_CHANGE_FIXTURE=$Mode`r`n"))
+        & $powershellExe -NoProfile -ExecutionPolicy Bypass -File (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-CodexRepoTask.ps1") -PromptPath $path -ConfigPath $fixtureConfigPath -CodexCommand $fakeCodexCmdPath | Out-Host
+        $exitCode = $LASTEXITCODE
+        $log = @(Get-ChildItem -LiteralPath (Join-Path -Path $integrationRepoRoot -ChildPath ".codex\logs") -Directory | Sort-Object Name | Select-Object -Last 1)[0]
+        return [pscustomobject]@{ exitCode = $exitCode; log = $log; manifest = (Get-Content -LiteralPath (Join-Path -Path $log.FullName -ChildPath "run.json") -Raw | ConvertFrom-Json) }
+    }
+
+    $noChangeSuccess = Invoke-NoChangeRunnerFixture -Name "no-change-success" -Mode "passed"
+    if ($noChangeSuccess.exitCode -ne 0 -or [string]$noChangeSuccess.manifest.status -ne "success_no_changes" -or [string]$noChangeSuccess.manifest.workerArtifacts.completedStatus -eq "") { throw "Opted-in verified no-change fixture must succeed with success_no_changes and a completed worker receipt." }
+    if ($null -ne $noChangeSuccess.manifest.commitSha -or @($noChangeSuccess.manifest.changedPaths).Count -ne 0 -or -not $noChangeSuccess.manifest.noChange.artifactRemoved -or -not (Test-Path -LiteralPath (Join-Path -Path $noChangeSuccess.log.FullName -ChildPath "no-change-proof.raw.json")) -or (Test-Path -LiteralPath (Join-Path -Path ([string]$noChangeSuccess.manifest.worktreePath) -ChildPath ".codex\no-change-proof.json"))) { throw "Verified no-change success must not commit, must remove the temporary proof, and must retain its durable raw proof receipt." }
+    $noChangeWorker = Get-Content -LiteralPath ([string]$noChangeSuccess.manifest.workerArtifacts.completedStatus) -Raw | ConvertFrom-Json
+    if ([string]$noChangeWorker.state -ne "completed") { throw "Verified no-change success must complete the worker." }
+
+    $unapprovedNoChange = Invoke-NoChangeRunnerFixture -Name "no-change-unapproved" -Mode "unapproved" -OptIn $false
+    if ($unapprovedNoChange.exitCode -ne 14 -or [string]$unapprovedNoChange.manifest.status -ne "no_changes") { throw "Unapproved clean worktree fixture must preserve no_changes exit code 14." }
+    foreach ($mode in @("missing", "malformed", "partial", "duplicate", "unknown", "failed", "blocker")) {
+        $failedNoChange = Invoke-NoChangeRunnerFixture -Name ("no-change-" + $mode) -Mode $mode
+        if ($failedNoChange.exitCode -ne 14 -or [string]$failedNoChange.manifest.status -ne "no_changes" -or [string]::IsNullOrWhiteSpace([string]$failedNoChange.manifest.noChange.failureReason)) { throw ("Verified no-change {0} fixture must fail closed with no_changes exit code 14." -f $mode) }
+    }
+    $outsideNoChange = Invoke-NoChangeRunnerFixture -Name "no-change-outside" -Mode "passed" -ProofPath "outside-proof.json"
+    if ($outsideNoChange.exitCode -ne 14 -or [string]$outsideNoChange.manifest.status -ne "no_changes") { throw "Outside-.codex proof path fixture must fail closed before execution." }
+    $verificationFailureNoChange = Invoke-NoChangeRunnerFixture -Name "no-change-verification-failure" -Mode "passed" -Verify "cmd /c exit 1"
+    if ($verificationFailureNoChange.exitCode -ne 11 -or [string]$verificationFailureNoChange.manifest.status -ne "verification_failed" -or $verificationFailureNoChange.manifest.noChange.validationPassed) { throw "A final no-change proof must not bypass a declared verification failure." }
+
+    $trackedProofPath = Join-Path -Path $integrationRepoRoot -ChildPath ".codex\no-change-proof.json"
+    [System.IO.File]::WriteAllText($trackedProofPath, "{}")
+    Invoke-GitChecked -WorkingDirectory $integrationRepoRoot -Arguments @("add", ".codex/no-change-proof.json")
+    Invoke-GitChecked -WorkingDirectory $integrationRepoRoot -Arguments @("commit", "--quiet", "-m", "tracked proof fixture")
+    $trackedNoChange = Invoke-NoChangeRunnerFixture -Name "no-change-tracked" -Mode "passed"
+    if ($trackedNoChange.exitCode -ne 14 -or [string]$trackedNoChange.manifest.status -ne "no_changes" -or $trackedNoChange.manifest.noChange.artifactUntracked) { throw "Tracked no-change proof fixture must fail closed." }
 
     $fakeExecutionRecordPath = Join-Path -Path ([string]$integrationManifest.worktreePath) -ChildPath ".codex\fake-codex.execution.json"
     $fakeExecutionRecord = Get-Content -LiteralPath $fakeExecutionRecordPath -Raw | ConvertFrom-Json

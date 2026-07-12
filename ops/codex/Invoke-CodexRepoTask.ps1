@@ -116,6 +116,15 @@ $formatPatchBaseRefCandidates = @()
 $formatPatchBaseRefUsedFallback = $false
 $exportPatch = $false
 $exportBundle = $false
+$noChangePolicy = $null
+$noChangeProofArtifactPath = $null
+$noChangeProofArtifactRecord = $null
+$noChangeProofArtifactTracked = $false
+$noChangeProofArtifactRemoved = $false
+$noChangeProofRawPath = $null
+$noChangeProofValidation = $null
+$noChangeProofValidationPath = $null
+$noChangeFailureReason = $null
 
 try {
     $PromptPath = (Resolve-Path -LiteralPath $PromptPath).Path
@@ -184,6 +193,7 @@ try {
 
     $promptRecord = Parse-PromptFile -Path $PromptPath
     $specToDiffPolicy = Get-SpecToDiffPromptPolicy -PromptRecord $promptRecord
+    $noChangePolicy = Get-NoChangePromptPolicy -PromptRecord $promptRecord
     $effectiveVerifyCommands = @($promptRecord.Verify)
     $adapterVerifyConfig = if ($null -ne $adapterContract) { Get-ObjectPropertyValue -Object $adapterContract -Name "verify" -DefaultValue $null } else { $null }
     if ($effectiveVerifyCommands.Count -eq 0 -and $null -ne $adapterVerifyConfig) {
@@ -217,6 +227,12 @@ try {
 
     Write-RunnerMessage -Message ("Preparing task {0} from {1}" -f $taskName.Slug, $PromptPath)
     Copy-Item -LiteralPath $PromptPath -Destination (Join-Path -Path $logDirectory -ChildPath "input.prompt.md")
+
+    if (-not $noChangePolicy.admissionValid) {
+        $status = "no_changes"
+        $noChangeFailureReason = [string]$noChangePolicy.blockingReasons[0]
+        throw ("Verified no-change admission rejected: {0}" -f ($noChangePolicy.blockingReasons -join "; "))
+    }
 
     if ([string]::IsNullOrWhiteSpace($promptRecord.Body)) {
         throw "Prompt body is empty."
@@ -261,6 +277,15 @@ try {
     $commitMetadataArtifactPath = Resolve-PathFromBase -BasePath $worktreePath -Value ([string]$commitMetadataPolicy.artifactPath)
     if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
         $specToDiffArtifactPath = Resolve-PathFromBase -BasePath $worktreePath -Value ([string]$specToDiffPolicy.artifactPath)
+    }
+    if ($null -ne $noChangePolicy -and $noChangePolicy.allowed) {
+        $noChangeProofArtifactPath = Resolve-PathFromBase -BasePath $worktreePath -Value ([string]$noChangePolicy.proofPath)
+        $worktreeRootPath = [System.IO.Path]::GetFullPath($worktreePath).TrimEnd([char[]]@('\', '/')) + '\'
+        if (-not $noChangeProofArtifactPath.StartsWith($worktreeRootPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $status = "no_changes"
+            $noChangeFailureReason = "No-Change Proof Path resolved outside the worktree."
+            throw $noChangeFailureReason
+        }
     }
 
     $summaryPath = Join-Path -Path $logDirectory -ChildPath "final-summary.md"
@@ -372,6 +397,18 @@ try {
             $blockedSkippedRuleLines -join "`r`n"
         ) -join "`r`n"
         $effectivePrompt = $effectivePrompt + "`r`n`r`n" + $specToDiffInstructions
+    }
+    if ($null -ne $noChangePolicy -and $noChangePolicy.allowed) {
+        $noChangeInstructions = @(
+            "Verified no-change contract:",
+            "- Allow No Changes: true.",
+            ("- This task is explicitly admitted to make no repository changes. Write UTF-8 JSON to `{0}` only if every declared assertion passed and no blocker remains." -f $noChangePolicy.proofPath),
+            '- Use exactly this schema: {"schemaVersion":"1.0","status":"passed","summary":"bounded summary","assertions":[{"id":"stable-id","status":"passed","evidence":{}}],"blockers":[]}',
+            "- Declare every assertion exactly once, with status passed and bounded object evidence.",
+            "- Do not create a commit metadata artifact. Do not trust final-summary prose as proof.",
+            ("- Declared assertion IDs: {0}" -f ($noChangePolicy.declaredAssertionIds -join ", "))
+        ) -join "`r`n"
+        $effectivePrompt = $effectivePrompt + "`r`n`r`n" + $noChangeInstructions
     }
     Write-TextFile -Path (Join-Path -Path $logDirectory -ChildPath "effective.prompt.md") -Content $effectivePrompt
 
@@ -711,14 +748,43 @@ try {
         }
     }
 
-    $statusResult = Invoke-Git -Arguments @("status", "--porcelain") -WorkingDirectory $worktreePath
-    Assert-CommandSucceeded -Result $statusResult -Description "git status --porcelain"
-    if ([string]::IsNullOrWhiteSpace($statusResult.StdOut)) {
+    $preCommitChangedPaths = @(Get-ChangedPaths -WorkingDirectory $worktreePath)
+    if ($preCommitChangedPaths.Count -eq 0 -and ($null -eq $noChangePolicy -or -not $noChangePolicy.allowed)) {
         $status = "no_changes"
         throw "Codex completed without producing repository changes."
     }
 
-    $changedPaths = @(Get-ChangedPaths -WorkingDirectory $worktreePath)
+    if ($null -ne $noChangePolicy -and $noChangePolicy.allowed -and @($preCommitChangedPaths | Where-Object { $_ -ne $noChangePolicy.proofPath }).Count -eq 0) {
+        $noChangeProofArtifactRecord = Read-NoChangeProofArtifact -Path $noChangeProofArtifactPath
+        if ($null -ne $noChangeProofArtifactRecord) {
+            $noChangeProofRawPath = Join-Path -Path $logDirectory -ChildPath "no-change-proof.raw.json"
+            Write-TextFile -Path $noChangeProofRawPath -Content $noChangeProofArtifactRecord.rawContent
+            $noChangeProofArtifactTracked = Test-GitPathTracked -Path ([string]$noChangePolicy.proofPath) -WorkingDirectory $worktreePath
+        }
+        $noChangeProofValidation = Test-NoChangeCompletionProof -Policy $noChangePolicy -ArtifactRecord $noChangeProofArtifactRecord
+        if ($noChangeProofArtifactTracked) { $noChangeProofValidation.isValid = $false; $noChangeProofValidation.blockingReasons += "Verified no-change proof artifact must be untracked." }
+        $noChangeProofValidationPath = Join-Path -Path $logDirectory -ChildPath "no-change-proof.validation.json"
+        Write-TextFile -Path $noChangeProofValidationPath -Content (($noChangeProofValidation | ConvertTo-Json -Depth 12) + "`r`n")
+        if (-not $noChangeProofValidation.isValid) {
+            $status = "no_changes"
+            $noChangeFailureReason = [string]$noChangeProofValidation.blockingReasons[0]
+            throw ("Verified no-change proof validation failed: {0}" -f $noChangeFailureReason)
+        }
+        Remove-Item -LiteralPath $noChangeProofArtifactPath -Force
+        $noChangeProofArtifactRemoved = $true
+        $postRemovalChangedPaths = @(Get-ChangedPaths -WorkingDirectory $worktreePath)
+        if ($postRemovalChangedPaths.Count -ne 0) {
+            $status = "no_changes"
+            $noChangeFailureReason = "Worktree was not clean after removing the verified no-change proof artifact."
+            throw $noChangeFailureReason
+        }
+        $changedPaths = @()
+        $autoCommitEnabled = $false
+        $landingFailureReason = "verified_no_change"
+        $status = "success_no_changes"
+    }
+
+    if ($status -ne "success_no_changes") { $changedPaths = @($preCommitChangedPaths) }
     $allowedMutationSurfaces = @(ConvertTo-StringArray -Value $adapterContract.allowedMutationSurfaces)
     if ($allowedMutationSurfaces.Count -gt 0) {
         $mutationScopeViolations = @(
@@ -730,7 +796,7 @@ try {
             throw ("Changed files exceeded repo adapter mutation scope: {0}" -f ($mutationScopeViolations -join ", "))
         }
     }
-    if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
+    if ($status -ne "success_no_changes" -and $null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
         $specToDiffRecord = Test-SpecToDiffCompletionProof `
             -PromptRecord $promptRecord `
             -ArtifactRecord $specToDiffArtifactRecord `
@@ -750,11 +816,11 @@ try {
         }
     }
 
-    $resolvedCommit = Resolve-CommitMetadata -PromptRecord $promptRecord -ArtifactRecord $commitMetadataArtifactRecord -CommitPolicy $commitMetadataPolicy -ChangedPaths $changedPaths -RepoId ([string]$adapterContract.repoId)
-    $commitMessage = $resolvedCommit.message
+    if ($status -ne "success_no_changes") { $resolvedCommit = Resolve-CommitMetadata -PromptRecord $promptRecord -ArtifactRecord $commitMetadataArtifactRecord -CommitPolicy $commitMetadataPolicy -ChangedPaths $changedPaths -RepoId ([string]$adapterContract.repoId) }
+    $commitMessage = if ($null -ne $resolvedCommit) { $resolvedCommit.message } else { $null }
     $commitMetadataResolvedPath = Join-Path -Path $logDirectory -ChildPath "commit-meta.resolved.json"
     $commitMessagePath = Join-Path -Path $logDirectory -ChildPath "commit-message.txt"
-    Write-TextFile -Path $commitMetadataResolvedPath -Content (([ordered]@{
+    if ($null -ne $resolvedCommit) { Write-TextFile -Path $commitMetadataResolvedPath -Content (([ordered]@{
         source = $resolvedCommit.source
         type = $resolvedCommit.type
         scope = $resolvedCommit.scope
@@ -764,7 +830,7 @@ try {
         fallbackArea = if ($resolvedCommit.PSObject.Properties.Name -contains "fallbackArea") { $resolvedCommit.fallbackArea } else { $null }
         candidateErrors = if ($resolvedCommit.PSObject.Properties.Name -contains "candidateErrors") { @($resolvedCommit.candidateErrors) } else { @() }
     } | ConvertTo-Json -Depth 6) + "`r`n")
-    Write-TextFile -Path $commitMessagePath -Content ($commitMessage + "`r`n")
+    Write-TextFile -Path $commitMessagePath -Content ($commitMessage + "`r`n") }
 
     if ($autoCommitEnabled) {
         Write-RunnerMessage -Message "Staging and committing task changes"
@@ -863,7 +929,7 @@ try {
         }
     }
 
-    $status = "success"
+    if ($status -ne "success_no_changes") { $status = "success" }
 
     if ($cleanupWorktreeOnSuccess) {
         Write-RunnerMessage -Message ("Removing successful worktree {0}" -f $worktreePath)
@@ -904,6 +970,7 @@ finally {
 
             $workerState = switch ($status) {
                 "success" { "completed" }
+                "success_no_changes" { "completed" }
                 "verification_failed" { "blocked" }
                 "proof_gate_failed" { "blocked" }
                 "mutation_scope_failed" { "blocked" }
@@ -1076,6 +1143,21 @@ finally {
                 expectedChangedPaths = if ($null -ne $specToDiffPolicy) { @($specToDiffPolicy.expectedChangedPaths) } else { @() }
                 expectedUnchangedPaths = if ($null -ne $specToDiffPolicy) { @($specToDiffPolicy.expectedUnchangedPaths) } else { @() }
                 blockedSkippedRules = if ($null -ne $specToDiffPolicy) { @($specToDiffPolicy.blockedSkippedRules) } else { @() }
+            }
+            noChange = [ordered]@{
+                allowed = if ($null -ne $noChangePolicy) { [bool]$noChangePolicy.allowed } else { $false }
+                proofPath = if ($null -ne $noChangePolicy) { [string]$noChangePolicy.proofPath } else { $null }
+                proofLogPath = $noChangeProofRawPath
+                artifactProvided = $null -ne $noChangeProofArtifactRecord
+                artifactParsed = if ($null -ne $noChangeProofArtifactRecord) { [string]::IsNullOrWhiteSpace([string]$noChangeProofArtifactRecord.parseError) } else { $false }
+                artifactUntracked = if ($null -ne $noChangeProofArtifactRecord) { -not $noChangeProofArtifactTracked } else { $false }
+                artifactRemoved = $noChangeProofArtifactRemoved
+                validationPath = $noChangeProofValidationPath
+                validationPassed = if ($null -ne $noChangeProofValidation) { [bool]$noChangeProofValidation.isValid } else { $false }
+                declaredAssertionIds = if ($null -ne $noChangePolicy) { @($noChangePolicy.declaredAssertionIds) } else { @() }
+                provenAssertionIds = if ($null -ne $noChangeProofValidation) { @($noChangeProofValidation.provenAssertionIds) } else { @() }
+                summary = if ($null -ne $noChangeProofValidation) { $noChangeProofValidation.summary } else { $null }
+                failureReason = $noChangeFailureReason
             }
             sandboxMode = $effectiveSandboxMode
             codexCommand = $codexCommandRecord

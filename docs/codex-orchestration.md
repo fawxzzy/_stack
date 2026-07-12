@@ -344,12 +344,33 @@ Failure Mode: `Summary-Truth Drift`
 
 This failure mode occurs when a worker summary claims the requested change is complete but the repository diff does not prove that every explicit requested edit was applied.
 
+## Verified No-Change Admission
+
+Rule: `Empty diffs are success only through explicit verified-no-change admission.`
+
+An empty worktree remains a `no_changes` failure (exit 14) unless prompt metadata explicitly declares all of the following:
+
+```text
+Allow No Changes: true
+No-Change Proof Path: .codex/no-change-proof.json
+No-Change Assertion IDs: canary-invoked, no-send-confirmed
+```
+
+`Allow No Changes` accepts only `true` or `false`; invalid values reject before execution. Opt-in also requires at least one unique stable assertion ID, a safe repo-relative proof path below `.codex/`, and zero acceptance criteria, expected changed paths, and mutation-admission paths. This keeps a no-change audit distinct from a mutating spec-to-diff task.
+
+Pattern: `Temporary proof, durable receipt.` The worker writes a bounded JSON proof with `schemaVersion: "1.0"`, `status: "passed"`, a bounded summary, one uniquely `passed` assertion with bounded evidence for every declared ID, and `blockers: []`. After Codex and every declared verification command (including a proof gate) succeed, the runner requires the proof to be untracked, validates it fail-closed, copies it to `no-change-proof.raw.json` in the run log, removes it from the worktree, and rechecks that the worktree is clean. `run.json.noChange` records the admission, proof and validation paths, artifact lifecycle, declared/proven IDs, summary, and any rejection reason.
+
+On success the terminal status is `success_no_changes` with exit 0, an empty changed-path list, completed worker state, no commit, no local landing, and no push. A missing, malformed, tracked, out-of-`.codex`, partial, duplicate, unknown, non-passed, blocked, oversized, or residual-worktree proof stays fail-closed as `no_changes` with exit 14. No-change admission never bypasses verification, proof-gate, mutation-scope, or spec-to-diff failures.
+
+Failure Mode: `Verification-only false positive.` Generic verification can pass while the requested no-send canary itself is blocked (for example, a malformed worker command). The final summary is not machine proof; only the declared assertion proof can authorize a clean-worktree success.
+
 ## Auto-Commit, Landing, And Push Policy
 
 Default behavior is explicit and fail-closed:
 
 - successful mutating tasks auto-commit
-- no-change tasks do not create empty commits
+- unapproved no-change tasks fail with `no_changes` and do not create empty commits
+- `success_no_changes` is available only through verified no-change admission and also creates no commit or local landing
 - verification failure blocks commit
 - spec-to-diff proof failure blocks commit
 - mutation-scope failure blocks commit
