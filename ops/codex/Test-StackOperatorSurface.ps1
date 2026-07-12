@@ -1338,6 +1338,135 @@ Blocked / Skipped Reporting Rules:
         throw "Runtime policy precedence must prefer prompt metadata over repo config for speed when Fast is supported."
     }
 
+    $promptFullAccessPolicy = Resolve-StackRuntimePolicy `
+        -Config $defaultsConfig `
+        -RepoConfig @{} `
+        -DefaultsConfig $defaultsConfig `
+        -PromptRecord ([pscustomobject]@{
+            RuntimePermissions = "full-access"
+        }) `
+        -ExplicitPolicy ([pscustomobject]@{}) `
+        -CodexCommand "codex.exe" `
+        -CliContext $fakeCliContext
+    if (
+        [string]$promptFullAccessPolicy.requested.permissions.mode -ne "full-access" -or
+        $null -ne $promptFullAccessPolicy.requested.permissions.permission_profile -or
+        $null -ne $promptFullAccessPolicy.requested.permissions.sandbox_mode -or
+        [string]$promptFullAccessPolicy.resolved.permissions.mode -ne "full-access" -or
+        [string]$promptFullAccessPolicy.resolved.permissions.permission_profile -ne ":danger-full-access" -or
+        $null -ne $promptFullAccessPolicy.resolved.permissions.sandbox_mode -or
+        [string]$promptFullAccessPolicy.sources.permissions.mode -ne "prompt-metadata" -or
+        [string]$promptFullAccessPolicy.sources.permissions.permission_profile -ne "derived-from-prompt-metadata" -or
+        @($promptFullAccessPolicy.blockers).Count -ne 0
+    ) {
+        throw "Prompt full-access must suppress a lower-precedence sandbox and derive the modern permission profile."
+    }
+    if (@($promptFullAccessPolicy.warnings | Where-Object { $_ -match "suppressed lower-precedence legacy sandbox mode 'workspace-write' from shared-default" }).Count -ne 1) {
+        throw "Prompt full-access suppression must receipt the lower-precedence shared sandbox warning."
+    }
+    $promptFullAccessInvocation = New-CodexInvocationPlan `
+        -RuntimePolicy $promptFullAccessPolicy `
+        -SummaryPath "C:\temp\summary.md" `
+        -WorktreePath "C:\temp\worktree" `
+        -Personality "pragmatic"
+    if (($promptFullAccessInvocation.arguments -join " ") -notmatch 'default_permissions=":danger-full-access"' -or $promptFullAccessInvocation.arguments -contains "-s") {
+        throw "Prompt full-access suppression must produce a modern-only invocation plan."
+    }
+
+    $fullAccessProfileDefaults = @{
+        runtime_policy = @{
+            permissions = "full-access"
+            permission_profile = ":danger-full-access"
+        }
+    }
+    $promptWorkspaceWritePolicy = Resolve-StackRuntimePolicy `
+        -Config $fullAccessProfileDefaults `
+        -RepoConfig @{} `
+        -DefaultsConfig $fullAccessProfileDefaults `
+        -PromptRecord ([pscustomobject]@{
+            RuntimePermissions = "workspace-write"
+        }) `
+        -ExplicitPolicy ([pscustomobject]@{}) `
+        -CodexCommand "codex.exe" `
+        -CliContext $fakeCliContext
+    if (
+        [string]$promptWorkspaceWritePolicy.requested.permissions.mode -ne "workspace-write" -or
+        $null -ne $promptWorkspaceWritePolicy.requested.permissions.permission_profile -or
+        $null -ne $promptWorkspaceWritePolicy.requested.permissions.sandbox_mode -or
+        [string]$promptWorkspaceWritePolicy.resolved.permissions.mode -ne "workspace-write" -or
+        $null -ne $promptWorkspaceWritePolicy.resolved.permissions.permission_profile -or
+        [string]$promptWorkspaceWritePolicy.resolved.permissions.sandbox_mode -ne "workspace-write" -or
+        [string]$promptWorkspaceWritePolicy.sources.permissions.sandbox_mode -ne "derived-from-prompt-metadata" -or
+        @($promptWorkspaceWritePolicy.blockers).Count -ne 0
+    ) {
+        throw "Prompt workspace-write must suppress a lower-precedence full-access permission profile and derive the legacy sandbox."
+    }
+    if (@($promptWorkspaceWritePolicy.warnings | Where-Object { $_ -match "suppressed lower-precedence permission profile ':danger-full-access' from shared-default" }).Count -ne 1) {
+        throw "Prompt workspace-write suppression must receipt the lower-precedence profile warning."
+    }
+
+    $explicitMechanismPolicy = Resolve-StackRuntimePolicy `
+        -Config $mergedStackConfig `
+        -RepoConfig $stackRepoConfig `
+        -DefaultsConfig $defaultsConfig `
+        -PromptRecord ([pscustomobject]@{}) `
+        -ExplicitPolicy ([pscustomobject]@{
+            sandbox_mode = "workspace-write"
+        }) `
+        -CodexCommand "codex.exe" `
+        -CliContext $fakeCliContext
+    if (
+        [string]$explicitMechanismPolicy.requested.permissions.mode -ne "workspace-write" -or
+        [string]$explicitMechanismPolicy.resolved.permissions.mode -ne "workspace-write" -or
+        [string]$explicitMechanismPolicy.resolved.permissions.sandbox_mode -ne "workspace-write" -or
+        [string]$explicitMechanismPolicy.sources.permissions.mode -ne "explicit-arg" -or
+        [string]$explicitMechanismPolicy.sources.permissions.sandbox_mode -ne "explicit-arg" -or
+        @($explicitMechanismPolicy.blockers).Count -ne 0
+    ) {
+        throw "A higher-precedence explicit permission mechanism must suppress a lower-precedence permission mode and receipt its source."
+    }
+    if (@($explicitMechanismPolicy.warnings | Where-Object { $_ -match "suppressed lower-precedence permissions mode 'full-access' from repo-config" }).Count -ne 1) {
+        throw "Explicit permission mechanism suppression must receipt the lower-precedence mode warning."
+    }
+
+    $equalPrecedenceModeConflictRaised = $false
+    try {
+        [void](Resolve-StackRuntimePolicy `
+            -Config $defaultsConfig `
+            -RepoConfig @{} `
+            -DefaultsConfig @{} `
+            -PromptRecord ([pscustomobject]@{
+                RuntimePermissions = "full-access"
+                RuntimeSandboxMode = "workspace-write"
+            }) `
+            -ExplicitPolicy ([pscustomobject]@{}) `
+            -CodexCommand "codex.exe" `
+            -CliContext $fakeCliContext)
+    }
+    catch {
+        if ($_.Exception.Message -eq "Runtime policy conflict: permissions mode 'full-access' does not match the requested permission mechanism.") {
+            $equalPrecedenceModeConflictRaised = $true
+        }
+        else {
+            throw
+        }
+    }
+    if (-not $equalPrecedenceModeConflictRaised) {
+        throw "Equal-precedence mismatched permissions mode and mechanism must fail closed with the stable conflict message."
+    }
+
+    $sameModePolicy = Resolve-StackRuntimePolicy `
+        -Config $defaultsConfig `
+        -RepoConfig @{} `
+        -DefaultsConfig $defaultsConfig `
+        -PromptRecord ([pscustomobject]@{}) `
+        -ExplicitPolicy ([pscustomobject]@{}) `
+        -CodexCommand "codex.exe" `
+        -CliContext $fakeCliContext
+    if ([string]$sameModePolicy.resolved.permissions.mode -ne "workspace-write" -or [string]$sameModePolicy.resolved.permissions.sandbox_mode -ne "workspace-write" -or @($sameModePolicy.warnings).Count -ne 0) {
+        throw "Matching permission mode and sandbox behavior must remain unchanged."
+    }
+
     $fastFallbackPolicy = Resolve-StackRuntimePolicy `
         -Config $mergedStackConfig `
         -RepoConfig $stackRepoConfig `

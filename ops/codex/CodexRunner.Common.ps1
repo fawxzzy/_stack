@@ -1430,6 +1430,7 @@ function Resolve-StackRuntimePolicy {
     }
 
     $requestedPermissionMode = $permissionsModeResult.value
+    $requestedPermissionModeSource = $permissionsModeResult.source
     if ([string]::IsNullOrWhiteSpace($requestedPermissionMode)) {
         $requestedPermissionMode = Get-RunnerPermissionModeFromMechanism -PermissionProfile $requestedPermissionProfile -SandboxMode $requestedSandboxMode
     }
@@ -1441,7 +1442,31 @@ function Resolve-StackRuntimePolicy {
         $permissionsModeResult.value -ne "custom" -and
         $permissionsModeResult.value -ne $mechanismMode
     ) {
-        throw ("Runtime policy conflict: permissions mode '{0}' does not match the requested permission mechanism." -f $permissionsModeResult.value)
+        $mechanismSource = if (-not [string]::IsNullOrWhiteSpace($requestedPermissionProfile)) { $requestedPermissionProfileSource } else { $requestedSandboxSource }
+        $permissionsModeRank = Get-RuntimePolicySourcePrecedence -Source $permissionsModeResult.source
+        $mechanismRank = Get-RuntimePolicySourcePrecedence -Source $mechanismSource
+        if ($permissionsModeRank -gt $mechanismRank) {
+            if (-not [string]::IsNullOrWhiteSpace($requestedPermissionProfile)) {
+                [void]$warnings.Add(("Runtime policy suppressed lower-precedence permission profile '{0}' from {1} because permissions mode '{2}' came from {3}." -f $requestedPermissionProfile, $requestedPermissionProfileSource, $permissionsModeResult.value, $permissionsModeResult.source))
+                $requestedPermissionProfile = $null
+                $requestedPermissionProfileSource = $null
+            }
+            else {
+                [void]$warnings.Add(("Runtime policy suppressed lower-precedence legacy sandbox mode '{0}' from {1} because permissions mode '{2}' came from {3}." -f $requestedSandboxMode, $requestedSandboxSource, $permissionsModeResult.value, $permissionsModeResult.source))
+                $requestedSandboxMode = $null
+                $requestedSandboxSource = $null
+            }
+        }
+        elseif ($mechanismRank -gt $permissionsModeRank) {
+            $mechanismLabel = if (-not [string]::IsNullOrWhiteSpace($requestedPermissionProfile)) { "permission profile" } else { "legacy sandbox mode" }
+            $mechanismValue = if (-not [string]::IsNullOrWhiteSpace($requestedPermissionProfile)) { $requestedPermissionProfile } else { $requestedSandboxMode }
+            [void]$warnings.Add(("Runtime policy suppressed lower-precedence permissions mode '{0}' from {1} because {2} '{3}' came from {4}." -f $permissionsModeResult.value, $permissionsModeResult.source, $mechanismLabel, $mechanismValue, $mechanismSource))
+            $requestedPermissionMode = $mechanismMode
+            $requestedPermissionModeSource = $mechanismSource
+        }
+        else {
+            throw ("Runtime policy conflict: permissions mode '{0}' does not match the requested permission mechanism." -f $permissionsModeResult.value)
+        }
     }
 
     $resolvedPermissionProfile = $requestedPermissionProfile
@@ -1452,15 +1477,15 @@ function Resolve-StackRuntimePolicy {
         switch ($requestedPermissionMode) {
             "full-access" {
                 $resolvedPermissionProfile = ":danger-full-access"
-                $permissionsProfileSource = if ([string]::IsNullOrWhiteSpace($permissionsModeResult.source)) { "derived-from-permissions" } else { "derived-from-$($permissionsModeResult.source)" }
+                $permissionsProfileSource = if ([string]::IsNullOrWhiteSpace($requestedPermissionModeSource)) { "derived-from-permissions" } else { "derived-from-$requestedPermissionModeSource" }
             }
             "workspace-write" {
                 $resolvedSandboxMode = "workspace-write"
-                $sandboxSource = if ([string]::IsNullOrWhiteSpace($permissionsModeResult.source)) { "derived-from-permissions" } else { "derived-from-$($permissionsModeResult.source)" }
+                $sandboxSource = if ([string]::IsNullOrWhiteSpace($requestedPermissionModeSource)) { "derived-from-permissions" } else { "derived-from-$requestedPermissionModeSource" }
             }
             "read-only" {
                 $resolvedSandboxMode = "read-only"
-                $sandboxSource = if ([string]::IsNullOrWhiteSpace($permissionsModeResult.source)) { "derived-from-permissions" } else { "derived-from-$($permissionsModeResult.source)" }
+                $sandboxSource = if ([string]::IsNullOrWhiteSpace($requestedPermissionModeSource)) { "derived-from-permissions" } else { "derived-from-$requestedPermissionModeSource" }
             }
         }
     }
@@ -1515,7 +1540,7 @@ function Resolve-StackRuntimePolicy {
             reasoning = if ([string]::IsNullOrWhiteSpace($reasoningResult.source)) { "shared-default" } else { [string]$reasoningResult.source }
             speed = $speedSource
             permissions = [ordered]@{
-                mode = if ([string]::IsNullOrWhiteSpace($permissionsModeResult.source)) { $null } else { [string]$permissionsModeResult.source }
+                mode = if ([string]::IsNullOrWhiteSpace($requestedPermissionModeSource)) { $null } else { [string]$requestedPermissionModeSource }
                 permission_profile = if ([string]::IsNullOrWhiteSpace($permissionsProfileSource)) { $null } else { [string]$permissionsProfileSource }
                 sandbox_mode = if ([string]::IsNullOrWhiteSpace($sandboxSource)) { $null } else { [string]$sandboxSource }
             }

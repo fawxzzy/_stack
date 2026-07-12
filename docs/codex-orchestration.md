@@ -93,6 +93,18 @@ Precedence:
 3. repo-specific config
 4. shared `_stack` defaults
 
+RULE - Permission intent and mechanism obey the same explicit > prompt > repo > shared precedence.
+
+`permissions` expresses intent; `permission_profile` and `sandbox_mode` express the execution mechanism. A non-custom intent and an active mechanism are compared by their source precedence before a mismatch is treated as a conflict.
+
+PATTERN - Higher-precedence intent derives mechanism; higher-precedence mechanism derives intent.
+
+When intent wins, the resolver suppresses the lower-precedence profile or sandbox and derives the matching mechanism (`full-access` to `:danger-full-access`; `workspace-write` and `read-only` to their legacy sandbox modes). When a mechanism wins, it suppresses the lower-precedence non-custom intent and receipts the mechanism-derived mode with the mechanism source. Equal-precedence mismatches fail closed. A modern profile and legacy sandbox still cannot both remain active.
+
+FAILURE MODE - Cross-layer permission mismatch: a lower-precedence sandbox survives after a higher-precedence permission mode is selected.
+
+Without precedence arbitration across intent and mechanism, a prompt-level `full-access` selection can retain a shared-default `workspace-write` sandbox and fail before Codex begins. The resolver now records a bounded suppression warning naming both values and sources, then receipts the one active, derived mechanism.
+
 The run manifest records the non-secret envelope at `run.json.runtimePolicy` with this stable shape:
 
 - `requested.model`
