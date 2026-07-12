@@ -108,6 +108,8 @@ $localLandingMode = "disabled"
 $localLandingTargetBranch = "main"
 $landedToMain = $false
 $landingFailureReason = "disabled_by_policy"
+$worktreeNameMaxLength = $null
+$worktreeDirectoryName = $null
 $configuredFormatPatchBaseRef = $null
 $resolvedFormatPatchBaseRef = $null
 $formatPatchBaseRefCandidates = @()
@@ -138,6 +140,7 @@ try {
     if ([string]::IsNullOrWhiteSpace($branchPrefix)) {
         $branchPrefix = "codex/"
     }
+    $worktreeNameMaxLength = Get-ValidatedWorktreeNameMaxLength -Execution $adapterContract.execution
 
     $fetchOrigin = ConvertTo-RunnerBoolean -Value $adapterContract.execution.fetchOrigin -DefaultValue $false
     $cleanupWorktreeOnSuccess = -not $KeepWorktree.IsPresent -and (ConvertTo-RunnerBoolean -Value $adapterContract.execution.cleanupWorktreeOnSuccess -DefaultValue $false)
@@ -203,8 +206,9 @@ try {
     }
 
     $rootSlug = ConvertTo-Slug -Value $slugSeed
-    $taskName = Get-UniqueTaskName -RootSlug $rootSlug -BranchPrefix $branchPrefix -WorktreeRoot $worktreeRoot -WorkingDirectory $repoRoot
+    $taskName = Get-UniqueTaskName -RootSlug $rootSlug -BranchPrefix $branchPrefix -WorktreeRoot $worktreeRoot -WorktreeNameMaxLength $worktreeNameMaxLength -WorkingDirectory $repoRoot
     $branchName = $taskName.BranchName
+    $worktreeDirectoryName = $taskName.WorktreeDirectoryName
     $worktreePath = $taskName.WorktreePath
     $runId = "{0}-{1}" -f ((Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ")), $taskName.Slug
     $logDirectory = Join-Path -Path $logsDirectory -ChildPath $runId
@@ -1033,6 +1037,8 @@ finally {
             configuredBaseRef = $configuredBaseRef
             baseRefUsedFallback = $baseRefUsedFallback
             baseRefCandidates = @($baseRefCandidates)
+            worktreeDirectoryName = $worktreeDirectoryName
+            worktreeNameMaxLength = $worktreeNameMaxLength
             worktreePath = $worktreePath
             commitSha = $commitSha
             stackLock = [ordered]@{

@@ -33,6 +33,18 @@ Pattern: `Externalized Owner Runtime`
 
 DiscordOS keeps owner code in its repository, but its transient orchestration state is rooted under Atlas `runtime/codex/discordos`. This keeps canonical owner source checkouts clean while implementation work still occurs in governed Git worktrees.
 
+RULE - Physical worktree paths must be budgeted against the owner repository's longest tracked relative path.
+
+Physical worktree paths must be budgeted against the owner repository's longest tracked relative path. On classic Windows path handling, a worktree root, its physical directory name, and the longest checkout path must fit beneath the 260-character boundary.
+
+PATTERN - Descriptive branch, compact worktree.
+
+Keep the human-readable Git branch identity (`codex/<descriptive-slug>`) while deriving a separate compact physical worktree directory. When an adapter sets `execution.worktreeNameMaxLength`, the runner preserves short slugs and compacts longer ones to a readable prefix plus a stable lowercase hash suffix. The physical name is receipted separately from `branchName`.
+
+FAILURE MODE - Path amplification.
+
+A descriptive task slug plus a deep runtime root can amplify existing tracked filenames until Git cannot check them out on Windows. Avoid this by shortening the physical root and bounding only the physical directory name; do not sacrifice the descriptive branch name or rename owner-repository files to compensate.
+
 Rule: `Failure Receipts Preserve Original Blockers`
 
 Failure receipts must preserve the original blocker and must not call path APIs with absent optional artifact paths.
@@ -178,7 +190,7 @@ The adapter contract is JSON and intentionally thin:
 - `autoCommitPolicy`: explicit commit behavior for successful mutating runs, including the commit metadata contract
 - `localLandingPolicy`: optional local post-commit landing policy for bringing a successful task commit back onto local `main` without pushing
 - `stack worker artifacts`: `_stack` jobs emit assignment, running status, merge-request, and completion status artifacts, all stamped with the root `stack_lock_digest`
-- `execution`: base ref, branch prefix, worktree cleanup/fetch toggles, and optional repo-local verification settings
+- `execution`: base ref, branch prefix, worktree cleanup/fetch toggles, optional `worktreeNameMaxLength` (an integer from 12 through 128), and optional repo-local verification settings
 
 Schema file:
 
@@ -275,10 +287,10 @@ DiscordOS runtime task artifacts are externalized to Atlas runtime so the canoni
 - `../../runtime/codex/discordos/inbox`
 - `../../runtime/codex/discordos/archive`
 - `../../runtime/codex/discordos/logs`
-- `../../runtime/codex/discordos/worktrees`
+- `../../runtime/w/d` for worktrees, with `execution.worktreeNameMaxLength = 16`
 - `../../runtime/codex/discordos/exports`
 
-These paths stay relative to the canonical DiscordOS root and portable across `_stack/main` and linked `_stack` worktrees. They govern only transient inbox, archive, log, worktree, and export state; implementation work remains in governed Git worktrees.
+These paths stay relative to the canonical DiscordOS root and portable across `_stack/main` and linked `_stack` worktrees. Inbox, archive, logs, and exports remain under `runtime/codex/discordos`; the deliberately short worktree root is `runtime/w/d`. They govern only transient state; implementation work remains in governed Git worktrees.
 
 `_stack` is also a first-class self-managed adapter:
 

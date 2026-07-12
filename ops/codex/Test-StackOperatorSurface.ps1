@@ -563,6 +563,46 @@ $discordosLogicalConfigCandidate = [System.IO.Path]::GetFullPath((Join-Path -Pat
 $resolvedDiscordosConfigRoot = (Resolve-Path -LiteralPath $discordosLogicalConfigCandidate).Path
 Assert-Condition -Condition ($resolvedDiscordosConfigRoot -eq $canonicalDiscordosRoot) -Message "DiscordOS config repo_root must resolve from _stack/main and isolated _stack worktrees to the canonical DiscordOS checkout."
 
+$compactNameFixtureRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("atlas-worktree-name-fixture-{0}" -f ([guid]::NewGuid().ToString("N")))
+try {
+    New-Item -ItemType Directory -Path $compactNameFixtureRoot -Force | Out-Null
+
+    Assert-Condition -Condition ($null -eq (Get-ValidatedWorktreeNameMaxLength -Execution ([pscustomobject]@{}))) -Message "An omitted worktreeNameMaxLength must preserve the existing unbounded physical-name behavior."
+    Assert-Condition -Condition ((Get-ValidatedWorktreeNameMaxLength -Execution ([pscustomobject]@{ worktreeNameMaxLength = 16 })) -eq 16) -Message "A supported integer worktreeNameMaxLength must be accepted."
+    foreach ($invalidWorktreeNameMaxLength in @(11, 129, "16", 16.5)) {
+        $rejected = $false
+        try {
+            [void](Get-ValidatedWorktreeNameMaxLength -Execution ([pscustomobject]@{ worktreeNameMaxLength = $invalidWorktreeNameMaxLength }))
+        }
+        catch {
+            $rejected = $_.Exception.Message.Contains("worktreeNameMaxLength")
+        }
+        Assert-Condition -Condition $rejected -Message ("worktreeNameMaxLength value '{0}' must fail closed." -f $invalidWorktreeNameMaxLength)
+    }
+
+    $shortTaskName = Get-UniqueTaskName -RootSlug "short-task" -BranchPrefix "codex/" -WorktreeRoot $compactNameFixtureRoot -WorktreeNameMaxLength 16 -WorkingDirectory $physicalStackRoot
+    Assert-Condition -Condition ($shortTaskName.WorktreeDirectoryName -eq "short-task" -and $shortTaskName.BranchName -eq "codex/short-task") -Message "Short task candidates must remain deterministic and descriptive."
+
+    $longTaskSlug = "worktree-directory-budget-contract-candidate-with-readable-prefix"
+    $longTaskName = Get-UniqueTaskName -RootSlug $longTaskSlug -BranchPrefix "codex/" -WorktreeRoot $compactNameFixtureRoot -WorktreeNameMaxLength 16 -WorkingDirectory $physicalStackRoot
+    $sameLongTaskName = Get-UniqueTaskName -RootSlug $longTaskSlug -BranchPrefix "codex/" -WorktreeRoot $compactNameFixtureRoot -WorktreeNameMaxLength 16 -WorkingDirectory $physicalStackRoot
+    Assert-Condition -Condition ($longTaskName.WorktreeDirectoryName.Length -le 16 -and $longTaskName.WorktreeDirectoryName -match "^[a-z0-9-]+$" -and $longTaskName.WorktreeDirectoryName -match "-[a-f0-9]{8}$") -Message "Long task candidates must compact to a filesystem-safe 16-character readable-prefix hash name."
+    Assert-Condition -Condition ($longTaskName.WorktreeDirectoryName -eq $sameLongTaskName.WorktreeDirectoryName) -Message "Long task candidate compaction must be deterministic."
+    Assert-Condition -Condition ($longTaskName.BranchName -eq ("codex/{0}" -f $longTaskSlug) -and $longTaskName.WorktreeDirectoryName -ne $longTaskSlug) -Message "Branch identity must remain descriptive while the physical worktree directory is compact."
+
+    $samePrefixTaskName = Get-UniqueTaskName -RootSlug "worktree-directory-budget-contract-candidate-with-readable-prefix-alternate" -BranchPrefix "codex/" -WorktreeRoot $compactNameFixtureRoot -WorktreeNameMaxLength 16 -WorkingDirectory $physicalStackRoot
+    Assert-Condition -Condition ($longTaskName.WorktreeDirectoryName -ne $samePrefixTaskName.WorktreeDirectoryName) -Message "Long candidates with the same visible prefix must receive distinct hash-suffixed worktree names."
+
+    New-Item -ItemType Directory -Path $longTaskName.WorktreePath -Force | Out-Null
+    $collisionTaskName = Get-UniqueTaskName -RootSlug $longTaskSlug -BranchPrefix "codex/" -WorktreeRoot $compactNameFixtureRoot -WorktreeNameMaxLength 16 -WorkingDirectory $physicalStackRoot
+    Assert-Condition -Condition ($collisionTaskName.Slug -eq ("{0}-2" -f $longTaskSlug) -and $collisionTaskName.BranchName -eq ("codex/{0}-2" -f $longTaskSlug) -and $collisionTaskName.WorktreeDirectoryName -ne $longTaskName.WorktreeDirectoryName) -Message "Physical worktree collisions must retain the descriptive branch collision counter while deriving a new compact directory name."
+}
+finally {
+    if (Test-Path -LiteralPath $compactNameFixtureRoot) {
+        Remove-Item -LiteralPath $compactNameFixtureRoot -Recurse -Force
+    }
+}
+
 $discordosAdapter = Get-Content -LiteralPath (Join-Path -Path $physicalStackRoot -ChildPath "ops\\codex\\repos\\discordos\\adapter.json") -Raw | ConvertFrom-Json
 Assert-Condition -Condition ([string]$discordosAdapter.schemaVersion -eq "1.2") -Message "DiscordOS adapter schemaVersion must be 1.2."
 Assert-Condition -Condition ([string]$discordosAdapter.repoId -eq "discordos") -Message "DiscordOS adapter repoId must be discordos."
@@ -573,15 +613,16 @@ $expectedDiscordosArtifactPaths = [ordered]@{
     inboxDir = "../../runtime/codex/discordos/inbox"
     archiveDir = "../../runtime/codex/discordos/archive"
     logsDir = "../../runtime/codex/discordos/logs"
-    worktreeRoot = "../../runtime/codex/discordos/worktrees"
+    worktreeRoot = "../../runtime/w/d"
     exportsDir = "../../runtime/codex/discordos/exports"
 }
 $expectedDiscordosRuntimeRoot = [System.IO.Path]::GetFullPath((Join-Path -Path $canonicalDiscordosRoot -ChildPath "../../runtime/codex/discordos"))
+$expectedDiscordosWorktreeRoot = [System.IO.Path]::GetFullPath((Join-Path -Path $canonicalDiscordosRoot -ChildPath "../../runtime/w/d"))
 $expectedDiscordosArtifactDestinations = [ordered]@{
     inboxDir = (Join-Path -Path $expectedDiscordosRuntimeRoot -ChildPath "inbox")
     archiveDir = (Join-Path -Path $expectedDiscordosRuntimeRoot -ChildPath "archive")
     logsDir = (Join-Path -Path $expectedDiscordosRuntimeRoot -ChildPath "logs")
-    worktreeRoot = (Join-Path -Path $expectedDiscordosRuntimeRoot -ChildPath "worktrees")
+    worktreeRoot = $expectedDiscordosWorktreeRoot
     exportsDir = (Join-Path -Path $expectedDiscordosRuntimeRoot -ChildPath "exports")
 }
 foreach ($artifactName in $expectedDiscordosArtifactPaths.Keys) {
@@ -599,9 +640,14 @@ $discordosArtifactResolutionContexts = @(
 foreach ($context in $discordosArtifactResolutionContexts) {
     foreach ($artifactName in $expectedDiscordosArtifactPaths.Keys) {
         $resolvedArtifactPath = Resolve-RepoPath -Root $context.repoRoot -Value ([string]$discordosAdapter.artifacts.$artifactName)
-        Assert-Condition -Condition ([string]::Equals($resolvedArtifactPath, $expectedDiscordosArtifactDestinations[$artifactName], [System.StringComparison]::OrdinalIgnoreCase)) -Message ("DiscordOS artifact path '{0}' must resolve from {1} into Atlas runtime/codex/discordos." -f $artifactName, $context.name)
+        Assert-Condition -Condition ([string]::Equals($resolvedArtifactPath, $expectedDiscordosArtifactDestinations[$artifactName], [System.StringComparison]::OrdinalIgnoreCase)) -Message ("DiscordOS artifact path '{0}' must resolve from {1} into its configured Atlas runtime destination." -f $artifactName, $context.name)
     }
 }
+
+$longestDiscordosTrackedRelativePathLength = [int]((Invoke-GitChecked -WorkingDirectory $canonicalDiscordosRoot -Arguments @("ls-files")).StdOut -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
+$projectedDiscordosPathLength = (Join-Path -Path $expectedDiscordosWorktreeRoot -ChildPath ("x" * 16)).Length + 1 + $longestDiscordosTrackedRelativePathLength
+Assert-Condition -Condition ($longestDiscordosTrackedRelativePathLength -eq 218) -Message "DiscordOS path-budget proof must measure the current 218-character longest tracked relative path."
+Assert-Condition -Condition ($projectedDiscordosPathLength -lt 260) -Message ("DiscordOS short worktree root and 16-character directory budget must keep the longest checkout path below 260 characters; projected {0}." -f $projectedDiscordosPathLength)
 
 $expectedDiscordosVerificationCommands = @(
     "npm run verify",
@@ -642,6 +688,7 @@ Assert-Condition -Condition ([string]$discordosAdapter.pushPolicy.mode -eq "manu
 Assert-Condition -Condition ([bool]$discordosAdapter.autoCommitPolicy.enabled -and [string]$discordosAdapter.autoCommitPolicy.mode -eq "on-successful-mutation" -and [bool]$discordosAdapter.autoCommitPolicy.requireVerificationPass) -Message "DiscordOS auto-commit must require verified successful mutation."
 Assert-Condition -Condition ([string]$discordosAdapter.localLandingPolicy.mode -eq "disabled") -Message "DiscordOS local landing must stay disabled."
 Assert-Condition -Condition ([string]$discordosAdapter.execution.baseRef -eq "origin/main" -and [string]$discordosAdapter.execution.branchPrefix -eq "codex/" -and -not [bool]$discordosAdapter.execution.fetchOrigin -and -not [bool]$discordosAdapter.execution.cleanupWorktreeOnSuccess) -Message "DiscordOS execution policy must preserve its owner Git contract."
+Assert-Condition -Condition ([int]$discordosAdapter.execution.worktreeNameMaxLength -eq 16) -Message "DiscordOS execution policy must use the 16-character physical worktree-name budget."
 Assert-Condition -Condition ($null -eq (Get-ObjectPropertyValue -Object $discordosAdapter.execution -Name "defaultSandbox" -DefaultValue $null) -and $null -eq (Get-ObjectPropertyValue -Object $discordosAdapter.execution -Name "documentedWindowsFallback" -DefaultValue $null)) -Message "DiscordOS adapter must not carry runtime-policy defaults."
 
 $discordosAuthorityRules = @($discordosAdapter.docsUpdateRules) -join "`n"

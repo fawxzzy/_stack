@@ -2325,6 +2325,7 @@ function Get-UniqueTaskName {
         [string]$RootSlug,
         [string]$BranchPrefix,
         [string]$WorktreeRoot,
+        [object]$WorktreeNameMaxLength = $null,
         [string]$WorkingDirectory
     )
 
@@ -2332,12 +2333,14 @@ function Get-UniqueTaskName {
     $counter = 1
     while ($true) {
         $branchName = "{0}{1}" -f $BranchPrefix, $candidate
-        $worktreePath = Join-Path -Path $WorktreeRoot -ChildPath $candidate
+        $worktreeDirectoryName = Get-CompactWorktreeDirectoryName -Candidate $candidate -WorktreeNameMaxLength $WorktreeNameMaxLength
+        $worktreePath = Join-Path -Path $WorktreeRoot -ChildPath $worktreeDirectoryName
         $branchExists = Test-GitRefExists -RefName ("refs/heads/{0}" -f $branchName) -WorkingDirectory $WorkingDirectory
         if (-not $branchExists -and -not (Test-Path -LiteralPath $worktreePath)) {
             return [pscustomobject]@{
                 Slug = $candidate
                 BranchName = $branchName
+                WorktreeDirectoryName = $worktreeDirectoryName
                 WorktreePath = $worktreePath
             }
         }
@@ -2345,6 +2348,55 @@ function Get-UniqueTaskName {
         $counter += 1
         $candidate = "{0}-{1}" -f $RootSlug, $counter
     }
+}
+
+function Get-CompactWorktreeDirectoryName {
+    param(
+        [string]$Candidate,
+        [object]$WorktreeNameMaxLength = $null
+    )
+
+    if ($null -eq $WorktreeNameMaxLength -or $Candidate.Length -le [int]$WorktreeNameMaxLength) {
+        return $Candidate
+    }
+
+    $hashAlgorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $hashAlgorithm.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Candidate))
+    }
+    finally {
+        $hashAlgorithm.Dispose()
+    }
+
+    $hashSuffix = ([System.BitConverter]::ToString($hashBytes).Replace("-", "").ToLowerInvariant()).Substring(0, 8)
+    $suffix = "-{0}" -f $hashSuffix
+    $prefixLength = [int]$WorktreeNameMaxLength - $suffix.Length
+    return "{0}{1}" -f $Candidate.Substring(0, $prefixLength), $suffix
+}
+
+function Get-ValidatedWorktreeNameMaxLength {
+    param($Execution)
+
+    $configuredValue = Get-ObjectPropertyValue -Object $Execution -Name "worktreeNameMaxLength" -DefaultValue $null
+    if ($null -eq $configuredValue) {
+        return $null
+    }
+
+    $isInteger = (
+        $configuredValue -is [System.SByte] -or
+        $configuredValue -is [System.Byte] -or
+        $configuredValue -is [System.Int16] -or
+        $configuredValue -is [System.UInt16] -or
+        $configuredValue -is [System.Int32] -or
+        $configuredValue -is [System.UInt32] -or
+        $configuredValue -is [System.Int64] -or
+        $configuredValue -is [System.UInt64]
+    )
+    if (-not $isInteger -or $configuredValue -lt 12 -or $configuredValue -gt 128) {
+        throw "Adapter execution.worktreeNameMaxLength must be an integer from 12 through 128."
+    }
+
+    return [int]$configuredValue
 }
 
 function Get-ChangedPaths {

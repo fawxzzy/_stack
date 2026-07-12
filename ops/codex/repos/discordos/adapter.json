@@ -51,7 +51,7 @@
     "inboxDir": "../../runtime/codex/discordos/inbox",
     "archiveDir": "../../runtime/codex/discordos/archive",
     "logsDir": "../../runtime/codex/discordos/logs",
-    "worktreeRoot": "../../runtime/codex/discordos/worktrees",
+    "worktreeRoot": "../../runtime/w/d",
     "exportsDir": "../../runtime/codex/discordos/exports"
   },
   "exports": {
@@ -96,6 +96,7 @@
     "baseRef": "origin/main",
     "branchPrefix": "codex/",
     "cleanupWorktreeOnSuccess": false,
-    "fetchOrigin": false
+    "fetchOrigin": false,
+    "worktreeNameMaxLength": 16
   }
 }

@@ -258,6 +258,11 @@
         },
         "fetchOrigin": {
           "type": "boolean"
+        },
+        "worktreeNameMaxLength": {
+          "type": "integer",
+          "minimum": 12,
+          "maximum": 128
         }
       }
     }
