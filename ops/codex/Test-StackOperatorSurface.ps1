@@ -460,6 +460,62 @@ if ($stackConfig.runtime_policy.ContainsKey("sandbox_mode")) {
     throw "_stack runtime policy defaults must not mix a modern permission profile with a legacy sandbox mode."
 }
 
+$physicalStackRoot = (Resolve-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "..\..")).Path
+$gitCommonDirectory = (Invoke-GitChecked -WorkingDirectory $physicalStackRoot -Arguments @("rev-parse", "--git-common-dir")).StdOut.Trim()
+if (-not [System.IO.Path]::IsPathRooted($gitCommonDirectory)) {
+    $gitCommonDirectory = Join-Path -Path $physicalStackRoot -ChildPath $gitCommonDirectory
+}
+$logicalStackRoot = Split-Path -Parent ([System.IO.Path]::GetFullPath($gitCommonDirectory))
+$canonicalOwnerRoots = @{
+    playbook = (Resolve-Path -LiteralPath (Join-Path -Path (Split-Path -Parent $logicalStackRoot) -ChildPath "playbook")).Path
+    lifeline = (Resolve-Path -LiteralPath (Join-Path -Path (Split-Path -Parent $logicalStackRoot) -ChildPath "lifeline")).Path
+}
+$workspaceManifest = Get-Content -LiteralPath "workspace.manifest.json" -Raw | ConvertFrom-Json
+
+foreach ($ownerId in @("playbook", "lifeline")) {
+    $configPath = Join-Path -Path $physicalStackRoot -ChildPath ("ops\codex\repos\{0}\config.toml" -f $ownerId)
+    $config = ConvertFrom-SimpleToml -Path $configPath
+    $logicalConfigDirectory = Join-Path -Path $logicalStackRoot -ChildPath ("ops\codex\repos\{0}" -f $ownerId)
+    $resolvedConfigCandidate = Join-Path -Path $logicalConfigDirectory -ChildPath ([string]$config.repo_root)
+    $resolvedManifestCandidate = Join-Path -Path $logicalStackRoot -ChildPath ([string]$workspaceManifest.repos.$ownerId.path)
+    $resolvedConfigCandidate = [System.IO.Path]::GetFullPath($resolvedConfigCandidate)
+    $resolvedManifestCandidate = [System.IO.Path]::GetFullPath($resolvedManifestCandidate)
+    $resolvedConfigRoot = (Resolve-Path -LiteralPath $resolvedConfigCandidate).Path
+    $resolvedManifestRoot = (Resolve-Path -LiteralPath $resolvedManifestCandidate).Path
+
+    Assert-Condition -Condition ($resolvedConfigRoot -eq $canonicalOwnerRoots[$ownerId]) -Message ("{0} config repo_root must resolve to the canonical owner checkout." -f $ownerId)
+    Assert-Condition -Condition ($resolvedManifestRoot -eq $canonicalOwnerRoots[$ownerId]) -Message ("{0} workspace manifest path must resolve to the canonical owner checkout." -f $ownerId)
+}
+
+$canonicalOwnerContractPaths = @(
+    (Join-Path -Path $canonicalOwnerRoots.playbook -ChildPath "docs\contracts\WORKFLOW_PACK_REUSE_CONTRACT.md"),
+    (Join-Path -Path $canonicalOwnerRoots.playbook -ChildPath "docs\CONSUMER_INTEGRATION_CONTRACT.md"),
+    (Join-Path -Path $canonicalOwnerRoots.lifeline -ChildPath "docs\contracts\privileged-execution-contract.md"),
+    (Join-Path -Path $canonicalOwnerRoots.lifeline -ChildPath "examples\privileged-execution\capability-profile.json"),
+    (Join-Path -Path $canonicalOwnerRoots.lifeline -ChildPath "examples\privileged-execution\capability-profile.scoped-write-dry-run.json")
+)
+foreach ($ownerContractPath in $canonicalOwnerContractPaths) {
+    Assert-Condition -Condition (Test-Path -LiteralPath $ownerContractPath) -Message ("Canonical owner contract or fixture is missing: {0}" -f $ownerContractPath)
+}
+
+$activeOwnerPathSurfaces = @(
+    "workspace.manifest.json",
+    "ops/codex/repos/playbook/config.toml",
+    "ops/codex/repos/lifeline/config.toml",
+    "docs/codex-orchestration.md",
+    "docs/dispatcher-protocol.md",
+    "docs/STACK-ORCHESTRATION-ADOPTION.md",
+    "ops/codex/Test-StackOperatorSurface.ps1",
+    "ops/stack/Test-StackWorkerArtifacts.ps1"
+)
+$staleOwnerAliases = @("fawxzzy-" + "playbook", "fawxzzy-" + "lifeline")
+foreach ($surfacePath in $activeOwnerPathSurfaces) {
+    $surfaceText = [System.IO.File]::ReadAllText((Join-Path -Path $physicalStackRoot -ChildPath $surfacePath))
+    foreach ($staleOwnerAlias in $staleOwnerAliases) {
+        Assert-Condition -Condition (-not $surfaceText.Contains($staleOwnerAlias)) -Message ("Active owner path surface still contains retired alias '{0}': {1}" -f $staleOwnerAlias, $surfacePath)
+    }
+}
+
 $disabledLandingAdapters = @(
     "ops/codex/repos/atlas/adapter.json",
     "ops/codex/repos/playbook/adapter.json",

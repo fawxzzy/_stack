@@ -86,11 +86,11 @@
       "deployProdPrebuilt": "pnpm dlx vercel --cwd ../fawxzzy-trove deploy --prebuilt --prod"
     },
     "playbook": {
-      "path": "../fawxzzy-playbook",
+      "path": "../playbook",
       "deployModel": "self-hosted"
     },
     "lifeline": {
-      "path": "../fawxzzy-lifeline",
+      "path": "../lifeline",
       "deployModel": "self-hosted"
     },
     "atlas": {

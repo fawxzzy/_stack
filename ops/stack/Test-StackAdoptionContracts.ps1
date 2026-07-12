@@ -15,7 +15,22 @@ function Assert-Condition {
 }
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "..\..")).Path
-$workspaceRoot = (Resolve-Path -LiteralPath (Join-Path -Path $repoRoot -ChildPath "..\..")).Path
+$workerArtifactsPath = Join-Path -Path $repoRoot -ChildPath "ops\stack\StackWorkerArtifacts.ps1"
+Assert-Condition -Condition (Test-Path -LiteralPath $workerArtifactsPath) -Message ("Worktree-aware workspace helper is missing: {0}" -f $workerArtifactsPath)
+. $workerArtifactsPath
+
+$workspaceRoot = Get-StackWorkspaceRoot -RepoRoot $repoRoot
+$stackYamlPath = Join-Path -Path $workspaceRoot -ChildPath "stack.yaml"
+$stackLockPath = Join-Path -Path $workspaceRoot -ChildPath "stack.lock.yaml"
+Assert-Condition -Condition (Test-Path -LiteralPath $stackYamlPath) -Message ("Canonical workspace root must contain stack.yaml: {0}" -f $stackYamlPath)
+Assert-Condition -Condition (Test-Path -LiteralPath $stackLockPath) -Message ("Canonical workspace root must contain stack.lock.yaml: {0}" -f $stackLockPath)
+
+$isolatedWorktreeRoot = Join-Path -Path $workspaceRoot -ChildPath "repos\_stack\.codex\worktrees\isolated-adoption-contract-test"
+$ordinaryLogicalRepoRoot = Join-Path -Path $workspaceRoot -ChildPath "repos\_stack"
+$isolatedWorkspaceRoot = Get-StackWorkspaceRoot -RepoRoot $isolatedWorktreeRoot
+$ordinaryWorkspaceRoot = Get-StackWorkspaceRoot -RepoRoot $ordinaryLogicalRepoRoot
+Assert-Condition -Condition ($isolatedWorkspaceRoot -eq $workspaceRoot) -Message "An isolated .codex/worktrees repo root must resolve external contracts from the canonical workspace."
+Assert-Condition -Condition ($ordinaryWorkspaceRoot -eq $workspaceRoot) -Message "An ordinary logical repo root must resolve external contracts from the canonical workspace."
 
 $adoptionDocPath = Join-Path -Path $repoRoot -ChildPath "docs\STACK-ORCHESTRATION-ADOPTION.md"
 $runbookPath = Join-Path -Path $repoRoot -ChildPath "docs\runbooks\STACK-WORKER-FLOW.md"

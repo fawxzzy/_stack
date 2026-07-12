@@ -85,6 +85,32 @@ $stackLockContext = Get-StackLockContext -RepoRoot $repoRoot
 $testToolId = "read_only_scan"
 $testRegistryDigest = "sha256:stack-worker-test-governed"
 
+$activeOwnerPathSurfaces = @(
+    "workspace.manifest.json",
+    "ops/codex/repos/playbook/config.toml",
+    "ops/codex/repos/lifeline/config.toml",
+    "docs/codex-orchestration.md",
+    "docs/dispatcher-protocol.md",
+    "docs/STACK-ORCHESTRATION-ADOPTION.md",
+    "ops/codex/Test-StackOperatorSurface.ps1",
+    "ops/stack/Test-StackWorkerArtifacts.ps1"
+)
+$staleOwnerAliases = @("fawxzzy-" + "playbook", "fawxzzy-" + "lifeline")
+foreach ($surfacePath in $activeOwnerPathSurfaces) {
+    $surfaceText = [System.IO.File]::ReadAllText((Join-Path -Path $repoRoot -ChildPath $surfacePath))
+    foreach ($staleOwnerAlias in $staleOwnerAliases) {
+        Assert-Condition -Condition (-not $surfaceText.Contains($staleOwnerAlias)) -Message ("Active owner path surface still contains retired alias '{0}': {1}" -f $staleOwnerAlias, $surfacePath)
+    }
+}
+
+$canonicalLifelineFixturePaths = @(
+    (Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "repos\lifeline\examples\privileged-execution\capability-profile.json"),
+    (Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "repos\lifeline\examples\privileged-execution\capability-profile.scoped-write-dry-run.json")
+)
+foreach ($fixturePath in $canonicalLifelineFixturePaths) {
+    Assert-Condition -Condition (Test-Path -LiteralPath $fixturePath) -Message ("Canonical Lifeline privileged-execution fixture is missing: {0}" -f $fixturePath)
+}
+
 $stackLockText = [System.IO.File]::ReadAllText($stackLockContext.stackLockPath)
 if ($stackLockText -notmatch '(?m)^\s*lock_digest:\s*"?([^"\r\n]+)"?\s*$') {
     throw "stack.lock.yaml does not expose lock_digest."
@@ -452,10 +478,10 @@ try {
             New-Item -ItemType Directory -Path $root -Force | Out-Null
             $toolId = if ($Operation -eq "read_only_scan") { "read_only_scan" } else { "scoped_write.dry_run" }
             $capabilityRef = if ($toolId -eq "read_only_scan") {
-                "repos/fawxzzy-lifeline/examples/privileged-execution/capability-profile.json"
+                "repos/lifeline/examples/privileged-execution/capability-profile.json"
             }
             else {
-                "repos/fawxzzy-lifeline/examples/privileged-execution/capability-profile.scoped-write-dry-run.json"
+                "repos/lifeline/examples/privileged-execution/capability-profile.scoped-write-dry-run.json"
             }
 
             $assignment = New-StackWorkerAssignment `
@@ -574,10 +600,10 @@ try {
         }
 
         $lifelineRequiredPaths = @(
-            (Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "repos\fawxzzy-lifeline"),
-            (Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "repos\fawxzzy-lifeline\dist\cli.js"),
-            (Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "repos\fawxzzy-lifeline\examples\privileged-execution\capability-profile.json"),
-            (Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "repos\fawxzzy-lifeline\examples\privileged-execution\capability-profile.scoped-write-dry-run.json")
+            (Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "repos\lifeline"),
+            (Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "repos\lifeline\dist\cli.js"),
+            (Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "repos\lifeline\examples\privileged-execution\capability-profile.json"),
+            (Join-Path -Path $stackLockContext.workspaceRoot -ChildPath "repos\lifeline\examples\privileged-execution\capability-profile.scoped-write-dry-run.json")
         )
         $missingLifelinePaths = @($lifelineRequiredPaths | Where-Object { -not (Test-Path -LiteralPath $_) })
 

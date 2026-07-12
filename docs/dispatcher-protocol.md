@@ -51,8 +51,8 @@ Use for application code, tests, config, migrations, content, or repo-specific d
   - `fitness` -> `repos/fawxzzy-fitness`
   - `mazer` -> `repos/fawxzzy-mazer`
   - `trove` -> `repos/fawxzzy-trove`
-  - `playbook` -> `repos/fawxzzy-playbook`
-  - `lifeline` -> `repos/fawxzzy-lifeline`
+  - `playbook` -> `repos/playbook`
+  - `lifeline` -> `repos/lifeline`
 - `atlas` -> `.` (ATLAS root coordination layer)
 
 ### 4. cross-repo

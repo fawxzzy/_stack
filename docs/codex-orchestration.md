@@ -176,7 +176,7 @@ Runtime policy now lives in config rather than the adapter schema:
 Each repo config should normally stay minimal:
 
 ```toml
-repo_root = "../../../../../fawxzzy-playbook"
+repo_root = "../../../../../playbook"
 adapter_path = "./adapter.json"
 
 [runtime_policy]
