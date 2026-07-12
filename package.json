@@ -7,6 +7,7 @@
     "atlas:brand:verify": "node ..\\..\\branding\\scripts\\sync-brand-assets.mjs --check",
     "stack:vercel-health": "node .\\scripts\\vercel-health.mjs",
     "stack:vercel-health:test": "node --test .\\scripts\\vercel-health.test.mjs",
+    "test:playbook-adoption": "node --test .\\tests\\playbook-adoption-evidence.test.mjs",
     "stack:marker:checkpoint": "node .\\scripts\\marker-checkpoint.mjs",
     "stack:marker:checkpoint:test": "node --test .\\scripts\\marker-checkpoint.test.mjs",
     "stack:receipt:package": "node .\\scripts\\receipt-package.mjs",

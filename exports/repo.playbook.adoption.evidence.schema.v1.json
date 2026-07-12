@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlas.local/schemas/repo.playbook.adoption.evidence.v1.json",
+  "title": "Repo Playbook Adoption Evidence v1",
+  "description": "Repo-local declaration of Playbook contract adoption posture for one repo in the ATLAS stack.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_id", "generated_at", "repo", "contract_claim", "summary", "implemented_patterns", "adoption_checks", "continuity", "evidence_refs"],
+  "properties": {
+    "artifact_id": { "type": "string", "minLength": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo_id", "role", "repo_identity"],
+      "properties": {
+        "repo_id": { "type": "string", "minLength": 1 },
+        "role": { "enum": ["atlas_root", "playbook", "lifeline", "stack_orchestrator", "workflow_operator", "atlas_platform_repo", "knowledge_lane", "vertical_owner_repo"] },
+        "repo_identity": { "enum": ["remote", "local_only", "unknown"] },
+        "repo_path": { "type": "string" },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "contract_claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_id", "contract_version", "source_repo_id", "source_export_path", "claim_state"],
+      "properties": {
+        "contract_id": { "type": "string", "minLength": 1 },
+        "contract_version": { "type": "string", "minLength": 1 },
+        "source_repo_id": { "type": "string", "minLength": 1 },
+        "source_export_path": { "type": "string", "minLength": 1 },
+        "claim_state": { "enum": ["planned", "declared", "verified"] },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adoption_status", "verification_state", "continuity_status", "drift_status"],
+      "properties": {
+        "adoption_status": { "enum": ["unassessed", "planned", "partial", "adopted", "verified", "exception"] },
+        "verification_state": { "enum": ["none", "targeted", "full"] },
+        "continuity_status": { "enum": ["unknown", "planned", "structured", "promoted"] },
+        "drift_status": { "enum": ["unknown", "none_detected", "suspected", "detected"] },
+        "initiative_refs": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "implemented_patterns": { "type": "array", "items": { "$ref": "#/$defs/status_item" } },
+    "adoption_checks": { "type": "array", "items": { "$ref": "#/$defs/status_item" } },
+    "continuity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["structured_handoff_required", "transcript_role", "promotion_targets"],
+      "properties": {
+        "structured_handoff_required": { "type": "boolean" },
+        "transcript_role": { "enum": ["trace_only", "working_input", "unknown"] },
+        "handoff_schema_refs": { "type": "array", "items": { "type": "string" } },
+        "promotion_targets": { "type": "array", "items": { "type": "string" } },
+        "search_surfaces": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "exceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "owner", "rationale", "risk", "compensating_control", "retirement_trigger"],
+        "properties": {
+          "id": { "type": "string" },
+          "owner": { "type": "string" },
+          "rationale": { "type": "string" },
+          "risk": { "type": "string" },
+          "compensating_control": { "type": "string" },
+          "retirement_trigger": { "type": "string" }
+        }
+      }
+    },
+    "verification_commands": { "type": "array", "items": { "type": "string" } },
+    "evidence_refs": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+  },
+  "$defs": {
+    "status_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["missing", "planned", "partial", "implemented", "not_applicable", "exception"] },
+        "evidence_refs": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

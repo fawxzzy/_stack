@@ -1,0 +1,50 @@
+{
+  "artifact_id": "_stack_playbook_adoption_evidence_v1",
+  "generated_at": "2026-07-12T05:54:38Z",
+  "repo": {
+    "repo_id": "_stack",
+    "role": "workflow_operator",
+    "repo_identity": "remote",
+    "repo_path": "repos/_stack",
+    "notes": ["_stack is a remote workflow/operator consumer of Playbook contracts."]
+  },
+  "contract_claim": {
+    "contract_id": "playbook_convergence_contract",
+    "contract_version": "1.0.0",
+    "source_repo_id": "playbook",
+    "source_export_path": "repos/playbook/exports/playbook.contract.example.v1.json",
+    "claim_state": "declared",
+    "notes": ["Owner reference: main.", "_stack consumes Playbook workflow/operator contracts and neither certifies nor owns Playbook doctrine."]
+  },
+  "summary": {
+    "adoption_status": "adopted",
+    "verification_state": "targeted",
+    "continuity_status": "structured",
+    "drift_status": "none_detected",
+    "notes": ["This is owner evidence for _stack only; it does not classify ATLAS-root adoption."]
+  },
+  "implemented_patterns": [
+    { "id": "pattern_ground_work_in_current_awareness", "status": "implemented", "evidence_refs": ["docs/STACK-ORCHESTRATION-ADOPTION.md"] },
+    { "id": "pattern_proposal_before_execution", "status": "implemented", "evidence_refs": ["ops/stack/StackWorkerArtifacts.ps1"] },
+    { "id": "pattern_explicit_trust_posture", "status": "implemented", "evidence_refs": ["docs/ops/_STACK-PLAYBOOK-ADOPTION.md"] },
+    { "id": "pattern_owner_repo_keeps_owner_truth", "status": "implemented", "evidence_refs": ["docs/STACK-ORCHESTRATION-ADOPTION.md"] },
+    { "id": "pattern_convergence_is_measurable", "status": "implemented", "evidence_refs": ["tests/playbook-adoption-evidence.test.mjs"] },
+    { "id": "pattern_structured_handoff_and_promotion", "status": "implemented", "evidence_refs": ["ops/stack/StackWorkerArtifacts.ps1"] }
+  ],
+  "adoption_checks": [
+    { "id": "adoption_playbook_exports_contract", "status": "implemented", "evidence_refs": ["exports/_stack.playbook.adoption.evidence.v1.json"] },
+    { "id": "adoption_atlas_consumes_owner_truth_read_only", "status": "not_applicable", "notes": ["This check is owned by ATLAS root; _stack only declares its own consumer posture."] },
+    { "id": "adoption_proposal_and_execution_are_separate", "status": "implemented", "evidence_refs": ["ops/stack/StackWorkerArtifacts.ps1"] },
+    { "id": "adoption_continuity_lane_is_structured", "status": "implemented", "evidence_refs": ["ops/stack/StackWorkerArtifacts.ps1"] },
+    { "id": "adoption_trust_posture_is_negative_safe", "status": "not_applicable", "notes": ["This check applies to root, Lifeline, and vertical owner repositories, not this workflow/operator consumer slice."] }
+  ],
+  "continuity": {
+    "structured_handoff_required": true,
+    "transcript_role": "trace_only",
+    "handoff_schema_refs": ["ops/stack/StackWorkerArtifacts.ps1"],
+    "promotion_targets": ["receipt", "working_memory"],
+    "notes": ["_stack preserves structured operator handoff artifacts without copying Playbook doctrine."]
+  },
+  "verification_commands": ["pnpm run test:playbook-adoption"],
+  "evidence_refs": ["docs/ops/_STACK-PLAYBOOK-ADOPTION.md", "docs/STACK-ORCHESTRATION-ADOPTION.md", "ops/stack/Test-StackAdoptionContracts.ps1", "tests/playbook-adoption-evidence.test.mjs", "exports/_stack.playbook.verification.report.v1.json"]
+}

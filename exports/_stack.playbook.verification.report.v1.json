@@ -1,0 +1,23 @@
+{
+  "artifact_id": "_stack_playbook_verification_report_v1",
+  "generated_at": "2026-07-12T05:57:38Z",
+  "repo": { "repo_id": "_stack", "role": "workflow_operator", "repo_identity": "remote" },
+  "summary": {
+    "adoption_status": "adopted",
+    "verification_status": "verified",
+    "last_verified_at": "2026-07-12T05:57:38Z",
+    "blocking_gaps": [],
+    "notes": ["Verification is targeted to _stack owner evidence and does not certify Playbook doctrine or ATLAS-root adoption."]
+  },
+  "scope": {
+    "verification_kind": "targeted",
+    "covered_surfaces": ["exports/repo.playbook.adoption.evidence.schema.v1.json", "exports/_stack.playbook.adoption.evidence.v1.json", "exports/_stack.playbook.verification.report.v1.json", "docs/ops/_STACK-PLAYBOOK-ADOPTION.md", "tests/playbook-adoption-evidence.test.mjs"],
+    "notes": ["Targeted verification proves only the declared _stack workflow/operator consumer slice."]
+  },
+  "criteria": {
+    "adoption_export": { "status": "passed", "evidence_refs": ["exports/_stack.playbook.adoption.evidence.v1.json"] },
+    "adoption_test": { "status": "passed", "evidence_refs": ["tests/playbook-adoption-evidence.test.mjs"] },
+    "verification_path": { "status": "passed", "commands": ["pnpm run test:playbook-adoption"], "evidence_refs": ["package.json"] }
+  },
+  "evidence_refs": ["exports/_stack.playbook.adoption.evidence.v1.json", "docs/ops/_STACK-PLAYBOOK-ADOPTION.md", "tests/playbook-adoption-evidence.test.mjs", "package.json"]
+}
