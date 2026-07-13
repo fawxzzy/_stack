@@ -130,6 +130,14 @@ Failure Mode: `Hidden Runtime Drift`
 
 This failure mode occurs when the requested model or permission posture differs from the configuration Codex actually executes. Governed jobs now block or explicitly receipt the fallback instead of silently drifting.
 
+## Atlas Contracts v2 execution facts
+
+`_stack` is a facts producer, not a schema owner. Before it creates an invocation plan or launches Codex, both supported execution classes write the deterministic `atlas.component-manifest.v2.json` and the run-specific `atlas.job-envelope.v2.json` into the run log. The producer invokes the canonical Atlas-root CLI at `packages/atlas-contracts/scripts/validate-artifact.mjs` with `--json`; it does not vendor schemas, implement a fallback, or load arbitrary schema paths.
+
+Every preflight-passing terminal state writes `atlas.execution-receipt.v2.json` and validates it through that same CLI. The single additive `run.json.atlasContractsV2` object records the three paths, machine-readable validation results, component/job/run identities, and preflight/terminal state. Package or CLI absence fails closed with stable `_stack` producer reason codes. The raw Atlas CLI JSON remains in the run log as evidence, including unknown-major responses.
+
+The JobEnvelope records full local capability separately from authority: push, deploy, production, Discord, board, and data mutation are denied by default. A receipt only reports actual authority actions; it never infers them from the permission profile. Atlas-root consumer adoption is the next owner of these facts.
+
 ## Execution Model
 
 1. The operator starts the shared runner from `_stack` with a repo config.

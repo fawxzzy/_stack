@@ -424,6 +424,18 @@ function New-FixtureRepo {
         New-Item -ItemType Directory -Path (Join-Path -Path $repoRoot -ChildPath $relativePath) -Force | Out-Null
     }
 
+    # Fixture-only Atlas CLI: canonical execution must discover the command
+    # under its resolved root instead of using an owner-side validator engine.
+    $validatorDirectory = Join-Path -Path $repoRoot -ChildPath "packages\atlas-contracts\scripts"
+    New-Item -ItemType Directory -Path $validatorDirectory -Force | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path -Path $validatorDirectory -ChildPath "validate-artifact.mjs"), @'
+const args = process.argv.slice(2);
+const schema = args[args.indexOf("--schema") + 1] ?? null;
+const artifact = args[args.indexOf("--artifact") + 1] ?? null;
+if (!schema || !artifact) { console.log(JSON.stringify({ ok: false, code: "MISSING_INPUT", schema: null, artifact, errors: ["fixture input missing"] })); process.exit(4); }
+console.log(JSON.stringify({ ok: true, code: "VALID", schema: { id: schema, file: "fixture" }, artifact, errors: [] }));
+'@)
+
     [System.IO.File]::WriteAllText((Join-Path -Path $repoRoot -ChildPath "README.md"), "Fixture root.`r`n")
     [System.IO.File]::WriteAllText((Join-Path -Path $repoRoot -ChildPath "docs\task.md"), "baseline`r`n")
     [System.IO.File]::WriteAllText((Join-Path -Path $repoRoot -ChildPath "docs\operator-note.md"), "operator baseline`r`n")
@@ -819,6 +831,9 @@ Expected Changed Paths:
     Assert-Condition -Condition ($null -ne $successRun.Manifest) -Message "Canonical writer success fixture did not produce run.json."
     Assert-Condition -Condition ([string]$successRun.Manifest.status -eq "success") -Message "Canonical writer success fixture did not record success."
     Assert-Condition -Condition ([string]$successRun.Manifest.executionClass -eq "canonical_workspace") -Message "Canonical writer success fixture did not receipt the canonical_workspace execution class."
+    Assert-Condition -Condition ([string]$successRun.Manifest.atlasContractsV2.status.preflight -eq "validated") -Message "Canonical writer must validate Atlas Contracts v2 facts before fake Codex execution."
+    Assert-Condition -Condition ([bool]$successRun.Manifest.atlasContractsV2.validation.executionReceipt.ok) -Message "Canonical writer must validate the terminal Atlas Contracts v2 receipt."
+    Assert-Condition -Condition ([string]$successRun.Manifest.atlasContractsV2.validation.componentManifest.cliPath -match "packages[\\/]atlas-contracts[\\/]scripts[\\/]validate-artifact\.mjs$") -Message "Canonical writer must invoke its resolved Atlas validator CLI."
     Assert-Condition -Condition ([string]$successRun.Manifest.codexCommand.source -eq "explicit-arg") -Message "Canonical writer success fixture did not preserve the explicit fake-native executable source."
     Assert-Condition -Condition ([string]$successRun.Manifest.codexCommand.path -eq $fakeCodex.CommandPath) -Message "Canonical writer success fixture did not receipt the explicit fake-native executable path."
     Assert-Condition -Condition ([string]$successRun.Manifest.runtimePolicy.sources.permissions.sandbox_mode -match "prompt-metadata") -Message "Canonical writer success fixture did not receipt prompt metadata as the sandbox source."

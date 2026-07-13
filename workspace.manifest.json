@@ -53,6 +53,17 @@
           "warnings",
           "blockers"
         ],
+        "atlasContractsV2": {
+          "producer": "stack",
+          "validator": "atlas-root-owned-cli",
+          "runManifestField": "atlasContractsV2",
+          "artifacts": [
+            "atlas.component-manifest.v2.json",
+            "atlas.job-envelope.v2.json",
+            "atlas.execution-receipt.v2.json"
+          ],
+          "externalAuthorityDefault": "denied"
+        },
         "pushPolicy": "manual-only"
       }
     },

@@ -55,6 +55,12 @@ Failure Mode: `Hidden Runtime Drift`
 
 This failure mode occurs when the requested model, speed, or permission posture differs from what Codex actually executes. Governed jobs now block or receipt the fallback instead of silently drifting.
 
+## Atlas Contracts v2 producer gate
+
+Before Codex can run, `_stack` writes and validates `atlas.component-manifest.v2.json` and `atlas.job-envelope.v2.json` in the run log using the Atlas-owned `packages/atlas-contracts/scripts/validate-artifact.mjs` CLI. A missing Atlas package or CLI is a fail-closed preflight failure, not a fallback-validation case.
+
+After every preflight-passing terminal class, `_stack` writes and validates `atlas.execution-receipt.v2.json`. `run.json.atlasContractsV2` is the only run-manifest addition for these facts; it carries paths, raw CLI validation evidence, identities, and state without replacing existing worker artifacts. External authority remains denied by default even where the runtime has full local access.
+
 ## Assignment
 
 The assignment artifact declares the worker scope before execution starts.

@@ -26,6 +26,7 @@ if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction Sile
 
 . (Join-Path -Path $PSScriptRoot -ChildPath "CodexRunner.Common.ps1")
 . (Join-Path -Path $PSScriptRoot -ChildPath "..\stack\StackWorkerArtifacts.ps1")
+. (Join-Path -Path $PSScriptRoot -ChildPath "AtlasContractsV2Producer.ps1")
 
 $status = "setup_failed"
 $archivePath = $null
@@ -125,6 +126,10 @@ $noChangeProofRawPath = $null
 $noChangeProofValidation = $null
 $noChangeProofValidationPath = $null
 $noChangeFailureReason = $null
+$atlasContractsV2 = $null
+$atlasContractsV2ReceiptValidation = $null
+$atlasContractsV2FailureReason = $null
+$atlasContractsV2PreflightFailureReason = $null
 
 try {
     $PromptPath = (Resolve-Path -LiteralPath $PromptPath).Path
@@ -569,6 +574,31 @@ try {
         }
     }
 
+    # Artifact preflight is deliberately complete before an invocation plan or
+    # Codex process exists: absence or rejection by the Atlas-owned CLI closes
+    # the gate and leaves no path that can launch Codex.
+    $atlasContractsV2 = New-AtlasContractsV2Producer `
+        -AtlasRoot $stackLockContext.workspaceRoot `
+        -LogDirectory $logDirectory `
+        -RunId $runId `
+        -PromptRecord $promptRecord `
+        -RuntimePolicy $runtimePolicy `
+        -ExecutionClass "codex:repo:task" `
+        -BaseRef $baseRef `
+        -Branch $branchName `
+        -Worktree $worktreePath `
+        -AllowedPaths @(ConvertTo-StringArray -Value $adapterContract.allowedMutationSurfaces) `
+        -ForbiddenPaths @($forbiddenGlobs) `
+        -VerificationCommands @($effectiveVerifyCommands) `
+        -ParentJobId $governedSessionId
+    Write-TextFile -Path $manifestPath -Content (([ordered]@{
+        schemaVersion = "1.0"
+        runId = $runId
+        status = "prepared"
+        runtimePolicy = Get-RuntimePolicyReceipt -RuntimePolicy $runtimePolicy
+        atlasContractsV2 = Get-AtlasContractsV2Surface -Producer $atlasContractsV2 -TerminalStatus $null -ReceiptValidation $null
+    } | ConvertTo-Json -Depth 16) + "`r`n")
+
     $personality = [string](Get-ConfigValue -Config $config -Path @("personality") -DefaultValue "")
     $codexInvocation = New-CodexInvocationPlan `
         -RuntimePolicy $runtimePolicy `
@@ -939,12 +969,31 @@ try {
     }
 }
 catch {
+    $atlasContractsV2FailureReason = $_.Exception.Message
+    if ($atlasContractsV2FailureReason -like "atlas_contracts_v2_*") { $atlasContractsV2PreflightFailureReason = $atlasContractsV2FailureReason }
     Write-RunnerMessage -Message $_.Exception.Message -Level "ERROR"
     if (-not [string]::IsNullOrWhiteSpace($_.ScriptStackTrace)) {
         Write-RunnerMessage -Message $_.ScriptStackTrace.Trim() -Level "ERROR"
     }
 }
 finally {
+    if ($null -ne $atlasContractsV2) {
+        $atlasContractsV2ReceiptValidation = Write-AtlasContractsV2TerminalReceipt `
+            -Producer $atlasContractsV2 `
+            -RunnerStatus $status `
+            -ChangedPaths @($changedPaths) `
+            -CommitSha $commitSha `
+            -RuntimePolicy $runtimePolicy `
+            -VerificationCommands @($effectiveVerifyCommands) `
+            -VerificationRecords @($verifyRecords) `
+            -Branch $branchName `
+            -Worktree $worktreePath `
+            -Reason $atlasContractsV2FailureReason `
+            -EvidenceRefs @($codexStdOutPath, $codexStdErrPath, $summaryPath, $manifestPath)
+        if (-not [bool]$atlasContractsV2ReceiptValidation.ok -and $status -eq "success") {
+            $status = "atlas_contracts_v2_receipt_validation_failed"
+        }
+    }
     if ($null -ne $promptRecord) {
         try {
             $archiveSlug = ConvertTo-Slug -Value ([System.IO.Path]::GetFileNameWithoutExtension($PromptPath))
@@ -1175,6 +1224,7 @@ finally {
             proofGateFailureReason = $proofGateFailureReason
             verificationSource = $verificationSource
             changedPaths = @($changedPaths)
+            atlasContractsV2 = Get-AtlasContractsV2Surface -Producer $atlasContractsV2 -TerminalStatus $status -ReceiptValidation $atlasContractsV2ReceiptValidation -PreflightFailureReason $atlasContractsV2PreflightFailureReason
             workerArtifacts = [ordered]@{
                 assignment = if ($null -ne $workerAssignmentRecord) { $workerAssignmentPath } else { $null }
                 runningStatus = if ($null -ne $workerAssignmentRecord) { $workerRunningStatusPath } else { $null }

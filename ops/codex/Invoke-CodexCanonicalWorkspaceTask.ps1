@@ -26,6 +26,7 @@ if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction Sile
 }
 
 . (Join-Path -Path $PSScriptRoot -ChildPath "CodexRunner.Common.ps1")
+. (Join-Path -Path $PSScriptRoot -ChildPath "AtlasContractsV2Producer.ps1")
 
 $script:CanonicalRootValidationState = $null
 $script:CanonicalRootCommonGitDirectory = $null
@@ -1094,6 +1095,11 @@ $executionClass = "canonical_workspace"
 $lockStaleAfterMinutes = 30
 $localLandingRecord = $null
 $specToDiffRecord = $null
+$atlasContractsV2 = $null
+$atlasContractsV2ReceiptValidation = $null
+$atlasContractsV2FailureReason = $null
+$atlasContractsV2PreflightFailureReason = $null
+$atlasContractsV2Branch = $null
 
 function Write-CanonicalManifest {
     if ([string]::IsNullOrWhiteSpace($manifestPath)) {
@@ -1112,6 +1118,7 @@ function Write-CanonicalManifest {
         runtimeConfigPath = if ($null -ne $runtimeConfig) { $runtimeConfig.ConfigPath } else { $null }
         codexCommand = $codexCommandRecord
         runtimePolicy = Get-RuntimePolicyReceipt -RuntimePolicy $runtimePolicy
+        atlasContractsV2 = Get-AtlasContractsV2Surface -Producer $atlasContractsV2 -TerminalStatus $status -ReceiptValidation $atlasContractsV2ReceiptValidation -PreflightFailureReason $atlasContractsV2PreflightFailureReason
         mutationAdmission = if ($null -ne $mutationAdmissionRecord) { $mutationAdmissionRecord } else { $null }
         dirtyInventory = [ordered]@{
             initial = if ($null -ne $initialDirtySnapshot) { @($initialDirtySnapshot.entries) } else { @() }
@@ -1333,6 +1340,23 @@ try {
         }
     }
 
+    $branchResult = Invoke-Git -Arguments @("branch", "--show-current") -WorkingDirectory $repoRoot
+    if ($branchResult.ExitCode -eq 0) { $atlasContractsV2Branch = $branchResult.StdOut.Trim() }
+    # The canonical execution class uses the same producer gate as repo tasks.
+    # It remains after writer-lock acquisition but before any Codex invocation.
+    $atlasContractsV2 = New-AtlasContractsV2Producer `
+        -AtlasRoot $repoRoot `
+        -LogDirectory $logDirectory `
+        -RunId $runId `
+        -PromptRecord $promptRecord `
+        -RuntimePolicy $runtimePolicy `
+        -ExecutionClass $executionClass `
+        -Branch $atlasContractsV2Branch `
+        -AllowedPaths @($admittedChangedPaths) `
+        -ForbiddenPaths @(".git/**") `
+        -VerificationCommands @($verificationCommands)
+    Write-CanonicalManifest
+
     $personality = [string](Get-ConfigValue -Config $runtimeConfig.Config -Path @("personality") -DefaultValue "")
     $codexInvocation = New-CodexInvocationPlan `
         -RuntimePolicy $runtimePolicy `
@@ -1530,6 +1554,8 @@ try {
     $status = "success"
 }
 catch {
+    $atlasContractsV2FailureReason = $_.Exception.Message
+    if ($atlasContractsV2FailureReason -like "atlas_contracts_v2_*") { $atlasContractsV2PreflightFailureReason = $atlasContractsV2FailureReason }
     if ($status -eq "prepared") {
         $status = "failed"
     }
@@ -1562,6 +1588,24 @@ finally {
                 released = $false
                 reason = ("release_failed: {0}" -f $_.Exception.Message)
             }
+        }
+    }
+
+    if ($null -ne $atlasContractsV2) {
+        $atlasContractsV2ReceiptValidation = Write-AtlasContractsV2TerminalReceipt `
+            -Producer $atlasContractsV2 `
+            -RunnerStatus $status `
+            -ChangedPaths @($taskChangedPaths) `
+            -CommitSha $commitSha `
+            -RuntimePolicy $runtimePolicy `
+            -VerificationCommands @($verificationCommands) `
+            -VerificationRecords @($verifyRecords) `
+            -Branch $atlasContractsV2Branch `
+            -Worktree $null `
+            -Reason $atlasContractsV2FailureReason `
+            -EvidenceRefs @($codexStdOutPath, $codexStdErrPath, $summaryPath, $manifestPath)
+        if (-not [bool]$atlasContractsV2ReceiptValidation.ok -and $status -eq "success") {
+            $status = "atlas_contracts_v2_receipt_validation_failed"
         }
     }
 

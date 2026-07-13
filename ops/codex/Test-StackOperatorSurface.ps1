@@ -104,6 +104,8 @@ $requiredFiles = @(
     "ops/codex/Start-CodexInboxRunner.ps1",
     "ops/codex/Invoke-CodexRepoTask.ps1",
     "ops/codex/Invoke-CodexCanonicalWorkspaceTask.ps1",
+    "ops/codex/AtlasContractsV2Producer.ps1",
+    "ops/codex/Test-AtlasContractsV2Producer.ps1",
     "ops/codex/CodexRunner.Common.ps1",
     "ops/codex/Test-AtlasWorkspaceWriter.ps1",
     "ops/codex/Test-StackOperatorSurface.ps1",
@@ -256,6 +258,11 @@ foreach ($requiredSnippet in @(
     if (-not $taskRunnerText.Contains($requiredSnippet)) {
         throw ("Invoke-CodexRepoTask.ps1 is missing runtime-policy pass-through snippet: {0}" -f $requiredSnippet)
     }
+}
+
+& powershell -NoProfile -ExecutionPolicy Bypass -File ".\ops\codex\Test-AtlasContractsV2Producer.ps1"
+if ($LASTEXITCODE -ne 0) {
+    throw ("Atlas Contracts v2 producer tests failed with exit code {0}." -f $LASTEXITCODE)
 }
 
 $inboxRunnerText = Get-Content -LiteralPath "ops/codex/Start-CodexInboxRunner.ps1" -Raw
@@ -1766,6 +1773,29 @@ if (!summaryPath || !worktreePath) {
   process.exit(1);
 }
 
+const repoRoot = path.resolve(worktreePath, "..", "..", "..");
+const logRoot = path.join(repoRoot, ".codex", "logs");
+const latestRun = fs.readdirSync(logRoot, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().at(-1);
+const preflightManifest = latestRun
+  ? JSON.parse(fs.readFileSync(path.join(logRoot, latestRun, "run.json"), "utf8"))
+  : null;
+const atlasContractsV2 = preflightManifest?.atlasContractsV2;
+if (!atlasContractsV2 || atlasContractsV2.status?.preflight !== "validated") {
+  process.stderr.write("Atlas Contracts v2 preflight was not receipted before fake Codex execution.\n");
+  process.exit(43);
+}
+for (const artifactName of ["componentManifest", "jobEnvelope"]) {
+  if (!atlasContractsV2.artifactPaths?.[artifactName] || atlasContractsV2.validation?.[artifactName]?.ok !== true) {
+    process.stderr.write(`Atlas Contracts v2 ${artifactName} was not validated before fake Codex execution.\n`);
+    process.exit(44);
+  }
+}
+if (!String(atlasContractsV2.validation.componentManifest.cliPath ?? "").endsWith("packages\\atlas-contracts\\scripts\\validate-artifact.mjs")) {
+  process.stderr.write("Runner did not invoke the Atlas-owned validator CLI.\n");
+  process.exit(45);
+}
+
 const codexArtifactDirectory = path.join(worktreePath, ".codex");
 fs.mkdirSync(codexArtifactDirectory, { recursive: true });
 
@@ -1895,6 +1925,19 @@ Blocked / Skipped Reporting Rules:
     $integrationManifest = Get-Content -LiteralPath $integrationManifestPath -Raw | ConvertFrom-Json
     if ([string]$integrationManifest.status -ne "success") {
         throw ("Integration fixture expected a successful run.json but found status '{0}'." -f [string]$integrationManifest.status)
+    }
+
+    if ($null -eq $integrationManifest.atlasContractsV2 -or [string]$integrationManifest.atlasContractsV2.status.preflight -ne "validated" -or [string]$integrationManifest.atlasContractsV2.status.terminal -ne "success") {
+        throw "Integration fixture did not preserve the Atlas Contracts v2 preflight and terminal state."
+    }
+    foreach ($artifactName in @("componentManifest", "jobEnvelope", "executionReceipt")) {
+        $artifactPath = [string]$integrationManifest.atlasContractsV2.artifactPaths.$artifactName
+        if ([string]::IsNullOrWhiteSpace($artifactPath) -or -not (Test-Path -LiteralPath $artifactPath)) {
+            throw ("Integration fixture did not retain the Atlas Contracts v2 {0} artifact." -f $artifactName)
+        }
+    }
+    if (-not [bool]$integrationManifest.atlasContractsV2.validation.executionReceipt.ok) {
+        throw "Integration fixture did not validate the Atlas Contracts v2 terminal receipt."
     }
 
     $runtimePolicyRecord = $integrationManifest.runtimePolicy
