@@ -156,6 +156,7 @@ $requiredScripts = @(
     "codex:discordos:inbox",
     "codex:discordos:inbox:once",
     "codex:discordos:task",
+    "codex:playbook-doctrine:task",
     "codex:stack:inbox",
     "codex:stack:inbox:once",
     "codex:stack:inbox:bootstrap:once",
@@ -761,6 +762,7 @@ foreach ($surfacePath in $activeOwnerPathSurfaces) {
 $disabledLandingAdapters = @(
     "ops/codex/repos/atlas/adapter.json",
     "ops/codex/repos/playbook/adapter.json",
+    "ops/codex/repos/playbook-doctrine/adapter.json",
     "ops/codex/repos/lifeline/adapter.json",
     "ops/codex/repos/discordos/adapter.json"
 )
@@ -813,6 +815,29 @@ foreach ($forbiddenSurface in $forbiddenPlaybookMutationSurfaces) {
         throw ("Playbook adapter must not widen to the broad mutation surface: {0}" -f $forbiddenSurface)
     }
 }
+
+$playbookDoctrineConfigPath = "ops/codex/repos/playbook-doctrine/config.toml"
+$playbookDoctrineAdapterPath = "ops/codex/repos/playbook-doctrine/adapter.json"
+Assert-Condition -Condition (Test-Path -LiteralPath $playbookDoctrineConfigPath) -Message "Playbook doctrine config is missing."
+Assert-Condition -Condition (Test-Path -LiteralPath $playbookDoctrineAdapterPath) -Message "Playbook doctrine adapter is missing."
+
+$playbookDoctrineAdapter = Get-Content -LiteralPath $playbookDoctrineAdapterPath -Raw | ConvertFrom-Json
+$expectedDoctrineSurfaces = @(
+    ".codex/**",
+    ".agents/skills/review-project-next-step/**",
+    "docs/doctrine/**",
+    "scripts/validate-doctrine-registry.mjs",
+    "test/scripts/validate-doctrine-registry.test.mjs"
+)
+foreach ($expectedDoctrineSurface in $expectedDoctrineSurfaces) {
+    Assert-Condition -Condition ($expectedDoctrineSurface -in $playbookDoctrineAdapter.allowedMutationSurfaces) -Message ("Playbook doctrine adapter is missing exact surface: {0}" -f $expectedDoctrineSurface)
+}
+foreach ($forbiddenDoctrineSurface in @("packages/**", "docs/**", "scripts/**", "test/**", "package.json", "docs/PLAYBOOK_PRODUCT_ROADMAP.md")) {
+    Assert-Condition -Condition ($forbiddenDoctrineSurface -notin $playbookDoctrineAdapter.allowedMutationSurfaces) -Message ("Playbook doctrine adapter must stay narrow: {0}" -f $forbiddenDoctrineSurface)
+}
+
+$playbookDoctrineScript = [string]$package.scripts.PSObject.Properties["codex:playbook-doctrine:task"].Value
+Assert-Condition -Condition ($playbookDoctrineScript -eq "powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\playbook-doctrine\config.toml") -Message "Playbook doctrine package script must use the dedicated shared-runner config."
 
 $parserTestRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("stack-parser-{0}" -f ([guid]::NewGuid().ToString("N")))
 New-Item -ItemType Directory -Path $parserTestRoot -Force | Out-Null
@@ -1824,6 +1849,7 @@ if (workerGitFixture) {
   process.stdout.write('{"status":"ok"}\n');
   process.exit(0);
 }
+
 if (!prompt.includes("Atlas Contracts v2 preflight contract:") ||
     !prompt.includes(atlasContractsV2.artifactPaths.componentManifest) ||
     !prompt.includes(atlasContractsV2.artifactPaths.jobEnvelope)) {

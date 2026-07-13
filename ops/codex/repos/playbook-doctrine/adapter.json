@@ -1,0 +1,87 @@
+{
+  "$schema": "../../adapter.schema.json",
+  "schemaVersion": "1.2",
+  "kind": "stack-codex-repo-adapter",
+  "repoId": "playbook",
+  "description": "Narrow Playbook doctrine-registry and governed-skill adapter.",
+  "verify": {
+    "bootstrapCommands": [
+      "pnpm install --frozen-lockfile"
+    ],
+    "defaultCommands": [
+      "pnpm -r build",
+      "pnpm playbook docs audit --json",
+      "pnpm agents:check",
+      "node --test test/scripts/validate-doctrine-registry.test.mjs",
+      "node scripts/validate-doctrine-registry.mjs"
+    ],
+    "notes": [
+      "This adapter is limited to the machine-readable doctrine registry and its governed Project Review and Next Step skill.",
+      "The existing Playbook adapter remains the changelog-generator rollout surface and must not be widened.",
+      "Roadmap, changelog, package metadata, command surfaces, and existing continuity contracts remain unchanged while the overlapping draft PR is open."
+    ]
+  },
+  "allowedMutationSurfaces": [
+    ".codex/**",
+    ".agents/skills/review-project-next-step/**",
+    "docs/doctrine/**",
+    "scripts/validate-doctrine-registry.mjs",
+    "test/scripts/validate-doctrine-registry.test.mjs"
+  ],
+  "docsUpdateRules": [
+    "Keep universal doctrine in the registry, repository-specific instructions in owner docs, executable guidance in the governed skill, and live status outside doctrine.",
+    "Every promoted doctrine entry requires a stable ID, evidence references, enforcement owner and mechanism, review trigger, and explicit supersession fields.",
+    "Do not modify the active path-discipline PR, existing continuity contracts, package metadata, roadmap, changelog, generated runtime outputs, or another repository from this adapter."
+  ],
+  "artifacts": {
+    "inboxDir": ".codex/inbox",
+    "archiveDir": ".codex/archive",
+    "logsDir": ".codex/logs",
+    "worktreeRoot": ".codex/worktrees",
+    "exportsDir": ".codex/exports"
+  },
+  "exports": {
+    "patch": true,
+    "bundle": false,
+    "formatPatchBaseRef": "origin/main"
+  },
+  "pushPolicy": {
+    "mode": "manual-only",
+    "skipPush": true,
+    "allowAutoPush": false
+  },
+  "autoCommitPolicy": {
+    "enabled": true,
+    "mode": "on-successful-mutation",
+    "skipEmptyCommit": true,
+    "requireVerificationPass": true,
+    "commitMetadata": {
+      "artifactPath": ".codex/commit-meta.json",
+      "allowedTypes": [
+        "feat",
+        "fix",
+        "docs",
+        "refactor",
+        "test",
+        "chore"
+      ],
+      "rejectedSummaries": [
+        "update",
+        "done",
+        "fixes",
+        "misc changes"
+      ],
+      "fallbackScope": "doctrine"
+    }
+  },
+  "localLandingPolicy": {
+    "mode": "disabled",
+    "targetBranch": "main"
+  },
+  "execution": {
+    "baseRef": "origin/main",
+    "branchPrefix": "codex/",
+    "cleanupWorktreeOnSuccess": false,
+    "fetchOrigin": false
+  }
+}

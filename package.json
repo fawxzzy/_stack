@@ -51,6 +51,7 @@
     "codex:playbook:inbox": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Start-CodexInboxRunner.ps1 -ConfigPath .\\ops\\codex\\repos\\playbook\\config.toml",
     "codex:playbook:inbox:once": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Start-CodexInboxRunner.ps1 -ConfigPath .\\ops\\codex\\repos\\playbook\\config.toml -RunOnce",
     "codex:playbook:task": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Invoke-CodexRepoTask.ps1 -ConfigPath .\\ops\\codex\\repos\\playbook\\config.toml",
+    "codex:playbook-doctrine:task": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Invoke-CodexRepoTask.ps1 -ConfigPath .\\ops\\codex\\repos\\playbook-doctrine\\config.toml",
     "codex:stack:inbox": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Start-CodexInboxRunner.ps1 -ConfigPath .\\ops\\codex\\repos\\stack\\config.toml",
     "codex:stack:inbox:once": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Start-CodexInboxRunner.ps1 -ConfigPath .\\ops\\codex\\repos\\stack\\config.toml -RunOnce",
     "codex:stack:inbox:bootstrap:once": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\ops\\codex\\Start-CodexInboxRunner.ps1 -ConfigPath .\\ops\\codex\\repos\\stack\\config.toml -RunOnce -Model gpt-5.4 -Reasoning high -Speed standard -SandboxMode danger-full-access -ApprovalPolicy never -WebSearch disabled",
