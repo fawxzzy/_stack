@@ -1,0 +1,352 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas.github.event-receipt.schema.v1",
+  "title": "Atlas GitHub Event Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "event_id",
+    "idempotency_key",
+    "event_family",
+    "fact_state",
+    "observed_at",
+    "source",
+    "subject",
+    "correlation",
+    "authority",
+    "evidence",
+    "digest"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "atlas.github.event-receipt.v1"
+    },
+    "event_id": {
+      "type": "string",
+      "pattern": "^ghr_[a-f0-9]{64}$"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "pattern": "^ghk_[a-f0-9]{64}$"
+    },
+    "event_family": {
+      "enum": [
+        "repository",
+        "branch",
+        "pull_request",
+        "issue",
+        "workflow_run",
+        "release",
+        "security_alert"
+      ]
+    },
+    "fact_state": {
+      "enum": [
+        "observed",
+        "empty",
+        "unknown",
+        "access_denied",
+        "disabled",
+        "conflicting",
+        "not_applicable"
+      ]
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "subject": {
+      "$ref": "#/$defs/subject"
+    },
+    "correlation": {
+      "$ref": "#/$defs/correlation"
+    },
+    "authority": {
+      "$ref": "#/$defs/authority"
+    },
+    "evidence": {
+      "$ref": "#/$defs/evidence"
+    },
+    "digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "facts": {
+      "$ref": "#/$defs/facts"
+    }
+  },
+  "$defs": {
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "repositoryRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner",
+        "name"
+      ],
+      "properties": {
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "account",
+        "repository",
+        "delivery_id",
+        "source_event_id",
+        "event_name",
+        "event_action"
+      ],
+      "properties": {
+        "account": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repository": {
+          "$ref": "#/$defs/repositoryRef"
+        },
+        "delivery_id": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "source_event_id": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "event_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event_action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "$ref": "#/$defs/nullableString"
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "number",
+        "title",
+        "branch",
+        "sha",
+        "url"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "repository",
+            "branch",
+            "pull_request",
+            "issue",
+            "workflow_run",
+            "release",
+            "security_alert"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "number": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "title": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "branch": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "sha": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "url": {
+          "$ref": "#/$defs/nullableString"
+        }
+      }
+    },
+    "correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "branch",
+        "commit",
+        "pull_request",
+        "issue",
+        "workflow_run",
+        "release",
+        "security_alert",
+        "delivery",
+        "source_event"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "branch": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "commit": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "pull_request": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "issue": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "workflow_run": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "release": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "security_alert": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "delivery": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "source_event": {
+          "$ref": "#/$defs/nullableString"
+        }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operator",
+        "posture",
+        "external_mutation",
+        "owner_repository_truth"
+      ],
+      "properties": {
+        "operator": {
+          "const": "_stack"
+        },
+        "posture": {
+          "const": "read_only_first"
+        },
+        "external_mutation": {
+          "const": "denied"
+        },
+        "owner_repository_truth": {
+          "const": "preserved"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "refs"
+      ],
+      "properties": {
+        "refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "payload_sha256"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "sha256"
+        },
+        "payload_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    },
+    "facts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "state",
+        "url",
+        "head_branch",
+        "base_branch",
+        "head_sha",
+        "workflow_name",
+        "run_conclusion",
+        "release_tag",
+        "alert_state",
+        "alert_severity"
+      ],
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "state": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "url": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "head_branch": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "base_branch": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "head_sha": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "workflow_name": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "run_conclusion": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "release_tag": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "alert_state": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "alert_severity": {
+          "$ref": "#/$defs/nullableString"
+        }
+      }
+    }
+  }
+}
