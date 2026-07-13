@@ -1356,6 +1356,7 @@ try {
         -RuntimePolicy $runtimePolicy `
         -ExecutionClass $executionClass `
         -Branch $atlasContractsV2Branch `
+        -Worktree $repoRoot `
         -AllowedPaths @($admittedChangedPaths) `
         -ForbiddenPaths @(".git/**") `
         -VerificationCommands @($verificationCommands)
@@ -1613,7 +1614,7 @@ finally {
             -VerificationCommands @($verificationCommands) `
             -VerificationRecords @($verifyRecords) `
             -Branch $atlasContractsV2Branch `
-            -Worktree $null `
+            -Worktree $repoRoot `
             -Reason $atlasContractsV2FailureReason `
             -EvidenceRefs @($codexStdOutPath, $codexStdErrPath, $summaryPath, $manifestPath)
         if (-not [bool]$atlasContractsV2ReceiptValidation.ok -and $status -eq "success") {

@@ -859,6 +859,8 @@ Expected Changed Paths:
     Assert-Condition -Condition ([string]$successRun.Manifest.executionClass -eq "canonical_workspace") -Message "Canonical writer success fixture did not receipt the canonical_workspace execution class."
     Assert-Condition -Condition ([string]$successRun.Manifest.atlasContractsV2.status.preflight -eq "validated") -Message "Canonical writer must validate Atlas Contracts v2 facts before fake Codex execution."
     Assert-Condition -Condition ([bool]$successRun.Manifest.atlasContractsV2.validation.executionReceipt.ok) -Message "Canonical writer must validate the terminal Atlas Contracts v2 receipt."
+    $canonicalExecutionReceipt = Get-Content -LiteralPath ([string]$successRun.Manifest.atlasContractsV2.artifactPaths.executionReceipt) -Raw | ConvertFrom-Json
+    Assert-Condition -Condition (Test-EquivalentPath -LeftPath ([string]$canonicalExecutionReceipt.correlations.worktree) -RightPath $mutationRepo) -Message "Canonical writer must receipt the canonical root as its primary-worktree identity."
     Assert-Condition -Condition ([string]$successRun.Manifest.atlasContractsV2.validation.componentManifest.cliPath -match "packages[\\/]atlas-contracts[\\/]scripts[\\/]validate-artifact\.mjs$") -Message "Canonical writer must invoke its resolved Atlas validator CLI."
     Assert-Condition -Condition ([string]$successRun.Manifest.codexCommand.source -eq "explicit-arg") -Message "Canonical writer success fixture did not preserve the explicit fake-native executable source."
     Assert-Condition -Condition ([string]$successRun.Manifest.codexCommand.path -eq $fakeCodex.CommandPath) -Message "Canonical writer success fixture did not receipt the explicit fake-native executable path."
