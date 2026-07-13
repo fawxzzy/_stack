@@ -419,11 +419,7 @@ function Get-NextPromptContentLine {
             continue
         }
 
-        if ($trimmed -match '^(?:#{1,6}\s+)?[A-Za-z][A-Za-z0-9 -]*:\s*$') {
-            return $null
-        }
-
-        if ($trimmed -match '^#{1,6}\s+') {
+        if (Test-PromptSectionHeadingLine -Line $trimmed) {
             return $null
         }
 
@@ -631,6 +627,20 @@ function Normalize-PromptSectionName {
     return (($trimmed -replace "[^A-Za-z0-9]", "").ToLowerInvariant())
 }
 
+function Test-PromptSectionHeadingLine {
+    param([string]$Line)
+
+    if ([string]::IsNullOrWhiteSpace($Line)) {
+        return $false
+    }
+
+    $trimmed = $Line.Trim()
+    return (
+        $trimmed -match '^#{1,6}\s+\S.*$' -or
+        $trimmed -match '^[A-Za-z][A-Za-z0-9 /-]*:\s*$'
+    )
+}
+
 function Get-PromptBodySections {
     param([string]$Body)
 
@@ -660,12 +670,40 @@ function Get-PromptBodySections {
     }
 
     $currentSection = $null
+    $fenceMarker = $null
     foreach ($line in ($Body -split "`r?`n")) {
+        $trimmed = $line.Trim()
+        if ($trimmed -match '^(?<marker>`{3,}|~{3,})') {
+            $marker = $Matches.marker.Substring(0, 1)
+            if ($null -eq $fenceMarker) {
+                $fenceMarker = $marker
+            }
+            elseif ($fenceMarker -eq $marker) {
+                $fenceMarker = $null
+            }
+            if ($null -ne $currentSection) {
+                [void]$sections[$currentSection].Add($line)
+            }
+            continue
+        }
+
+        if ($null -ne $fenceMarker) {
+            if ($null -ne $currentSection) {
+                [void]$sections[$currentSection].Add($line)
+            }
+            continue
+        }
+
         $normalizedHeader = Normalize-PromptSectionName -Value $line
-        if ($recognizedSections -contains $normalizedHeader) {
-            $currentSection = $normalizedHeader
-            if (-not $sections.ContainsKey($currentSection)) {
-                $sections[$currentSection] = New-Object System.Collections.Generic.List[string]
+        if (Test-PromptSectionHeadingLine -Line $line) {
+            if ($recognizedSections -contains $normalizedHeader) {
+                $currentSection = $normalizedHeader
+                if (-not $sections.ContainsKey($currentSection)) {
+                    $sections[$currentSection] = New-Object System.Collections.Generic.List[string]
+                }
+            }
+            else {
+                $currentSection = $null
             }
             continue
         }
@@ -688,10 +726,34 @@ function Convert-PromptSectionLinesToItems {
 
     $items = New-Object System.Collections.Generic.List[string]
     $current = ""
+    $fenceMarker = $null
 
     foreach ($line in @($Lines)) {
         $trimmed = $line.Trim()
+        if ($trimmed -match '^(?<marker>`{3,}|~{3,})') {
+            $marker = $Matches.marker.Substring(0, 1)
+            if ($null -eq $fenceMarker) {
+                $fenceMarker = $marker
+            }
+            elseif ($fenceMarker -eq $marker) {
+                $fenceMarker = $null
+            }
+            continue
+        }
+
+        if ($null -ne $fenceMarker) {
+            continue
+        }
+
         if ([string]::IsNullOrWhiteSpace($trimmed)) {
+            if (-not [string]::IsNullOrWhiteSpace($current)) {
+                [void]$items.Add($current.Trim())
+                $current = ""
+            }
+            continue
+        }
+
+        if ($trimmed -match '^(?:[-*+]\s*|\d+\.\s*)$') {
             if (-not [string]::IsNullOrWhiteSpace($current)) {
                 [void]$items.Add($current.Trim())
                 $current = ""
@@ -707,10 +769,7 @@ function Convert-PromptSectionLinesToItems {
             continue
         }
 
-        if ([string]::IsNullOrWhiteSpace($current)) {
-            $current = $trimmed
-        }
-        else {
+        if (-not [string]::IsNullOrWhiteSpace($current)) {
             $current = "{0} {1}" -f $current, $trimmed
         }
     }
@@ -720,6 +779,38 @@ function Convert-PromptSectionLinesToItems {
     }
 
     return @($items.ToArray())
+}
+
+function ConvertTo-TrimmedPromptItemArray {
+    param($Value)
+
+    $items = New-Object System.Collections.Generic.List[string]
+    foreach ($entry in @(ConvertTo-StringArray -Value $Value)) {
+        $trimmed = ([string]$entry).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+            [void]$items.Add($trimmed)
+        }
+    }
+
+    return @($items.ToArray())
+}
+
+function Format-PromptBulletLines {
+    param(
+        $Entries,
+        [string]$EmptyLine = "- none declared"
+    )
+
+    $lines = New-Object System.Collections.Generic.List[string]
+    foreach ($entry in @(ConvertTo-TrimmedPromptItemArray -Value $Entries)) {
+        [void]$lines.Add("- {0}" -f $entry)
+    }
+
+    if ($lines.Count -eq 0) {
+        [void]$lines.Add($EmptyLine)
+    }
+
+    return @($lines.ToArray())
 }
 
 function Convert-PromptAcceptanceCriteria {
@@ -1115,9 +1206,9 @@ function Get-SpecToDiffPromptPolicy {
     }
 
     $criteriaList = @($criteria)
-    $expectedChangedPathList = @($expectedChangedPaths)
-    $expectedUnchangedPathList = @($expectedUnchangedPaths)
-    $blockedSkippedRuleList = @($blockedSkippedRules)
+    $expectedChangedPathList = @(ConvertTo-TrimmedPromptItemArray -Value $expectedChangedPaths)
+    $expectedUnchangedPathList = @(ConvertTo-TrimmedPromptItemArray -Value $expectedUnchangedPaths)
+    $blockedSkippedRuleList = @(ConvertTo-TrimmedPromptItemArray -Value $blockedSkippedRules)
     $criteriaEnabled = ($criteriaList | Measure-Object).Count -gt 0
 
     return [pscustomobject]@{
@@ -1128,6 +1219,41 @@ function Get-SpecToDiffPromptPolicy {
         expectedUnchangedPaths = $expectedUnchangedPathList
         blockedSkippedRules = $blockedSkippedRuleList
     }
+}
+
+function Get-SpecToDiffInstructionBlock {
+    param($Policy)
+
+    if ($null -eq $Policy -or -not [bool]$Policy.enabled) {
+        return ""
+    }
+
+    $criterionLines = @(
+        $Policy.acceptanceCriteria |
+        ForEach-Object { "- {0}: {1}" -f [string]$_.id, [string]$_.text }
+    )
+
+    return (@(
+        "Spec-to-diff completion contract:",
+        ("- This prompt declares acceptance criteria, so write UTF-8 JSON to `{0}`." -f $Policy.artifactPath),
+        "- Use exactly this shape:",
+        '- {"contract_version":"atlas.stack.spec_to_diff.v1","criteria":[{"criterion_id":"ac-01","status":"satisfied","changed_paths":["docs/example.md"],"diff_evidence":["literal diff snippet"],"note":"optional note"}],"unchanged_path_justifications":[{"path":"docs/example.md","justification":"why the expected unchanged path changed","criterion_ids":["ac-01"]}]}',
+        "- Emit one criteria entry for every acceptance criterion id listed below.",
+        "- Allowed criterion statuses: satisfied, skipped, failed, blocked.",
+        "- For satisfied criteria, changed_paths must list the actual changed repo-relative files and diff_evidence must quote short literal snippets that appear in the final diff or newly added file content.",
+        "- Do not mark a criterion satisfied unless it is provable from the final diff.",
+        "- If any criterion cannot be completed or proven, mark it blocked, skipped, or failed and explain why in note.",
+        "- If an expected unchanged path changes, add an unchanged_path_justifications entry with an explicit reason.",
+        "- Before returning control to the runner, run `pnpm run codex:spec-to-diff:preflight` and correct the proof artifact until the command exits successfully.",
+        "Acceptance criteria ids:",
+        ($criterionLines -join "`r`n"),
+        "Expected changed paths:",
+        ((Format-PromptBulletLines -Entries $Policy.expectedChangedPaths) -join "`r`n"),
+        "Expected unchanged paths:",
+        ((Format-PromptBulletLines -Entries $Policy.expectedUnchangedPaths) -join "`r`n"),
+        "Blocked / skipped reporting rules:",
+        ((Format-PromptBulletLines -Entries $Policy.blockedSkippedRules) -join "`r`n")
+    ) -join "`r`n")
 }
 
 function Get-CommitMetadataPolicy {

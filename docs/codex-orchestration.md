@@ -337,6 +337,10 @@ Pattern: `Spec-to-Diff Verification Gate`
 
 For mutating prompts that declare explicit acceptance criteria, the runner requires a temporary completion artifact under `.codex/` with one entry per criterion. A task is completion-ready only when every criterion is explicitly accounted for and each `satisfied` criterion is provable from the final repo diff.
 
+Machine-readable prompt sections are bounded intentionally. `Acceptance Criteria`, `Expected Changed Paths`, `Expected Unchanged Paths`, and `Blocked / Skipped Reporting Rules` are parsed as list-driven sections only. Multiline continuation belongs to the current list item, fenced examples are ignored for machine parsing, and any ordinary heading, recognized or not, terminates the current machine-readable section before later prose or deliver-back content can be absorbed into the contract.
+
+If any of those machine-readable sections is declared but contains no actual entries, the effective prompt renders exactly `- none declared` for that section while the parsed policy remains an empty array. Empty bullets do not become empty-string path patterns.
+
 Rule details:
 
 - summary text is never proof

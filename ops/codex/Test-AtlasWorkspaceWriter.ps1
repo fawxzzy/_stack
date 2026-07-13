@@ -16,6 +16,50 @@ function Assert-Condition {
     }
 }
 
+function Get-SpecToDiffInstructionBlockText {
+    param([string]$PromptText)
+
+    if ([string]::IsNullOrWhiteSpace($PromptText)) {
+        return $null
+    }
+
+    $normalized = $PromptText -replace "`r`n", "`n"
+    $start = $normalized.IndexOf("Spec-to-diff completion contract:")
+    if ($start -lt 0) {
+        return $null
+    }
+
+    $tail = $normalized.Substring($start)
+    $end = $tail.Length
+    foreach ($terminator in @("`n`nAtlas Contracts v2 preflight contract:", "`n`nVerified no-change contract:")) {
+        $index = $tail.IndexOf($terminator)
+        if ($index -ge 0 -and $index -lt $end) {
+            $end = $index
+        }
+    }
+
+    return $tail.Substring(0, $end).Trim()
+}
+
+function Assert-CleanSpecToDiffInstructionBlock {
+    param(
+        [string]$Block,
+        [string]$Context,
+        [string[]]$ExpectedCriterionIds,
+        [int]$ExpectedNoneDeclaredCount = 0
+    )
+
+    Assert-Condition -Condition (-not [string]::IsNullOrWhiteSpace($Block)) -Message ("{0} did not include a spec-to-diff instruction block." -f $Context)
+    Assert-Condition -Condition (-not $Block.Contains("System.Object[]")) -Message ("{0} rendered System.Object[] in the spec-to-diff instruction block." -f $Context)
+    Assert-Condition -Condition (([regex]::Matches($Block, [regex]::Escape("Expected changed paths:"))).Count -eq 1) -Message ("{0} repeated the Expected changed paths heading." -f $Context)
+    Assert-Condition -Condition (([regex]::Matches($Block, [regex]::Escape("Expected unchanged paths:"))).Count -eq 1) -Message ("{0} repeated the Expected unchanged paths heading." -f $Context)
+    Assert-Condition -Condition (([regex]::Matches($Block, [regex]::Escape("Blocked / skipped reporting rules:"))).Count -eq 1) -Message ("{0} repeated the blocked/skipped heading." -f $Context)
+    Assert-Condition -Condition (([regex]::Matches($Block, [regex]::Escape("- none declared"))).Count -eq $ExpectedNoneDeclaredCount) -Message ("{0} rendered the wrong count of '- none declared' lines." -f $Context)
+    foreach ($criterionId in @($ExpectedCriterionIds)) {
+        Assert-Condition -Condition ($Block.Contains("- {0}:" -f $criterionId)) -Message ("{0} did not include criterion id {1}." -f $Context, $criterionId)
+    }
+}
+
 function Invoke-GitChecked {
     param(
         [Parameter(Mandatory = $true)]
@@ -198,7 +242,10 @@ if (prompt.includes("Scenario: runtime-policy-legacy")) {
   }
 }
 
-const admittedProofText = "canonical workspace proof";
+const promptRenderingFixture = prompt.includes("renders machine-readable prompt sections exactly");
+const admittedProofLines = promptRenderingFixture
+  ? ["prompt parser repair proof A", "prompt parser repair proof B"]
+  : ["canonical workspace proof"];
 const registeredWorktreeRelativePath = "mutable-owner-worktree";
 const registeredWorktreePath = path.join(repoRoot, registeredWorktreeRelativePath);
 const runGit = (cwd, args) => {
@@ -240,22 +287,39 @@ const retargetRegisteredWorktreeGitfile = () => {
 };
 const writeTaskFile = () => {
   fs.mkdirSync(path.join(repoRoot, "docs"), { recursive: true });
-  fs.appendFileSync(path.join(repoRoot, "docs", "task.md"), `${admittedProofText}\n`, "utf8");
+  fs.appendFileSync(path.join(repoRoot, "docs", "task.md"), `${admittedProofLines.join("\n")}\n`, "utf8");
 };
 const writeArtifacts = () => {
   fs.mkdirSync(path.join(repoRoot, ".codex"), { recursive: true });
   fs.writeFileSync(path.join(repoRoot, ".codex", "commit-meta.json"), '{"type":"feat","scope":"atlas-workspace","summary":"record canonical writer proof"}\n', "utf8");
   fs.writeFileSync(path.join(repoRoot, ".codex", "spec-to-diff-proof.json"), `${JSON.stringify({
     contract_version: "atlas.stack.spec_to_diff.v1",
-    criteria: [
-      {
-        criterion_id: "ac-01",
-        status: "satisfied",
-        changed_paths: ["docs/task.md"],
-        diff_evidence: [admittedProofText],
-        note: "Fake Codex updated the admitted path."
-      }
-    ],
+    criteria: promptRenderingFixture
+      ? [
+          {
+            criterion_id: "ac-01",
+            status: "satisfied",
+            changed_paths: ["docs/task.md"],
+            diff_evidence: ["prompt parser repair proof A"],
+            note: "Fake Codex completed criterion ac-01."
+          },
+          {
+            criterion_id: "ac-02",
+            status: "satisfied",
+            changed_paths: ["docs/task.md"],
+            diff_evidence: ["prompt parser repair proof B"],
+            note: "Fake Codex completed criterion ac-02."
+          }
+        ]
+      : [
+          {
+            criterion_id: "ac-01",
+            status: "satisfied",
+            changed_paths: ["docs/task.md"],
+            diff_evidence: ["canonical workspace proof"],
+            note: "Fake Codex updated the admitted path."
+          }
+        ],
     unchanged_path_justifications: []
   }, null, 2)}\n`, "utf8");
 };
@@ -883,6 +947,45 @@ Expected Changed Paths:
     $successHead = Invoke-GitChecked -WorkingDirectory $mutationRepo -Arguments @("show", "--name-only", "--format=%B", "HEAD")
     Assert-Condition -Condition (($successHead.StdOut -split "`r?`n") -contains "docs/task.md") -Message "Canonical writer success fixture commit did not include docs/task.md."
     Assert-Condition -Condition (($successHead.StdOut -split "`r?`n") -notcontains "docs/operator-note.md") -Message "Canonical writer success fixture commit included pre-existing dirt."
+
+    $renderingRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "prompt-rendering")
+    $renderingPrompt = New-PromptFile -RepoRoot $renderingRepo -FileName "prompt-rendering.md" -Content @"
+Title: Spec-to-diff prompt rendering fixture
+Mutation Admission Path: docs/task.md
+Verify: git diff --check
+
+Objective:
+Prove the canonical writer renders machine-readable prompt sections exactly.
+
+Acceptance Criteria:
+- [ac-01] Preserve the first declared criterion id in the rendered block.
+- Preserve the generated second criterion id in the rendered block.
+
+## Notes
+This explanatory paragraph must not become ac-03.
+
+## Verification
+- git diff --check
+
+## Deliver back
+```yaml
+stack_spec_to_diff_prompt_parser_repair_receipt:
+  next_packet: Atlas Root Lock Refresh Then DiscordOS Projection Consumer
+```
+
+Scenario: mutate-admitted
+"@
+    $renderingPromptRecord = Parse-PromptFile -Path $renderingPrompt
+    $renderingExpectedBlock = Get-SpecToDiffInstructionBlock -Policy (Get-SpecToDiffPromptPolicy -PromptRecord $renderingPromptRecord)
+    $renderingRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $renderingRepo -PromptPath $renderingPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
+    Assert-Condition -Condition ($renderingRun.Result.ExitCode -eq 0) -Message ("Canonical writer prompt-rendering fixture failed. StdOut: {0} StdErr: {1}" -f $renderingRun.Result.StdOut, $renderingRun.Result.StdErr)
+    Assert-Condition -Condition ($null -ne $renderingRun.Manifest) -Message "Canonical writer prompt-rendering fixture did not produce run.json."
+    Assert-Condition -Condition ([string]$renderingRun.Manifest.status -eq "success") -Message ("Canonical writer prompt-rendering fixture expected success but found '{0}'." -f [string]$renderingRun.Manifest.status)
+    $renderingEffectivePrompt = Get-Content -LiteralPath (Join-Path -Path $renderingRun.LogDirectory -ChildPath "effective.prompt.md") -Raw
+    $renderingActualBlock = Get-SpecToDiffInstructionBlockText -PromptText $renderingEffectivePrompt
+    Assert-Condition -Condition (((($renderingActualBlock -replace "`r`n", "`n").Trim()) -eq (($renderingExpectedBlock -replace "`r`n", "`n").Trim()))) -Message "Canonical writer prompt-rendering fixture did not emit the exact shared spec-to-diff instruction block."
+    Assert-CleanSpecToDiffInstructionBlock -Block $renderingActualBlock -Context "Canonical writer prompt-rendering fixture" -ExpectedCriterionIds @("ac-01", "ac-02") -ExpectedNoneDeclaredCount 3
+    Assert-Condition -Condition (-not $renderingActualBlock.Contains("ac-03")) -Message "Canonical writer prompt-rendering fixture incorrectly rendered ac-03."
 
     $archiveCreationRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "archive-creation") -SkipArchiveDirectory
     $archiveCreationPrompt = New-PromptFile -RepoRoot $archiveCreationRepo -FileName "archive-creation.md" -Content @"

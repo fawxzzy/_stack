@@ -365,50 +365,7 @@ try {
     ) -join "`r`n"
     $effectivePrompt = $effectivePrompt + "`r`n`r`n" + $workerContextInstructions + "`r`n`r`n" + $commitContractInstructions
     if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
-        $criterionLines = @(
-            $specToDiffPolicy.acceptanceCriteria |
-            ForEach-Object { "- {0}: {1}" -f [string]$_.id, [string]$_.text }
-        )
-        $expectedChangedLines = if (@($specToDiffPolicy.expectedChangedPaths).Length -gt 0) {
-            @($specToDiffPolicy.expectedChangedPaths | ForEach-Object { "- {0}" -f [string]$_ })
-        }
-        else {
-            @("- none declared")
-        }
-        $expectedUnchangedLines = if (@($specToDiffPolicy.expectedUnchangedPaths).Length -gt 0) {
-            @($specToDiffPolicy.expectedUnchangedPaths | ForEach-Object { "- {0}" -f [string]$_ })
-        }
-        else {
-            @("- none declared")
-        }
-        $blockedSkippedRuleLines = if (@($specToDiffPolicy.blockedSkippedRules).Length -gt 0) {
-            @($specToDiffPolicy.blockedSkippedRules | ForEach-Object { "- {0}" -f [string]$_ })
-        }
-        else {
-            @("- If a criterion cannot be proven from the final diff, mark it as blocked, skipped, or failed instead of satisfied.")
-        }
-        $specToDiffInstructions = @(
-            "Spec-to-diff completion contract:",
-            ("- This prompt declares acceptance criteria, so write UTF-8 JSON to `{0}`." -f $specToDiffPolicy.artifactPath),
-            "- Use exactly this shape:",
-            '- {"contract_version":"atlas.stack.spec_to_diff.v1","criteria":[{"criterion_id":"ac-01","status":"satisfied","changed_paths":["docs/example.md"],"diff_evidence":["literal diff snippet"],"note":"optional note"}],"unchanged_path_justifications":[{"path":"docs/example.md","justification":"why the expected unchanged path changed","criterion_ids":["ac-01"]}]}',
-            "- Emit one criteria entry for every acceptance criterion id listed below.",
-            "- Allowed criterion statuses: satisfied, skipped, failed, blocked.",
-            "- For satisfied criteria, changed_paths must list the actual changed repo-relative files and diff_evidence must quote short literal snippets that appear in the final diff or newly added file content.",
-            "- Do not mark a criterion satisfied unless it is provable from the final diff.",
-            "- If any criterion cannot be completed or proven, mark it blocked, skipped, or failed and explain why in note.",
-            "- If an expected unchanged path changes, add an unchanged_path_justifications entry with an explicit reason.",
-            "- Before returning control to the runner, run `pnpm run codex:spec-to-diff:preflight` and correct the proof artifact until the command exits successfully.",
-            "Acceptance criteria ids:",
-            $criterionLines -join "`r`n",
-            "Expected changed paths:",
-            $expectedChangedLines -join "`r`n",
-            "Expected unchanged paths:",
-            $expectedUnchangedLines -join "`r`n",
-            "Blocked / skipped reporting rules:",
-            $blockedSkippedRuleLines -join "`r`n"
-        ) -join "`r`n"
-        $effectivePrompt = $effectivePrompt + "`r`n`r`n" + $specToDiffInstructions
+        $effectivePrompt = $effectivePrompt + "`r`n`r`n" + (Get-SpecToDiffInstructionBlock -Policy $specToDiffPolicy)
     }
     if ($null -ne $noChangePolicy -and $noChangePolicy.allowed) {
         $noChangeInstructions = @(

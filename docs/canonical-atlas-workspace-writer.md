@@ -88,6 +88,10 @@ The writer asks that resolved native executable to make a repository-read-only m
 
 Every mutating criterion consumed by the spec-to-diff gate must be provable from literal final-diff evidence. Runtime-only assertions belong in verification receipts, not in satisfied diff criteria.
 
+The shared prompt parser treats the machine-readable spec-to-diff sections as list-driven boundaries. `Acceptance Criteria`, `Expected Changed Paths`, `Expected Unchanged Paths`, and `Blocked / Skipped Reporting Rules` keep multiline continuation only while the current list item is active; fenced examples are ignored for machine parsing; and any ordinary heading, even when it is not one of the recognized machine-readable names, terminates the current section before later prose, verification notes, or deliver-back YAML can leak into the contract.
+
+When one of those sections is present but empty, the canonical writer emits the literal line `- none declared` in `effective.prompt.md` for that section and keeps the parsed policy array empty. It does not turn an empty declaration into an empty-string expected-path pattern.
+
 The canonical `.git` guard follows that rule directly:
 
 - the runner resolves `Join-Path -Path $CanonicalRoot -ChildPath ".git"`

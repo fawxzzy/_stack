@@ -16,6 +16,50 @@ function Assert-Condition {
     }
 }
 
+function Get-SpecToDiffInstructionBlockText {
+    param([string]$PromptText)
+
+    if ([string]::IsNullOrWhiteSpace($PromptText)) {
+        return $null
+    }
+
+    $normalized = $PromptText -replace "`r`n", "`n"
+    $start = $normalized.IndexOf("Spec-to-diff completion contract:")
+    if ($start -lt 0) {
+        return $null
+    }
+
+    $tail = $normalized.Substring($start)
+    $end = $tail.Length
+    foreach ($terminator in @("`n`nVerified no-change contract:", "`n`nAtlas Contracts v2 preflight contract:")) {
+        $index = $tail.IndexOf($terminator)
+        if ($index -ge 0 -and $index -lt $end) {
+            $end = $index
+        }
+    }
+
+    return $tail.Substring(0, $end).Trim()
+}
+
+function Assert-CleanSpecToDiffInstructionBlock {
+    param(
+        [string]$Block,
+        [string]$Context,
+        [string[]]$ExpectedCriterionIds,
+        [int]$ExpectedNoneDeclaredCount = 0
+    )
+
+    Assert-Condition -Condition (-not [string]::IsNullOrWhiteSpace($Block)) -Message ("{0} did not include a spec-to-diff instruction block." -f $Context)
+    Assert-Condition -Condition (-not $Block.Contains("System.Object[]")) -Message ("{0} rendered System.Object[] in the spec-to-diff instruction block." -f $Context)
+    Assert-Condition -Condition (([regex]::Matches($Block, [regex]::Escape("Expected changed paths:"))).Count -eq 1) -Message ("{0} repeated the Expected changed paths heading." -f $Context)
+    Assert-Condition -Condition (([regex]::Matches($Block, [regex]::Escape("Expected unchanged paths:"))).Count -eq 1) -Message ("{0} repeated the Expected unchanged paths heading." -f $Context)
+    Assert-Condition -Condition (([regex]::Matches($Block, [regex]::Escape("Blocked / skipped reporting rules:"))).Count -eq 1) -Message ("{0} repeated the blocked/skipped heading." -f $Context)
+    Assert-Condition -Condition (([regex]::Matches($Block, [regex]::Escape("- none declared"))).Count -eq $ExpectedNoneDeclaredCount) -Message ("{0} rendered the wrong count of '- none declared' lines." -f $Context)
+    foreach ($criterionId in @($ExpectedCriterionIds)) {
+        Assert-Condition -Condition ($Block.Contains("- {0}:" -f $criterionId)) -Message ("{0} did not include criterion id {1}." -f $Context, $criterionId)
+    }
+}
+
 function Invoke-GitChecked {
     param(
         [Parameter(Mandatory = $true)]
@@ -1122,6 +1166,74 @@ Prove the bounded no-send canary completed without repository changes.
         }
     }
 
+    $sectionTerminationPromptPath = Join-Path -Path $parserTestRoot -ChildPath "section-termination-prompt.md"
+    $sectionTerminationPromptText = @'
+Title: Atlas lock refresh parser fixture
+
+Objective:
+Prove section termination at ordinary headings.
+
+Acceptance Criteria:
+- [ac-01] Keep the canonical writer lock refresh bounded.
+- Confirm the parser preserves the second criterion id.
+
+## Notes
+This explanatory paragraph must not become ac-03.
+
+```yaml
+- this fenced example must not become ac-04
+```
+
+## Verification
+- git diff --check
+
+## Deliver back
+```yaml
+stack_spec_to_diff_prompt_parser_repair_receipt:
+  regression: preserved
+```
+'@
+    [System.IO.File]::WriteAllText($sectionTerminationPromptPath, $sectionTerminationPromptText)
+    $sectionTerminationPromptRecord = Parse-PromptFile -Path $sectionTerminationPromptPath
+    $sectionTerminationCriterionIds = @($sectionTerminationPromptRecord.AcceptanceCriteria | ForEach-Object { [string]$_.id })
+    if (($sectionTerminationCriterionIds -join "|") -ne "ac-01|ac-02") {
+        throw ("Section termination prompt produced the wrong criterion ids: {0}" -f ($sectionTerminationCriterionIds -join ", "))
+    }
+    if ($sectionTerminationCriterionIds -contains "ac-03") {
+        throw "Section termination prompt incorrectly produced ac-03."
+    }
+
+    $emptySectionsPromptPath = Join-Path -Path $parserTestRoot -ChildPath "explicit-empty-spec-to-diff-sections.md"
+    $emptySectionsPromptText = @'
+Title: Explicit empty spec-to-diff sections
+
+Objective:
+Prove empty machine-readable sections stay empty.
+
+Acceptance Criteria:
+- [ac-01] Keep empty expected-path sections out of validation.
+
+Expected Changed Paths:
+-
+
+Expected Unchanged Paths:
+-
+
+Blocked / Skipped Reporting Rules:
+-
+'@
+    [System.IO.File]::WriteAllText($emptySectionsPromptPath, $emptySectionsPromptText)
+    $emptySectionsPromptRecord = Parse-PromptFile -Path $emptySectionsPromptPath
+    $emptySectionsPolicy = Get-SpecToDiffPromptPolicy -PromptRecord $emptySectionsPromptRecord
+    if (@($emptySectionsPolicy.expectedChangedPaths).Count -ne 0 -or @($emptySectionsPolicy.expectedUnchangedPaths).Count -ne 0 -or @($emptySectionsPolicy.blockedSkippedRules).Count -ne 0) {
+        throw "Explicit empty spec-to-diff sections should produce empty policy arrays."
+    }
+    $emptySectionsBlock = Get-SpecToDiffInstructionBlock -Policy $emptySectionsPolicy
+    Assert-CleanSpecToDiffInstructionBlock -Block $emptySectionsBlock -Context "Shared formatter empty-sections fixture" -ExpectedCriterionIds @("ac-01") -ExpectedNoneDeclaredCount 3
+    if ($emptySectionsBlock -match "Expected changed paths:\s*-+\s*$" -or $emptySectionsBlock -match "Expected unchanged paths:\s*-+\s*$") {
+        throw "Shared formatter emitted an empty bullet marker instead of '- none declared'."
+    }
+
     $invalidNoChangePromptPath = Join-Path -Path $parserTestRoot -ChildPath "invalid-no-change-prompt.md"
     [System.IO.File]::WriteAllText($invalidNoChangePromptPath, "Title: Invalid no change`r`nAllow No Changes: maybe`r`n`r`nObjective:`r`nReject invalid boolean metadata.`r`n")
     try { $null = Parse-PromptFile -Path $invalidNoChangePromptPath; throw "Invalid Allow No Changes metadata unexpectedly parsed." }
@@ -1337,6 +1449,37 @@ Blocked / Skipped Reporting Rules:
         }
     if (-not $successfulProofResult.isValid) {
         throw ("Spec-to-diff validation should pass when every criterion is satisfied and provable. Reasons: {0}" -f ($successfulProofResult.blockingReasons -join "; "))
+    }
+    $emptyExpectedSectionsProof = Test-SpecToDiffCompletionProof `
+        -PromptRecord $emptySectionsPromptRecord `
+        -ArtifactRecord ([pscustomobject]@{
+            parseError = $null
+            payload = [pscustomobject]@{
+                contract_version = "atlas.stack.spec_to_diff.v1"
+                criteria = @(
+                    [pscustomobject]@{
+                        criterion_id = "ac-01"
+                        status = "satisfied"
+                        changed_paths = @("ops/codex/CodexRunner.Common.ps1")
+                        diff_evidence = @("none declared")
+                        note = ""
+                    }
+                )
+                unchanged_path_justifications = @()
+            }
+        }) `
+        -ChangedPaths @("ops/codex/CodexRunner.Common.ps1") `
+        -PathEvidenceMap @{
+            "ops/codex/CodexRunner.Common.ps1" = "+none declared"
+        }
+    if (-not $emptyExpectedSectionsProof.isValid) {
+        throw ("Spec-to-diff validation should ignore empty expected-path sections. Reasons: {0}" -f ($emptyExpectedSectionsProof.blockingReasons -join "; "))
+    }
+    if (@($emptyExpectedSectionsProof.expectedChangedPathMatches).Count -ne 0) {
+        throw "Spec-to-diff validation should not create expected-changed-path match records for empty sections."
+    }
+    if (($emptyExpectedSectionsProof.blockingReasons -join "`n") -match "Expected changed path pattern ''|Expected unchanged path ''") {
+        throw "Spec-to-diff validation treated an empty expected-path section as an empty-string pattern."
     }
 
     $preflightScriptPath = Join-Path -Path (Get-Location).Path -ChildPath "ops/codex/Test-SpecToDiffProof.ps1"
@@ -1985,7 +2128,37 @@ fs.writeFileSync(
   "utf8"
 );
 
-fs.appendFileSync(path.join(worktreePath, "docs", "fixture.md"), "runtime policy integration proof\n", "utf8");
+const promptRenderingFixture = prompt.includes("renders machine-readable prompt sections exactly");
+const fixtureProofLines = promptRenderingFixture
+  ? ["prompt parser repair proof A", "prompt parser repair proof B"]
+  : ["runtime policy integration proof"];
+const fixtureCriteria = promptRenderingFixture
+  ? [
+      {
+        criterion_id: "ac-01",
+        status: "satisfied",
+        changed_paths: ["docs/fixture.md"],
+        diff_evidence: ["prompt parser repair proof A"],
+        note: "Fake Codex completed criterion ac-01."
+      },
+      {
+        criterion_id: "ac-02",
+        status: "satisfied",
+        changed_paths: ["docs/fixture.md"],
+        diff_evidence: ["prompt parser repair proof B"],
+        note: "Fake Codex completed criterion ac-02."
+      }
+    ]
+  : [
+      {
+        criterion_id: "ac-01",
+        status: "satisfied",
+        changed_paths: ["docs/fixture.md"],
+        diff_evidence: ["runtime policy integration proof"],
+        note: "Fake Codex completed the fixture mutation."
+      }
+    ];
+fs.appendFileSync(path.join(worktreePath, "docs", "fixture.md"), `${fixtureProofLines.join("\n")}\n`, "utf8");
 fs.writeFileSync(
   path.join(codexArtifactDirectory, "commit-meta.json"),
   '{"type":"test","scope":"runtime-fixture","summary":"record runtime policy proof"}\n',
@@ -1995,20 +2168,12 @@ fs.writeFileSync(
   path.join(codexArtifactDirectory, "spec-to-diff-proof.json"),
   `${JSON.stringify({
     contract_version: "atlas.stack.spec_to_diff.v1",
-    criteria: [
-      {
-        criterion_id: "ac-01",
-        status: "satisfied",
-        changed_paths: ["docs/fixture.md"],
-        diff_evidence: ["runtime policy integration proof"],
-        note: "Fake Codex completed the fixture mutation."
-      }
-    ],
+    criteria: fixtureCriteria,
     unchanged_path_justifications: []
   }, null, 2)}\n`,
   "utf8"
 );
-fs.writeFileSync(summaryPath, "Fake Codex completed the runtime-policy fixture.\n", "utf8");
+fs.writeFileSync(summaryPath, promptRenderingFixture ? "Fake Codex completed the prompt rendering fixture.\n" : "Fake Codex completed the runtime-policy fixture.\n", "utf8");
 
 process.stdout.write('{"status":"ok"}\n');
 '@
@@ -2117,6 +2282,64 @@ Blocked / Skipped Reporting Rules:
     }
     if ($null -ne $runtimePolicyRecord.resolved.permissions.sandbox_mode) {
         throw "Integration fixture must not activate a legacy sandbox mode when the repo config selects the modern permission profile."
+    }
+
+    $renderingPromptPath = Join-Path -Path $integrationRepoRoot -ChildPath ".codex\inbox\spec-to-diff-rendering-fixture.md"
+    $renderingPrompt = @'
+Title: Spec-to-diff prompt rendering fixture
+
+Objective:
+Prove the shared runner renders machine-readable prompt sections exactly.
+
+Acceptance Criteria:
+- [ac-01] Preserve the first declared criterion id in the rendered block.
+- Preserve the generated second criterion id in the rendered block.
+
+## Notes
+This explanatory paragraph must not become ac-03.
+
+## Verification
+- git diff --check
+
+## Deliver back
+```yaml
+stack_spec_to_diff_prompt_parser_repair_receipt:
+  next_packet: Atlas Root Lock Refresh Then DiscordOS Projection Consumer
+```
+'@
+    [System.IO.File]::WriteAllText($renderingPromptPath, $renderingPrompt.TrimStart("`r", "`n") + "`r`n")
+    $renderingPromptRecord = Parse-PromptFile -Path $renderingPromptPath
+    $renderingExpectedBlock = Get-SpecToDiffInstructionBlock -Policy (Get-SpecToDiffPromptPolicy -PromptRecord $renderingPromptRecord)
+    & $powershellExe `
+        -NoProfile `
+        -ExecutionPolicy Bypass `
+        -File (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-CodexRepoTask.ps1") `
+        -PromptPath $renderingPromptPath `
+        -ConfigPath $fixtureConfigPath `
+        -CodexCommand $fakeCodexCmdPath
+    if ($LASTEXITCODE -ne 0) {
+        throw ("Repo runner prompt-rendering fixture failed with exit code {0}." -f $LASTEXITCODE)
+    }
+    $renderingLogDirectory = @(
+        Get-ChildItem -LiteralPath (Join-Path -Path $integrationRepoRoot -ChildPath ".codex\logs") -Directory |
+        Sort-Object Name |
+        Select-Object -Last 1
+    )[0]
+    if ($null -eq $renderingLogDirectory) {
+        throw "Repo runner prompt-rendering fixture did not create a run log directory."
+    }
+    $renderingManifest = Get-Content -LiteralPath (Join-Path -Path $renderingLogDirectory.FullName -ChildPath "run.json") -Raw | ConvertFrom-Json
+    if ([string]$renderingManifest.status -ne "success") {
+        throw ("Repo runner prompt-rendering fixture expected success but found '{0}'." -f [string]$renderingManifest.status)
+    }
+    $renderingEffectivePrompt = Get-Content -LiteralPath (Join-Path -Path $renderingLogDirectory.FullName -ChildPath "effective.prompt.md") -Raw
+    $renderingActualBlock = Get-SpecToDiffInstructionBlockText -PromptText $renderingEffectivePrompt
+    if ((($renderingActualBlock -replace "`r`n", "`n").Trim()) -ne (($renderingExpectedBlock -replace "`r`n", "`n").Trim())) {
+        throw "Repo runner prompt-rendering fixture did not emit the exact shared spec-to-diff instruction block."
+    }
+    Assert-CleanSpecToDiffInstructionBlock -Block $renderingActualBlock -Context "Repo runner prompt-rendering fixture" -ExpectedCriterionIds @("ac-01", "ac-02") -ExpectedNoneDeclaredCount 3
+    if ($renderingActualBlock.Contains("ac-03")) {
+        throw "Repo runner prompt-rendering fixture incorrectly rendered ac-03."
     }
 
     $unsupportedPromptPath = Join-Path -Path $integrationRepoRoot -ChildPath ".codex\inbox\unsupported-model-fixture.md"
