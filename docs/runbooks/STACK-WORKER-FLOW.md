@@ -306,3 +306,5 @@ Stable failure code: `worker_git_head_mutation_detected`.
 Rule: full local capability does not transfer Git-state authority from `_stack` to the worker.
 
 Failure mode: a worker commits and lands its own changes, leaving a clean worktree that the parent runner incorrectly classifies as `no_changes`.
+
+Preflight visibility rule: ComponentManifest and JobEnvelope paths are injected into the effective prompt after parent-side validation. A worker must use those exact paths because worktree-local `.codex/logs` can represent only the branch snapshot, not the active parent runner log.

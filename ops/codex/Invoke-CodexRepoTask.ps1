@@ -597,6 +597,8 @@ try {
         -ForbiddenPaths @($forbiddenGlobs) `
         -VerificationCommands @($effectiveVerifyCommands) `
         -ParentJobId $governedSessionId
+    $effectivePrompt = $effectivePrompt + "`r`n`r`n" + (Get-AtlasContractsV2WorkerInstructions -Producer $atlasContractsV2)
+    Write-TextFile -Path (Join-Path -Path $logDirectory -ChildPath "effective.prompt.md") -Content $effectivePrompt
     Write-TextFile -Path $manifestPath -Content (([ordered]@{
         schemaVersion = "1.0"
         runId = $runId

@@ -557,6 +557,8 @@ Workers must not stage, commit, amend, merge, rebase, reset, switch branches, or
 
 This guard prevents a worker-created commit from being misclassified as `no_changes` after the worktree becomes clean.
 
+The runner also injects the exact validated ComponentManifest and JobEnvelope paths into the effective prompt. Those artifacts live in the parent run log and may not appear in the isolated worktree's inherited `.codex/logs`; workers must use the injected paths instead of scanning for them.
+
 ## Non-Goals For This Pass
 
 - no dev-root orchestrator

@@ -221,6 +221,25 @@ function New-AtlasContractsV2Producer {
     }
 }
 
+function Get-AtlasContractsV2WorkerInstructions {
+    param([Parameter(Mandatory = $true)]$Producer)
+
+    if (-not [bool]$Producer.preflightValidated) {
+        throw "atlas_contracts_v2_worker_context_requires_validated_preflight"
+    }
+
+    return @(
+        "Atlas Contracts v2 preflight contract:",
+        "- Preflight status: validated.",
+        ("- ComponentManifest: `{0}`." -f [string]$Producer.paths.componentManifest),
+        ("- JobEnvelope: `{0}`." -f [string]$Producer.paths.jobEnvelope),
+        ("- ComponentManifest validation: `{0}`." -f [string]$Producer.validationPaths.componentManifest),
+        ("- JobEnvelope validation: `{0}`." -f [string]$Producer.validationPaths.jobEnvelope),
+        "- These artifacts live in the parent runner log, not necessarily inside the isolated worktree.",
+        "- Read the exact paths above when the task requires preflight evidence; do not rediscover them by scanning worktree-local `.codex/logs`."
+    ) -join "`r`n"
+}
+
 function Write-AtlasContractsV2TerminalReceipt {
     param(
         [Parameter(Mandatory = $true)]$Producer,

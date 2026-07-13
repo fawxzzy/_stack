@@ -1824,6 +1824,12 @@ if (workerGitFixture) {
   process.stdout.write('{"status":"ok"}\n');
   process.exit(0);
 }
+if (!prompt.includes("Atlas Contracts v2 preflight contract:") ||
+    !prompt.includes(atlasContractsV2.artifactPaths.componentManifest) ||
+    !prompt.includes(atlasContractsV2.artifactPaths.jobEnvelope)) {
+  process.stderr.write("Runner did not inject exact Atlas Contracts v2 preflight paths into the worker prompt.\n");
+  process.exit(47);
+}
 
 const noChangeFixture = prompt.includes("Allow No Changes: true");
 const noChangeMode = (prompt.match(/NO_CHANGE_FIXTURE=([a-z-]+)/)?.[1] ?? "passed");

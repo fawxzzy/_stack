@@ -71,6 +71,10 @@ try {
         Assert-Condition -Condition $validation.ok -Message "Atlas validator did not accept preflight artifact."
         Assert-Condition -Condition ($validation.cliPath -eq (Join-Path $atlasRoot "packages\atlas-contracts\scripts\validate-artifact.mjs")) -Message "Producer did not invoke the canonical Atlas validator path."
     }
+    $workerInstructions = Get-AtlasContractsV2WorkerInstructions -Producer $producer
+    Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.componentManifest) -Message "Worker context must expose the exact ComponentManifest path."
+    Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.jobEnvelope) -Message "Worker context must expose the exact JobEnvelope path."
+    Assert-Condition -Condition $workerInstructions.Contains("parent runner log") -Message "Worker context must explain the worktree visibility boundary."
     $envelope = Get-Content -LiteralPath $producer.paths.jobEnvelope -Raw | ConvertFrom-Json
     foreach ($authorityName in @("push", "deploy", "production", "discord", "board", "data_mutation")) {
         Assert-Condition -Condition ([string]$envelope.extensions.external_authority.$authorityName -eq "denied") -Message "External authority '$authorityName' must default to denied even with full local access."

@@ -1359,6 +1359,8 @@ try {
         -AllowedPaths @($admittedChangedPaths) `
         -ForbiddenPaths @(".git/**") `
         -VerificationCommands @($verificationCommands)
+    $effectivePrompt = $effectivePrompt + "`r`n`r`n" + (Get-AtlasContractsV2WorkerInstructions -Producer $atlasContractsV2)
+    Write-TextFile -Path (Join-Path -Path $logDirectory -ChildPath "effective.prompt.md") -Content $effectivePrompt
     Write-CanonicalManifest
 
     $personality = [string](Get-ConfigValue -Config $runtimeConfig.Config -Path @("personality") -DefaultValue "")
