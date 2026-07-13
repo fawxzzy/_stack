@@ -840,6 +840,9 @@ Assert-Condition -Condition ("pnpm agents:check" -notin $playbookDoctrineAdapter
 $playbookDoctrineScript = [string]$package.scripts.PSObject.Properties["codex:playbook-doctrine:task"].Value
 Assert-Condition -Condition ($playbookDoctrineScript -eq "powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\playbook-doctrine\config.toml") -Message "Playbook doctrine package script must use the dedicated shared-runner config."
 
+$repoTaskRunnerText = Get-Content -LiteralPath "ops/codex/Invoke-CodexRepoTask.ps1" -Raw
+Assert-Condition -Condition ($repoTaskRunnerText -match '(?ms)Resolve-StackRuntimePolicy.*?-ProbeTargetPath\s+\$worktreePath') -Message "Repo task runtime-policy probing must load configuration from the execution worktree, not the canonical checkout."
+
 $parserTestRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("stack-parser-{0}" -f ([guid]::NewGuid().ToString("N")))
 New-Item -ItemType Directory -Path $parserTestRoot -Force | Out-Null
 

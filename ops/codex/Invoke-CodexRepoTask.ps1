@@ -571,7 +571,7 @@ try {
             web_search = $WebSearch
         }) `
         -CodexCommand $codexCommandValue `
-        -ProbeTargetPath $repoRoot
+        -ProbeTargetPath $worktreePath
     $null = Set-CodexCommandVersion -ResolutionRecord $codexCommandRecord -CodexVersion ([string]$runtimePolicy.codex_version)
     if (@($runtimePolicy.blockers).Count -gt 0) { $status = "runtime_policy_blocked"; throw (@($runtimePolicy.blockers) -join "; ") }
     foreach ($runtimeNote in @($runtimePolicy.warnings)) {
