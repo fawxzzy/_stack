@@ -1,0 +1,15 @@
+{
+  "contract_id": "atlas.github.event-receipt.v1",
+  "contract_version": "v1",
+  "atlas_owner_repository": "ATLAS",
+  "atlas_owner_ref": "root-commit",
+  "atlas_owner_commit": "e05019c88f696f4efd8cdb02719e0505f3b0d64a",
+  "canonical_schema_path": "packages/atlas-contracts/schemas/atlas.github.event-receipt.v1.schema.json",
+  "canonical_sha256": "5c4d7ec4e5d7f566ecc3f3d91fbc3344eae513acd7cbab528a0305c7953c303d",
+  "mirror_path": "exports/github.event-receipt.schema.v1.json",
+  "mirror_sha256": "5c4d7ec4e5d7f566ecc3f3d91fbc3344eae513acd7cbab528a0305c7953c303d",
+  "synchronization_command": "Copy-Item (Join-Path $AtlasRoot 'packages/atlas-contracts/schemas/atlas.github.event-receipt.v1.schema.json') 'exports/github.event-receipt.schema.v1.json' -Force",
+  "deterministic_check": "Get-FileHash canonical and mirror schema files with SHA256 and require exact digest equality.",
+  "fallback_scope": "isolated_stack_ci_only",
+  "fallback_statement": "Mirror fallback is for isolated _stack CI only."
+}

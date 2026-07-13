@@ -10,6 +10,8 @@
     "stack:vercel-health": "node .\\scripts\\vercel-health.mjs",
     "stack:vercel-health:test": "node --test .\\scripts\\vercel-health.test.mjs",
     "test:playbook-adoption": "node --test .\\tests\\playbook-adoption-evidence.test.mjs",
+    "test:github-event-normalizer": "node --test .\\tests\\github-event-normalizer.test.mjs",
+    "github:event-normalizer:self-check": "node .\\ops\\github\\github-event-normalizer.mjs --self-check",
     "stack:marker:checkpoint": "node .\\scripts\\marker-checkpoint.mjs",
     "stack:marker:checkpoint:test": "node --test .\\scripts\\marker-checkpoint.test.mjs",
     "stack:receipt:package": "node .\\scripts\\receipt-package.mjs",
