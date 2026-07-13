@@ -11,12 +11,12 @@
     "defaultCommands": [
       "pnpm -r build",
       "pnpm playbook docs audit --json",
-      "pnpm agents:check",
       "node --test test/scripts/validate-doctrine-registry.test.mjs",
       "node scripts/validate-doctrine-registry.mjs"
     ],
     "notes": [
       "This adapter is limited to the machine-readable doctrine registry and its governed Project Review and Next Step skill.",
+      "Repo-wide managed-doc drift is verified in its dedicated maintenance lane because this adapter cannot mutate the generated command surfaces that repair it.",
       "The existing Playbook adapter remains the changelog-generator rollout surface and must not be widened.",
       "Roadmap, changelog, package metadata, command surfaces, and existing continuity contracts remain unchanged while the overlapping draft PR is open."
     ]

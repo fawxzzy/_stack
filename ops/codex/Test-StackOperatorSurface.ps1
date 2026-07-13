@@ -835,6 +835,7 @@ foreach ($expectedDoctrineSurface in $expectedDoctrineSurfaces) {
 foreach ($forbiddenDoctrineSurface in @("packages/**", "docs/**", "scripts/**", "test/**", "package.json", "docs/PLAYBOOK_PRODUCT_ROADMAP.md")) {
     Assert-Condition -Condition ($forbiddenDoctrineSurface -notin $playbookDoctrineAdapter.allowedMutationSurfaces) -Message ("Playbook doctrine adapter must stay narrow: {0}" -f $forbiddenDoctrineSurface)
 }
+Assert-Condition -Condition ("pnpm agents:check" -notin $playbookDoctrineAdapter.verify.defaultCommands) -Message "Playbook doctrine verification must not fail on unrelated managed-doc drift outside its admitted paths."
 
 $playbookDoctrineScript = [string]$package.scripts.PSObject.Properties["codex:playbook-doctrine:task"].Value
 Assert-Condition -Condition ($playbookDoctrineScript -eq "powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\playbook-doctrine\config.toml") -Message "Playbook doctrine package script must use the dedicated shared-runner config."
