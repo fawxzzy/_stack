@@ -398,6 +398,7 @@ try {
             "- Do not mark a criterion satisfied unless it is provable from the final diff.",
             "- If any criterion cannot be completed or proven, mark it blocked, skipped, or failed and explain why in note.",
             "- If an expected unchanged path changes, add an unchanged_path_justifications entry with an explicit reason.",
+            "- Before returning control to the runner, run `pnpm run codex:spec-to-diff:preflight` and correct the proof artifact until the command exits successfully.",
             "Acceptance criteria ids:",
             $criterionLines -join "`r`n",
             "Expected changed paths:",
@@ -616,7 +617,11 @@ try {
     $effectiveSandboxMode = $codexInvocation.legacySandboxMode
 
     Write-RunnerMessage -Message "Running Codex in non-interactive mode"
-    $codexResult = Invoke-ProcessCapture -FilePath $codexCommandValue -ArgumentList @($codexInvocation.arguments) -WorkingDirectory $codexInvocation.workingDirectory -StandardInputText $effectivePrompt
+    $codexEnvironment = @{
+        ATLAS_CODEX_PROMPT_PATH = Join-Path -Path $logDirectory -ChildPath "input.prompt.md"
+        ATLAS_CODEX_SPEC_TO_DIFF_PROOF_PATH = $specToDiffArtifactPath
+    }
+    $codexResult = Invoke-ProcessCapture -FilePath $codexCommandValue -ArgumentList @($codexInvocation.arguments) -WorkingDirectory $codexInvocation.workingDirectory -Environment $codexEnvironment -StandardInputText $effectivePrompt
     Write-TextFile -Path $codexStdOutPath -Content $codexResult.StdOut
     Write-TextFile -Path $codexStdErrPath -Content $codexResult.StdErr
 

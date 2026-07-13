@@ -1339,6 +1339,91 @@ Blocked / Skipped Reporting Rules:
         throw ("Spec-to-diff validation should pass when every criterion is satisfied and provable. Reasons: {0}" -f ($successfulProofResult.blockingReasons -join "; "))
     }
 
+    $preflightScriptPath = Join-Path -Path (Get-Location).Path -ChildPath "ops/codex/Test-SpecToDiffProof.ps1"
+    $preflightPackage = Get-Content -LiteralPath "package.json" -Raw | ConvertFrom-Json
+    if ([string]$preflightPackage.scripts.'codex:spec-to-diff:preflight' -notmatch 'Test-SpecToDiffProof\.ps1') {
+        throw "package.json does not expose the worker-runnable spec-to-diff preflight."
+    }
+
+    $preflightFixtureRoot = Join-Path -Path $parserTestRoot -ChildPath "spec-to-diff-preflight"
+    New-Item -ItemType Directory -Path $preflightFixtureRoot -Force | Out-Null
+    $null = Invoke-GitChecked -WorkingDirectory $preflightFixtureRoot -Arguments @("init", "--initial-branch=main")
+    $null = Invoke-GitChecked -WorkingDirectory $preflightFixtureRoot -Arguments @("config", "user.name", "Atlas Test")
+    $null = Invoke-GitChecked -WorkingDirectory $preflightFixtureRoot -Arguments @("config", "user.email", "atlas-test@example.invalid")
+    $preflightSourcePath = Join-Path -Path $preflightFixtureRoot -ChildPath "feature.txt"
+    [System.IO.File]::WriteAllText($preflightSourcePath, "baseline`n")
+    $null = Invoke-GitChecked -WorkingDirectory $preflightFixtureRoot -Arguments @("add", "--", "feature.txt")
+    $null = Invoke-GitChecked -WorkingDirectory $preflightFixtureRoot -Arguments @("commit", "-m", "test: add baseline")
+
+    $preflightPromptPath = Join-Path -Path $preflightFixtureRoot -ChildPath "prompt.md"
+    [System.IO.File]::WriteAllText($preflightPromptPath, @"
+Title: Spec-to-diff preflight fixture
+
+Objective:
+Prove the worker preflight before returning control.
+
+Acceptance Criteria:
+- [ac-01] Add the deterministic preflight fixture behavior.
+
+Expected Changed Paths:
+- feature.txt
+"@)
+    [System.IO.File]::WriteAllText($preflightSourcePath, "baseline`ndeterministic preflight fixture`n")
+    $preflightProofDirectory = Join-Path -Path $preflightFixtureRoot -ChildPath ".codex"
+    New-Item -ItemType Directory -Path $preflightProofDirectory -Force | Out-Null
+    $preflightProofPath = Join-Path -Path $preflightProofDirectory -ChildPath "spec-to-diff-proof.json"
+    [System.IO.File]::WriteAllText($preflightProofPath, (@{
+        contract_version = "atlas.stack.spec_to_diff.v1"
+        criteria = @(@{
+            criterion_id = "ac-01"
+            status = "satisfied"
+            changed_paths = @("feature.txt")
+            diff_evidence = @("deterministic preflight fixture")
+            note = ""
+        })
+        unchanged_path_justifications = @()
+    } | ConvertTo-Json -Depth 8))
+
+    $powershellExe = Join-Path -Path $PSHOME -ChildPath "powershell.exe"
+    if (-not (Test-Path -LiteralPath $powershellExe)) {
+        $powershellExe = "powershell.exe"
+    }
+    $preflightEnvironment = @{
+        ATLAS_CODEX_PROMPT_PATH = $preflightPromptPath
+        ATLAS_CODEX_SPEC_TO_DIFF_PROOF_PATH = $preflightProofPath
+    }
+    $preflightPass = Invoke-ProcessCapture `
+        -FilePath $powershellExe `
+        -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $preflightScriptPath) `
+        -WorkingDirectory $preflightFixtureRoot `
+        -Environment $preflightEnvironment
+    if ($preflightPass.ExitCode -ne 0) {
+        throw ("Worker spec-to-diff preflight should pass valid literal evidence. stdout: {0}; stderr: {1}" -f $preflightPass.StdOut, $preflightPass.StdErr)
+    }
+    $preflightPassRecord = $preflightPass.StdOut | ConvertFrom-Json
+    if ([string]$preflightPassRecord.status -ne "passed" -or -not [bool]$preflightPassRecord.validation.isValid) {
+        throw "Worker spec-to-diff preflight did not emit a passing validation record."
+    }
+    if (@($preflightPassRecord.changedPaths) -contains ".codex/spec-to-diff-proof.json") {
+        throw "Worker spec-to-diff preflight treated its untracked temporary proof artifact as product diff."
+    }
+
+    $invalidPreflightProof = Get-Content -LiteralPath $preflightProofPath -Raw | ConvertFrom-Json
+    $invalidPreflightProof.criteria[0].diff_evidence = @("mistyped proof evidence")
+    [System.IO.File]::WriteAllText($preflightProofPath, ($invalidPreflightProof | ConvertTo-Json -Depth 8))
+    $preflightFail = Invoke-ProcessCapture `
+        -FilePath $powershellExe `
+        -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $preflightScriptPath) `
+        -WorkingDirectory $preflightFixtureRoot `
+        -Environment $preflightEnvironment
+    if ($preflightFail.ExitCode -eq 0) {
+        throw "Worker spec-to-diff preflight should fail a mistyped literal evidence string."
+    }
+    $preflightFailRecord = $preflightFail.StdOut | ConvertFrom-Json
+    if ([string]$preflightFailRecord.status -ne "failed" -or ($preflightFailRecord.validation.blockingReasons -join "`n") -notmatch "was not found in the final diff") {
+        throw "Worker spec-to-diff preflight did not preserve the terminal gate's literal-evidence failure."
+    }
+
     $defaultsConfig = ConvertFrom-SimpleToml -Path "ops/codex/config.defaults.toml"
     $stackRepoConfig = ConvertFrom-SimpleToml -Path "ops/codex/repos/stack/config.toml"
     $mergedStackConfig = Merge-Hashtable -Base $defaultsConfig -Overlay $stackRepoConfig
