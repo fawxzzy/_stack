@@ -781,6 +781,35 @@ function Convert-PromptSectionLinesToItems {
     return @($items.ToArray())
 }
 
+function Normalize-PromptPathPatternItem {
+    param([string]$Item)
+
+    $trimmed = ([string]$Item).Trim()
+    if ([string]::IsNullOrWhiteSpace($trimmed)) {
+        return $trimmed
+    }
+
+    if ($trimmed -match '^(?<fence>`+)(?<content>.*)\k<fence>$') {
+        return $Matches.content
+    }
+
+    return $trimmed
+}
+
+function ConvertTo-NormalizedPromptPathPatternArray {
+    param($Value)
+
+    $items = New-Object System.Collections.Generic.List[string]
+    foreach ($entry in @(ConvertTo-StringArray -Value $Value)) {
+        $normalized = (Normalize-PromptPathPatternItem -Item ([string]$entry)).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($normalized)) {
+            [void]$items.Add($normalized)
+        }
+    }
+
+    return @($items.ToArray())
+}
+
 function ConvertTo-TrimmedPromptItemArray {
     param($Value)
 
@@ -1050,13 +1079,13 @@ function Parse-PromptFile {
         $acceptanceCriteria = Convert-PromptAcceptanceCriteria -Items (Convert-PromptSectionLinesToItems -Lines $bodySections["acceptancecriteria"])
     }
     $expectedChangedPaths = if ($bodySections.ContainsKey("expectedchangedpaths")) {
-        @(Convert-PromptSectionLinesToItems -Lines $bodySections["expectedchangedpaths"])
+        @(ConvertTo-NormalizedPromptPathPatternArray -Value (Convert-PromptSectionLinesToItems -Lines $bodySections["expectedchangedpaths"]))
     }
     else {
         @()
     }
     $expectedUnchangedPaths = if ($bodySections.ContainsKey("expectedunchangedpaths")) {
-        @(Convert-PromptSectionLinesToItems -Lines $bodySections["expectedunchangedpaths"])
+        @(ConvertTo-NormalizedPromptPathPatternArray -Value (Convert-PromptSectionLinesToItems -Lines $bodySections["expectedunchangedpaths"]))
     }
     else {
         @()

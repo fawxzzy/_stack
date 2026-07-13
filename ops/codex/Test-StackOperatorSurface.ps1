@@ -1021,6 +1021,42 @@ Blocked / Skipped Reporting Rules:
             ExpectedBlockedSkippedRules = @("Report blocked criteria explicitly.")
         },
         @{
+            Name = "inline-code path pattern prompt"
+            FileName = "inline-code-path-pattern-prompt.md"
+            Content = @'
+Title: Inline-code path pattern prompt
+
+Objective:
+Prove only path-pattern policy fields unwrap balanced inline code.
+
+Acceptance Criteria:
+- Keep `docs/ops/example.md` in acceptance-criterion prose.
+- Preserve unmatched delimiter prose like `docs/ops/unmatched.md.
+
+Expected Changed Paths:
+- `docs/ops/example.md`
+- ``docs/ops/**/*.md``
+- docs/ops/plain.txt
+- `docs/ops/unmatched.md
+
+Expected Unchanged Paths:
+- `docs/ops/unchanged.md`
+
+Blocked / Skipped Reporting Rules:
+- Report `docs/ops/example.md` verbatim in blocked/skipped prose.
+'@
+            ExpectedTitle = "Inline-code path pattern prompt"
+            ExpectedVerify = @()
+            ExpectedBranchSlug = $null
+            ExpectedAcceptanceCriteria = @(
+                @{ id = "ac-01"; text = 'Keep `docs/ops/example.md` in acceptance-criterion prose.' },
+                @{ id = "ac-02"; text = 'Preserve unmatched delimiter prose like `docs/ops/unmatched.md.' }
+            )
+            ExpectedChangedPaths = @("docs/ops/example.md", "docs/ops/**/*.md", "docs/ops/plain.txt", '`docs/ops/unmatched.md')
+            ExpectedUnchangedPaths = @("docs/ops/unchanged.md")
+            ExpectedBlockedSkippedRules = @('Report `docs/ops/example.md` verbatim in blocked/skipped prose.')
+        },
+        @{
             Name = "verified no-change metadata"
             FileName = "verified-no-change-prompt.md"
             Content = @"
