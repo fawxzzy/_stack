@@ -368,11 +368,12 @@ test("invalid input categories fail closed and schema-invalid output is rejected
 });
 
 test("secret-like input is rejected and cli never echoes secrets or normalized undefined identities", () => {
+  const secretLikeValue = ["github", "pat", "abcdefghijklmnopqrstuvwxyz0123456789"].join("_");
   const secretFailure = runCli([], {
     input: JSON.stringify(
       fixture({
         payload: {
-          github_pat_token: "github_pat_abcdefghijklmnopqrstuvwxyz0123456789"
+          github_pat_token: secretLikeValue
         }
       })
     )
