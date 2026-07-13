@@ -1738,6 +1738,7 @@ web_search = "disabled"
     $fakeCodexJs = @'
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 const args = process.argv.slice(2);
 
@@ -1798,6 +1799,31 @@ if (!String(atlasContractsV2.validation.componentManifest.cliPath ?? "").endsWit
 
 const codexArtifactDirectory = path.join(worktreePath, ".codex");
 fs.mkdirSync(codexArtifactDirectory, { recursive: true });
+
+const workerGitFixture = prompt.match(/WORKER_GIT_FIXTURE=([a-z-]+)/)?.[1] ?? null;
+if (workerGitFixture) {
+  const runGit = (gitArgs) => {
+    const result = spawnSync("git", gitArgs, { cwd: worktreePath, encoding: "utf8" });
+    if (result.status !== 0) {
+      process.stderr.write(result.stderr || result.stdout || `git ${gitArgs.join(" ")} failed\n`);
+      process.exit(46);
+    }
+    return String(result.stdout ?? "").trim();
+  };
+  if (workerGitFixture === "task-commit") {
+    fs.appendFileSync(path.join(worktreePath, "docs", "fixture.md"), "worker committed unexpectedly\n", "utf8");
+    runGit(["add", "--", "docs/fixture.md"]);
+    runGit(["commit", "--quiet", "-m", "fixture worker commit"]);
+  } else if (workerGitFixture === "landing-ref") {
+    const tree = runGit(["rev-parse", "HEAD^{tree}"]);
+    const parent = runGit(["rev-parse", "HEAD"]);
+    const commit = runGit(["commit-tree", tree, "-p", parent, "-m", "fixture landing ref mutation"]);
+    runGit(["update-ref", "refs/heads/main", commit]);
+  }
+  fs.writeFileSync(summaryPath, "Fake Codex attempted a prohibited Git state transition.\n", "utf8");
+  process.stdout.write('{"status":"ok"}\n');
+  process.exit(0);
+}
 
 const noChangeFixture = prompt.includes("Allow No Changes: true");
 const noChangeMode = (prompt.match(/NO_CHANGE_FIXTURE=([a-z-]+)/)?.[1] ?? "passed");
@@ -2027,6 +2053,29 @@ Blocked / Skipped Reporting Rules:
     }
     if ($setupFailureManifestRaw.Contains("ParameterArgumentValidationErrorNullNotAllowed")) {
         throw "Repo runner pre-worker setup-failure fixture must not let manifest finalization mask the original failure."
+    }
+
+    function Invoke-WorkerGitMutationFixture {
+        param([string]$Name, [string]$Mode)
+        $path = Join-Path -Path $integrationRepoRoot -ChildPath (".codex\inbox\{0}.md" -f $Name)
+        [System.IO.File]::WriteAllText($path, ("Title: $Name`r`n`r`nObjective:`r`nWORKER_GIT_FIXTURE=$Mode`r`n"))
+        & $powershellExe -NoProfile -ExecutionPolicy Bypass -File (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-CodexRepoTask.ps1") -PromptPath $path -ConfigPath $fixtureConfigPath -CodexCommand $fakeCodexCmdPath | Out-Host
+        $exitCode = $LASTEXITCODE
+        $log = @(Get-ChildItem -LiteralPath (Join-Path -Path $integrationRepoRoot -ChildPath ".codex\logs") -Directory | Sort-Object Name | Select-Object -Last 1)[0]
+        return [pscustomobject]@{ exitCode = $exitCode; manifest = (Get-Content -LiteralPath (Join-Path -Path $log.FullName -ChildPath "run.json") -Raw | ConvertFrom-Json) }
+    }
+
+    foreach ($workerGitCase in @(
+        [pscustomobject]@{ name = "worker-task-head-mutation"; mode = "task-commit"; violation = "worker_task_head_mutation_detected" },
+        [pscustomobject]@{ name = "worker-landing-ref-mutation"; mode = "landing-ref"; violation = "worker_landing_ref_mutation_detected" }
+    )) {
+        $workerGitResult = Invoke-WorkerGitMutationFixture -Name $workerGitCase.name -Mode $workerGitCase.mode
+        if ($workerGitResult.exitCode -ne 18 -or [string]$workerGitResult.manifest.status -ne "worker_git_state_failed") {
+            throw ("Worker Git mutation fixture {0} did not fail closed with exit code 18." -f $workerGitCase.mode)
+        }
+        if ([string]$workerGitResult.manifest.workerGitState.failureCode -ne "worker_git_head_mutation_detected" -or $workerGitCase.violation -notin @($workerGitResult.manifest.workerGitState.violations)) {
+            throw ("Worker Git mutation fixture {0} did not receipt the expected stable failure code." -f $workerGitCase.mode)
+        }
     }
 
     if ([string]$integrationManifest.specToDiff.validationPassed -ne "True") {

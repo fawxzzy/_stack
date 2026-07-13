@@ -130,6 +130,7 @@ $atlasContractsV2 = $null
 $atlasContractsV2ReceiptValidation = $null
 $atlasContractsV2FailureReason = $null
 $atlasContractsV2PreflightFailureReason = $null
+$workerGitState = $null
 
 try {
     $PromptPath = (Resolve-Path -LiteralPath $PromptPath).Path
@@ -279,6 +280,10 @@ try {
     Write-RunnerMessage -Message ("Creating worktree {0} on branch {1} from {2}" -f $worktreePath, $branchName, $baseRef)
     $worktreeResult = Invoke-Git -Arguments @("worktree", "add", "-b", $branchName, $worktreePath, $baseRef) -WorkingDirectory $repoRoot
     Assert-CommandSucceeded -Result $worktreeResult -Description "git worktree add"
+    $workerGitState = New-WorkerGitStateGuard `
+        -WorkingDirectory $worktreePath `
+        -TaskRef ("refs/heads/{0}" -f $branchName) `
+        -LandingRef ("refs/heads/{0}" -f $localLandingTargetBranch)
     $commitMetadataArtifactPath = Resolve-PathFromBase -BasePath $worktreePath -Value ([string]$commitMetadataPolicy.artifactPath)
     if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
         $specToDiffArtifactPath = Resolve-PathFromBase -BasePath $worktreePath -Value ([string]$specToDiffPolicy.artifactPath)
@@ -349,6 +354,7 @@ try {
         "- Summary must be specific, contain at least two words, and must not be generic like update, done, fixes, or misc changes.",
         "- If you make no repository changes, do not create the commit metadata artifact.",
         "- The runner will consume and remove the artifact before staging.",
+        "- Do not stage, commit, amend, merge, rebase, reset, switch branches, check out another branch, or move Git refs. The runner exclusively owns Git state transitions.",
         "- Do not push. Push remains manual-only."
     ) -join "`r`n"
     $workerContextInstructions = @(
@@ -615,6 +621,12 @@ try {
     if ($codexResult.ExitCode -ne 0) {
         $status = "codex_failed"
         throw ("Codex exec failed with exit code {0}." -f $codexResult.ExitCode)
+    }
+
+    $workerGitState = Complete-WorkerGitStateGuard -InitialState $workerGitState -WorkingDirectory $worktreePath
+    if (@($workerGitState.violations).Count -gt 0) {
+        $status = "worker_git_state_failed"
+        throw ("{0}: {1}" -f $workerGitState.failureCode, ($workerGitState.violations -join ", "))
     }
 
     $commitMetadataArtifactRecord = Read-CommitMetadataArtifact -Path $commitMetadataArtifactPath
@@ -1224,6 +1236,7 @@ finally {
             proofGateFailureReason = $proofGateFailureReason
             verificationSource = $verificationSource
             changedPaths = @($changedPaths)
+            workerGitState = $workerGitState
             atlasContractsV2 = Get-AtlasContractsV2Surface -Producer $atlasContractsV2 -TerminalStatus $status -ReceiptValidation $atlasContractsV2ReceiptValidation -PreflightFailureReason $atlasContractsV2PreflightFailureReason
             workerArtifacts = [ordered]@{
                 assignment = if ($null -ne $workerAssignmentRecord) { $workerAssignmentPath } else { $null }

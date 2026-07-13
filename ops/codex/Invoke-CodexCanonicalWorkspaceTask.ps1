@@ -1100,6 +1100,7 @@ $atlasContractsV2ReceiptValidation = $null
 $atlasContractsV2FailureReason = $null
 $atlasContractsV2PreflightFailureReason = $null
 $atlasContractsV2Branch = $null
+$workerGitState = $null
 
 function Write-CanonicalManifest {
     if ([string]::IsNullOrWhiteSpace($manifestPath)) {
@@ -1126,6 +1127,7 @@ function Write-CanonicalManifest {
             preservationViolations = @($dirtyPreservationViolations)
         }
         changedPaths = @($taskChangedPaths)
+        workerGitState = $workerGitState
         verification = @($verifyRecords)
         commit = [ordered]@{
             enabled = $null -ne $commitMetadataPolicy
@@ -1261,6 +1263,7 @@ try {
         "- Summary must be specific, contain at least two words, and must not be generic like update, done, fixes, or misc changes.",
         "- If you make no repository changes, do not create the commit metadata artifact.",
         "- The runner will consume and remove the artifact before staging.",
+        "- Do not stage, commit, amend, merge, rebase, reset, switch branches, check out another branch, or move Git refs. The runner exclusively owns Git state transitions.",
         "- Do not push. Push remains manual-only."
     ) -join "`r`n"
     $effectivePrompt = $effectivePrompt + "`r`n`r`n" + $commitContractInstructions
@@ -1342,6 +1345,7 @@ try {
 
     $branchResult = Invoke-Git -Arguments @("branch", "--show-current") -WorkingDirectory $repoRoot
     if ($branchResult.ExitCode -eq 0) { $atlasContractsV2Branch = $branchResult.StdOut.Trim() }
+    $workerGitState = New-WorkerGitStateGuard -WorkingDirectory $repoRoot -TaskRef "HEAD"
     # The canonical execution class uses the same producer gate as repo tasks.
     # It remains after writer-lock acquisition but before any Codex invocation.
     $atlasContractsV2 = New-AtlasContractsV2Producer `
@@ -1373,6 +1377,12 @@ try {
     if ($codexResult.ExitCode -ne 0) {
         $status = "codex_failed"
         throw ("Codex exec failed with exit code {0}." -f $codexResult.ExitCode)
+    }
+
+    $workerGitState = Complete-WorkerGitStateGuard -InitialState $workerGitState -WorkingDirectory $repoRoot
+    if (@($workerGitState.violations).Count -gt 0) {
+        $status = "worker_git_state_failed"
+        throw ("{0}: {1}" -f $workerGitState.failureCode, ($workerGitState.violations -join ", "))
     }
 
     $commitMetadataArtifactRecord = Read-CommitMetadataArtifact -Path $commitMetadataArtifactPath

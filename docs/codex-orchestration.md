@@ -549,6 +549,14 @@ Use a legacy sandbox override only for explicit compatibility paths:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\stack\config.toml -PromptPath C:\path\to\prompt.md -SandboxMode danger-full-access
 ```
 
+## Git State Ownership
+
+Codex workers own admitted file edits, not Git transitions. The runner records the task HEAD, current branch, and configured landing ref before Codex starts, then compares them immediately after Codex exits.
+
+Workers must not stage, commit, amend, merge, rebase, reset, switch branches, or move refs. A detected transition fails closed with `worker_git_state_failed`, exit code `18`, and `worker_git_head_mutation_detected` in `run.json`. Verification, runner-owned commit, and local landing do not run after that failure.
+
+This guard prevents a worker-created commit from being misclassified as `no_changes` after the worktree becomes clean.
+
 ## Non-Goals For This Pass
 
 - no dev-root orchestrator

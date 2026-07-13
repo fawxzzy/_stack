@@ -288,3 +288,21 @@ For deletions, the range should describe the pre-edit file span. For edits and a
 ## Review Path
 
 Use `pnpm run codex:stack:verify` to check the operator surface and worker-artifact helpers together.
+
+## Worker Git-State Failure Recovery
+
+`_stack` exclusively owns staging, commits, and local landing. Workers only edit admitted files and write temporary completion artifacts.
+
+When `run.json` reports `worker_git_state_failed`:
+
+1. preserve the failed worktree and its logs
+2. inspect `workerGitState.taskInitialHead`, `taskFinalHead`, `landingInitialHead`, `landingFinalHead`, and `violations`
+3. do not manually bless the worker-created commit as a successful runner receipt
+4. independently verify any useful implementation before deciding whether to retain it
+5. recover with a fresh bounded task after the runner-integrity issue is fixed
+
+Stable failure code: `worker_git_head_mutation_detected`.
+
+Rule: full local capability does not transfer Git-state authority from `_stack` to the worker.
+
+Failure mode: a worker commits and lands its own changes, leaving a clean worktree that the parent runner incorrectly classifies as `no_changes`.

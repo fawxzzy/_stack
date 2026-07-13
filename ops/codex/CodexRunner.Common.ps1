@@ -2406,6 +2406,81 @@ function Test-GitRefExists {
     return $result.ExitCode -eq 0
 }
 
+function Get-GitRefSha {
+    param(
+        [string]$RefName,
+        [string]$WorkingDirectory
+    )
+
+    if ([string]::IsNullOrWhiteSpace($RefName)) {
+        return $null
+    }
+
+    $result = Invoke-Git -Arguments @("rev-parse", "--verify", "--quiet", $RefName) -WorkingDirectory $WorkingDirectory
+    if ($result.ExitCode -ne 0) {
+        return $null
+    }
+
+    return $result.StdOut.Trim()
+}
+
+function New-WorkerGitStateGuard {
+    param(
+        [string]$WorkingDirectory,
+        [string]$TaskRef = "HEAD",
+        [string]$LandingRef = ""
+    )
+
+    return [pscustomobject][ordered]@{
+        failureCode = $null
+        taskRef = $TaskRef
+        taskInitialHead = Get-GitRefSha -RefName $TaskRef -WorkingDirectory $WorkingDirectory
+        taskFinalHead = $null
+        landingRef = if ([string]::IsNullOrWhiteSpace($LandingRef)) { $null } else { $LandingRef }
+        landingInitialHead = Get-GitRefSha -RefName $LandingRef -WorkingDirectory $WorkingDirectory
+        landingFinalHead = $null
+        initialBranch = Get-GitCurrentBranch -WorkingDirectory $WorkingDirectory
+        finalBranch = $null
+        violations = @()
+    }
+}
+
+function Complete-WorkerGitStateGuard {
+    param(
+        [Parameter(Mandatory = $true)]
+        $InitialState,
+        [string]$WorkingDirectory
+    )
+
+    $taskFinalHead = Get-GitRefSha -RefName ([string]$InitialState.taskRef) -WorkingDirectory $WorkingDirectory
+    $landingFinalHead = Get-GitRefSha -RefName ([string]$InitialState.landingRef) -WorkingDirectory $WorkingDirectory
+    $finalBranch = Get-GitCurrentBranch -WorkingDirectory $WorkingDirectory
+    $violations = New-Object System.Collections.Generic.List[string]
+
+    if ([string]$InitialState.taskInitialHead -ne [string]$taskFinalHead) {
+        [void]$violations.Add("worker_task_head_mutation_detected")
+    }
+    if (-not [string]::IsNullOrWhiteSpace([string]$InitialState.landingRef) -and [string]$InitialState.landingInitialHead -ne [string]$landingFinalHead) {
+        [void]$violations.Add("worker_landing_ref_mutation_detected")
+    }
+    if ([string]$InitialState.initialBranch -ne [string]$finalBranch) {
+        [void]$violations.Add("worker_branch_switch_detected")
+    }
+
+    return [pscustomobject][ordered]@{
+        failureCode = if ($violations.Count -gt 0) { "worker_git_head_mutation_detected" } else { $null }
+        taskRef = [string]$InitialState.taskRef
+        taskInitialHead = [string]$InitialState.taskInitialHead
+        taskFinalHead = [string]$taskFinalHead
+        landingRef = if ([string]::IsNullOrWhiteSpace([string]$InitialState.landingRef)) { $null } else { [string]$InitialState.landingRef }
+        landingInitialHead = if ([string]::IsNullOrWhiteSpace([string]$InitialState.landingInitialHead)) { $null } else { [string]$InitialState.landingInitialHead }
+        landingFinalHead = if ([string]::IsNullOrWhiteSpace([string]$landingFinalHead)) { $null } else { [string]$landingFinalHead }
+        initialBranch = [string]$InitialState.initialBranch
+        finalBranch = [string]$finalBranch
+        violations = @($violations.ToArray())
+    }
+}
+
 function Get-GitRefResolutionCandidates {
     param([string]$PreferredRef)
 
@@ -2910,6 +2985,7 @@ function Get-StatusExitCode {
         "archive_failed" { return 15 }
         "mutation_scope_failed" { return 16 }
         "spec_to_diff_failed" { return 17 }
+        "worker_git_state_failed" { return 18 }
         default { return 10 }
     }
 }

@@ -265,6 +265,12 @@ if (prompt.includes("Scenario: mutate-admitted") || prompt.includes("Scenario: r
   writeArtifacts();
 }
 
+if (prompt.includes("Scenario: worker-commit")) {
+  writeTaskFile();
+  runGit(repoRoot, ["add", "--", "docs/task.md"]);
+  runGit(repoRoot, ["commit", "--quiet", "-m", "fixture worker commit"]);
+}
+
 if (prompt.includes("Scenario: mutate-unadmitted")) {
   writeTaskFile();
   fs.appendFileSync(path.join(repoRoot, "docs", "unadmitted.md"), "unadmitted mutation\n", "utf8");
@@ -652,6 +658,11 @@ try {
     $gitWrapper = New-GitWrapperTooling -ToolRoot $toolRoot
     $fakeCodex = New-FakeCodexTooling -ToolRoot $toolRoot
     $runnerPath = (Resolve-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "Invoke-CodexCanonicalWorkspaceTask.ps1")).Path
+    $runnerSource = Get-Content -LiteralPath $runnerPath -Raw
+    $commonRunnerSource = Get-Content -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "CodexRunner.Common.ps1") -Raw
+    Assert-Condition -Condition $runnerSource.Contains('Complete-WorkerGitStateGuard') -Message "Canonical workspace runner must fail closed when a worker moves Git HEAD."
+    Assert-Condition -Condition $runnerSource.Contains('worker_git_state_failed') -Message "Canonical workspace runner must preserve the worker Git-state failure classification."
+    Assert-Condition -Condition $commonRunnerSource.Contains('worker_git_head_mutation_detected') -Message "Shared runner must expose a stable worker Git-head mutation failure code."
 
     $invalidRoot = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "invalid-root-parent") -Name "wrong-root"
     $invalidPrompt = New-PromptFile -RepoRoot $invalidRoot -FileName "invalid-root.md" -Content @"
@@ -683,6 +694,21 @@ Scenario: no-op
     Assert-Condition -Condition ([bool]$realGitDirectoryRun.Manifest.canonicalRootValidation.gitEntryExists) -Message "Real .git directory fixture did not receipt the canonical .git entry."
     Assert-Condition -Condition ([bool]$realGitDirectoryRun.Manifest.canonicalRootValidation.gitEntryIsDirectory) -Message "Real .git directory fixture did not prove the canonical .git entry is a directory."
     Assert-Condition -Condition ([string]::IsNullOrWhiteSpace([string]$realGitDirectoryRun.Manifest.canonicalRootValidation.reasonCode)) -Message "Real .git directory fixture unexpectedly receipted a canonical git-directory failure code."
+
+    $workerCommitRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "worker-commit")
+    $workerCommitPrompt = New-PromptFile -RepoRoot $workerCommitRepo -FileName "worker-commit.md" -Content @"
+Title: Worker commit guard
+
+Objective:
+Prove the canonical writer rejects worker-controlled commits.
+
+Scenario: worker-commit
+"@
+    $workerCommitRun = Invoke-CanonicalWriterFixture -RunnerPath $runnerPath -RepoRoot $workerCommitRepo -PromptPath $workerCommitPrompt -FakeCodex $fakeCodex -GitWrapper $gitWrapper -CodexCommandOverride $fakeCodex.CommandPath
+    Assert-Condition -Condition ($workerCommitRun.Result.ExitCode -eq 18) -Message "Canonical worker-commit fixture must fail closed with exit code 18."
+    Assert-Condition -Condition ([string]$workerCommitRun.Manifest.status -eq "worker_git_state_failed") -Message "Canonical worker-commit fixture did not preserve the Git-state failure classification."
+    Assert-Condition -Condition ([string]$workerCommitRun.Manifest.workerGitState.failureCode -eq "worker_git_head_mutation_detected") -Message "Canonical worker-commit fixture did not receipt the stable failure code."
+    Assert-Condition -Condition ("worker_task_head_mutation_detected" -in @($workerCommitRun.Manifest.workerGitState.violations)) -Message "Canonical worker-commit fixture did not identify the task HEAD mutation."
 
     $unsupportedModelRepo = New-FixtureRepo -BaseRoot (Join-Path -Path $fixtureRoot -ChildPath "unsupported-model")
     $unsupportedModelPrompt = New-PromptFile -RepoRoot $unsupportedModelRepo -FileName "unsupported-model.md" -Content @"
