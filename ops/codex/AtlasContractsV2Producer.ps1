@@ -32,21 +32,24 @@ function Get-AtlasContractsV2ContractPaths {
 }
 
 function ConvertTo-AtlasContractsV2Runtime {
-    param($RuntimePolicy)
+    param(
+        $RuntimePolicy,
+        [ValidateSet("requested", "resolved")][string]$Layer = "resolved"
+    )
 
-    $resolved = Get-ObjectPropertyValue -Object $RuntimePolicy -Name "resolved" -DefaultValue $null
-    $permissions = Get-ObjectPropertyValue -Object $resolved -Name "permissions" -DefaultValue $null
+    $policyLayer = Get-ObjectPropertyValue -Object $RuntimePolicy -Name $Layer -DefaultValue $null
+    $permissions = Get-ObjectPropertyValue -Object $policyLayer -Name "permissions" -DefaultValue $null
     $permissionMode = [string](Get-ObjectPropertyValue -Object $permissions -Name "mode" -DefaultValue "custom")
     if ($permissionMode -in @("danger-full-access", "full-access")) { $permissionMode = "full-access" }
     elseif ($permissionMode -in @("workspace-write", "read-only", "custom")) { }
     else { $permissionMode = "custom" }
 
     return [ordered]@{
-        model = [string](Get-ObjectPropertyValue -Object $resolved -Name "model" -DefaultValue "unknown")
-        reasoning = [string](Get-ObjectPropertyValue -Object $resolved -Name "reasoning" -DefaultValue "medium")
-        speed = [string](Get-ObjectPropertyValue -Object $resolved -Name "speed" -DefaultValue "standard")
+        model = [string](Get-ObjectPropertyValue -Object $policyLayer -Name "model" -DefaultValue "unknown")
+        reasoning = [string](Get-ObjectPropertyValue -Object $policyLayer -Name "reasoning" -DefaultValue "medium")
+        speed = [string](Get-ObjectPropertyValue -Object $policyLayer -Name "speed" -DefaultValue "standard")
         permissions = $permissionMode
-        approval_policy = [string](Get-ObjectPropertyValue -Object $resolved -Name "approval" -DefaultValue "never")
+        approval_policy = [string](Get-ObjectPropertyValue -Object $policyLayer -Name "approval" -DefaultValue "never")
     }
 }
 
@@ -405,8 +408,13 @@ function Write-AtlasContractsV2TerminalReceipt {
             run_id = $Producer.runId
             runner_status = $RunnerStatus
             validation_owner = "atlas-root"
+            runtime_requested = ConvertTo-AtlasContractsV2Runtime -RuntimePolicy $RuntimePolicy -Layer "requested"
+            identity_correlations = [ordered]@{ component_id = $Producer.componentId; job_id = $Producer.jobId; run_id = $Producer.runId; execution_class = $Producer.executionClass; branch = $Branch; worktree = $Worktree }
             artifact_refs = [ordered]@{ context_packet = $Producer.paths.contextPacket; approval_record = $Producer.paths.approvalRecord; evidence_bundle = $Producer.paths.evidenceBundle }
             validation_evidence_refs = @($Producer.validationPaths.componentManifest, $Producer.validationPaths.jobEnvelope, $Producer.validationPaths.contextPacket, $Producer.validationPaths.approvalRecord, $Producer.validationPaths.evidenceBundle)
+            compatibility = [ordered]@{ v1 = "preserved"; cluster_1_artifacts = @("atlas.component-manifest.v2.json", "atlas.job-envelope.v2.json", "atlas.execution-receipt.v2.json"); run_manifest_surface = "atlasContractsV2" }
+            commit_state = [ordered]@{ status = if ([string]::IsNullOrWhiteSpace($CommitSha)) { "not-created" } else { "recorded" }; sha = if ([string]::IsNullOrWhiteSpace($CommitSha)) { $null } else { $CommitSha }; branch = $Branch }
+            prohibited_action_confirmation = [ordered]@{ push = "not-exercised"; deploy = "not-exercised"; production = "not-exercised"; discord = "not-exercised"; board = "not-exercised"; data_mutation = "not-exercised" }
             external_authority = [ordered]@{ push = "not-exercised"; deploy = "not-exercised"; production = "not-exercised"; discord = "not-exercised"; board = "not-exercised"; data_mutation = "not-exercised" }
         }
     }

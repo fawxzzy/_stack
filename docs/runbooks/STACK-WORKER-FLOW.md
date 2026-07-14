@@ -57,7 +57,7 @@ This failure mode occurs when the requested model, speed, or permission posture 
 
 ## Atlas Contracts v2 producer gate
 
-Before Codex can run, `_stack` writes and validates `atlas.component-manifest.v2.json` and `atlas.job-envelope.v2.json` in the run log using the Atlas-owned `packages/atlas-contracts/scripts/validate-artifact.mjs` CLI. A missing Atlas package or CLI is a fail-closed preflight failure, not a fallback-validation case.
+Before Codex can run, `_stack` writes and validates `atlas.component-manifest.v2.json`, `atlas.job-envelope.v2.json`, `atlas.context-packet.v2.json`, and `atlas.approval-record.v2.json` in the run log using the Atlas-owned `packages/atlas-contracts/scripts/validate-artifact.mjs` CLI. A missing Atlas package or CLI, or invalid Cluster 2 preflight artifact, is a fail-closed preflight failure, not a fallback-validation case. At terminal closeout it writes and validates `atlas.evidence-bundle.v2.json` plus `atlas.execution-receipt.v2.json`, retaining the shared job/component/run correlation chain.
 
 After every preflight-passing terminal class, `_stack` writes and validates `atlas.execution-receipt.v2.json`. `run.json.atlasContractsV2` is the only run-manifest addition for these facts; it carries paths, raw CLI validation evidence, identities, and state without replacing existing worker artifacts. External authority remains denied by default even where the runtime has full local access.
 

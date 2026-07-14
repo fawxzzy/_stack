@@ -27,6 +27,13 @@ try {
 
     New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
     $runtimePolicy = [pscustomobject]@{
+        requested = [pscustomobject]@{
+            model = "gpt-5.4"
+            reasoning = "high"
+            speed = "standard"
+            permissions = [pscustomobject]@{ mode = "full-access" }
+            approval = "never"
+        }
         resolved = [pscustomobject]@{
             model = "gpt-5.4"
             reasoning = "high"
@@ -50,6 +57,27 @@ try {
     }
     Assert-Condition -Condition $absenceRejected -Message "Missing Atlas package must fail with the stable producer reason code."
     Assert-Condition -Condition (-not $fakeCodexLaunched) -Message "Missing Atlas package must stop before fake Codex execution."
+
+    foreach ($rejectedSchema in @("atlas.context-packet.v2", "atlas.approval-record.v2")) {
+        $rejectingAtlasRoot = Join-Path -Path $temporaryRoot -ChildPath ("rejecting-{0}" -f ($rejectedSchema -replace "[^a-z0-9]", "-"))
+        $rejectingValidatorDirectory = Join-Path -Path $rejectingAtlasRoot -ChildPath "packages\atlas-contracts\scripts"
+        New-Item -ItemType Directory -Path $rejectingValidatorDirectory -Force | Out-Null
+        $rejectingValidatorPath = Join-Path -Path $rejectingValidatorDirectory -ChildPath "validate-artifact.mjs"
+        [System.IO.File]::WriteAllText($rejectingValidatorPath, @"
+const schema = process.argv[process.argv.indexOf('--schema') + 1];
+const rejected = schema === '$rejectedSchema';
+console.log(JSON.stringify(rejected ? { ok: false, code: 'INVALID_ARTIFACT' } : { ok: true }));
+process.exit(rejected ? 1 : 0);
+"@)
+        $clusterTwoPreflightRejected = $false
+        try {
+            [void](New-AtlasContractsV2Producer -AtlasRoot $rejectingAtlasRoot -LogDirectory (Join-Path -Path $rejectingAtlasRoot -ChildPath "logs") -RunId "reject-$($rejectedSchema -replace '[^a-z0-9]', '-')" -PromptRecord $prompt -RuntimePolicy $runtimePolicy -ExecutionClass "fixture")
+        }
+        catch {
+            $clusterTwoPreflightRejected = $_.Exception.Message -eq "atlas_contracts_v2_validator_invalid_artifact"
+        }
+        Assert-Condition -Condition $clusterTwoPreflightRejected -Message ("Invalid {0} must fail closed before Codex execution." -f $rejectedSchema)
+    }
 
     $producer = New-AtlasContractsV2Producer `
         -AtlasRoot $atlasRoot `
@@ -110,6 +138,10 @@ try {
     Assert-Condition -Condition (@($receipt.evidence_refs | Where-Object { $_ -eq $producer.paths.contextPacket -or $_ -eq $producer.paths.approvalRecord -or $_ -eq $producer.paths.evidenceBundle }).Count -eq 3) -Message "ExecutionReceipt must retain durable references to the new artifacts."
     Assert-Condition -Condition ([string]$receipt.status -eq "failed") -Message "Non-success runner state must produce a failed ExecutionReceipt."
     Assert-Condition -Condition (@($receipt.authority_actions).Count -eq 0) -Message "Producer must not claim external authority actions."
+    Assert-Condition -Condition ([string]$receipt.extensions.runtime_requested.model -eq "gpt-5.4" -and [string]$receipt.runtime_effective.model -eq "gpt-5.4") -Message "Terminal receipt must correlate requested and effective runtime policy."
+    Assert-Condition -Condition ([string]$receipt.extensions.identity_correlations.job_id -eq [string]$producer.jobId -and [string]$receipt.extensions.identity_correlations.run_id -eq [string]$producer.runId) -Message "Terminal receipt must preserve the artifact identity chain."
+    Assert-Condition -Condition ([string]$receipt.extensions.compatibility.v1 -eq "preserved" -and @($receipt.extensions.compatibility.cluster_1_artifacts).Count -eq 3) -Message "Terminal receipt must prove additive Cluster 1 and v1 compatibility."
+    Assert-Condition -Condition ([string]$receipt.extensions.commit_state.status -eq "not-created" -and [string]$receipt.extensions.prohibited_action_confirmation.push -eq "not-exercised") -Message "Terminal receipt must record commit state and prohibited-action confirmation."
 
     Write-Output "Atlas Contracts v2 producer tests passed."
 }
