@@ -2355,7 +2355,9 @@ function Invoke-ProcessCapture {
         [string]$WorkingDirectory,
         [hashtable]$Environment = @{},
         [AllowNull()]
-        [string]$StandardInputText = $null
+        [string]$StandardInputText = $null,
+        [ValidateRange(1, 60000)]
+        [int]$OutputDrainTimeoutMilliseconds = 5000
     )
 
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
@@ -2389,16 +2391,37 @@ function Invoke-ProcessCapture {
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
         $process.WaitForExit()
-        $stdoutTask.Wait()
-        $stderrTask.Wait()
+        $drainTasks = [System.Threading.Tasks.Task[]]@($stdoutTask, $stderrTask)
+        $outputDrainTimedOut = -not [System.Threading.Tasks.Task]::WaitAll(
+            $drainTasks,
+            $OutputDrainTimeoutMilliseconds
+        )
+        $stdout = if ($stdoutTask.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion) {
+            $stdoutTask.Result
+        }
+        else {
+            ""
+        }
+        $stderr = if ($stderrTask.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion) {
+            $stderrTask.Result
+        }
+        else {
+            ""
+        }
+        if ($outputDrainTimedOut) {
+            $drainWarning = "process_capture_output_drain_timeout: child process exited but inherited output handles remained open"
+            $stderr = if ([string]::IsNullOrWhiteSpace($stderr)) { $drainWarning } else { $stderr + "`r`n" + $drainWarning }
+        }
 
         return [pscustomobject]@{
             FilePath = $FilePath
             Arguments = $ArgumentList
             WorkingDirectory = $WorkingDirectory
             ExitCode = $process.ExitCode
-            StdOut = $stdoutTask.Result
-            StdErr = $stderrTask.Result
+            StdOut = $stdout
+            StdErr = $stderr
+            OutputDrainTimedOut = $outputDrainTimedOut
+            OutputDrainTimeoutMilliseconds = $OutputDrainTimeoutMilliseconds
         }
     }
     finally {

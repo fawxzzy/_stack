@@ -83,6 +83,28 @@ function Invoke-GitChecked {
     return $result
 }
 
+$inheritedHandleScript = @'
+const { spawn } = require("child_process");
+const child = spawn(process.execPath, ["-e", "setTimeout(() => process.exit(0), 1500)"], {
+  detached: true,
+  stdio: ["ignore", "inherit", "inherit"],
+  windowsHide: true
+});
+child.unref();
+console.log("parent-complete");
+'@
+$captureStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$inheritedHandleCapture = Invoke-ProcessCapture `
+    -FilePath "node" `
+    -ArgumentList @("-e", $inheritedHandleScript) `
+    -WorkingDirectory (Get-Location).Path `
+    -OutputDrainTimeoutMilliseconds 100
+$captureStopwatch.Stop()
+Assert-Condition -Condition ($inheritedHandleCapture.ExitCode -eq 0) -Message "Inherited-handle capture fixture parent must exit successfully."
+Assert-Condition -Condition ([bool]$inheritedHandleCapture.OutputDrainTimedOut) -Message "Inherited-handle capture fixture must receipt a bounded output-drain timeout."
+Assert-Condition -Condition ($captureStopwatch.ElapsedMilliseconds -lt 1200) -Message "Process capture must not wait for an inherited output handle to close."
+Assert-Condition -Condition ($inheritedHandleCapture.StdErr.Contains("process_capture_output_drain_timeout")) -Message "Process capture must preserve the stable output-drain timeout reason."
+
 function Initialize-WorktreeTopologyManifestBridge {
     param(
         [Parameter(Mandatory = $true)]
