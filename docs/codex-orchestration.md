@@ -352,6 +352,8 @@ Rule details:
 - mutating Codex tasks are not considered governed unless they declare acceptance criteria
 - legacy mutating prompts remain on the compatibility path until they are converted to the acceptance-criteria contract
 
+Canonical-workspace preflight may pass one or more repeatable `-ChangedPath` arguments to `ops/codex/Test-SpecToDiffProof.ps1`. Each requested path is normalized, checked for repository-relative safety, and required to be present in the actual Git changed-path inventory before evidence is built. This is the canonical-workspace path for isolating task-owned proof from preserved untracked dirt; omitting the argument retains all-changed-path behavior. The canonical workspace runner remains authoritative for preservation, mutation admission, and final task-path calculation.
+
 Failure Mode: `Summary-Truth Drift`
 
 This failure mode occurs when a worker summary claims the requested change is complete but the repository diff does not prove that every explicit requested edit was applied.

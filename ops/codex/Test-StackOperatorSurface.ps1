@@ -1587,6 +1587,46 @@ Expected Changed Paths:
         throw "Worker spec-to-diff preflight treated its untracked temporary proof artifact as product diff."
     }
 
+    $preservedDirtDirectory = Join-Path -Path $preflightFixtureRoot -ChildPath "accountsettings"
+    New-Item -ItemType Directory -Path $preservedDirtDirectory -Force | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path -Path $preservedDirtDirectory -ChildPath "preserved.txt"), "preserved dirt`n")
+    $directoryEvidence = Get-SpecToDiffPathEvidenceMap -WorkingDirectory $preflightFixtureRoot -ChangedPaths @("accountsettings")
+    if ($directoryEvidence["accountsettings"] -ne "") {
+        throw "Directory evidence must be an empty non-content proof value."
+    }
+
+    $explicitPreflightEnvironment = @{
+        ATLAS_CODEX_PROMPT_PATH = $preflightPromptPath
+        ATLAS_CODEX_SPEC_TO_DIFF_PROOF_PATH = $preflightProofPath
+    }
+    $explicitPreflightPass = Invoke-ProcessCapture `
+        -FilePath $powershellExe `
+        -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $preflightScriptPath, "-ChangedPath", "feature.txt") `
+        -WorkingDirectory $preflightFixtureRoot `
+        -Environment $explicitPreflightEnvironment
+    if ($explicitPreflightPass.ExitCode -ne 0) {
+        throw ("Explicit changed-path preflight should isolate task-owned evidence from preserved dirt. stdout: {0}; stderr: {1}" -f $explicitPreflightPass.StdOut, $explicitPreflightPass.StdErr)
+    }
+    $explicitPreflightRecord = $explicitPreflightPass.StdOut | ConvertFrom-Json
+    if (@($explicitPreflightRecord.changedPaths).Count -ne 1 -or [string]$explicitPreflightRecord.changedPaths[0] -ne "feature.txt") {
+        throw "Explicit changed-path preflight did not restrict validation to the requested task-owned file."
+    }
+
+    foreach ($invalidRequestedPath in @("unchanged.txt", "missing.txt", "../outside.txt", "")) {
+        $invalidExplicitPreflight = Invoke-ProcessCapture `
+            -FilePath $powershellExe `
+            -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $preflightScriptPath, "-ChangedPath", $invalidRequestedPath) `
+            -WorkingDirectory $preflightFixtureRoot `
+            -Environment $explicitPreflightEnvironment
+        if ($invalidExplicitPreflight.ExitCode -eq 0) {
+            throw ("Explicit changed-path preflight unexpectedly accepted invalid path '{0}'." -f $invalidRequestedPath)
+        }
+        $invalidExplicitRecord = $invalidExplicitPreflight.StdOut | ConvertFrom-Json
+        if ([string]$invalidExplicitRecord.status -ne "failed" -or @($invalidExplicitRecord.blockingReasons).Count -eq 0) {
+            throw ("Explicit changed-path preflight did not fail closed for invalid path '{0}'." -f $invalidRequestedPath)
+        }
+    }
+
     $invalidPreflightProof = Get-Content -LiteralPath $preflightProofPath -Raw | ConvertFrom-Json
     $invalidPreflightProof.criteria[0].diff_evidence = @("mistyped proof evidence")
     [System.IO.File]::WriteAllText($preflightProofPath, ($invalidPreflightProof | ConvertTo-Json -Depth 8))

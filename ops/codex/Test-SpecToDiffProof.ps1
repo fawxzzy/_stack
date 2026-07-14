@@ -2,7 +2,9 @@
 param(
     [string]$PromptPath = $env:ATLAS_CODEX_PROMPT_PATH,
     [string]$ProofPath = $env:ATLAS_CODEX_SPEC_TO_DIFF_PROOF_PATH,
-    [string]$WorkingDirectory = (Get-Location).Path
+    [string]$WorkingDirectory = (Get-Location).Path,
+    [AllowEmptyCollection()]
+    [string[]]$ChangedPath = $null
 )
 
 $ErrorActionPreference = "Stop"
@@ -56,6 +58,25 @@ try {
         $changedPaths = @($changedPaths | Where-Object { $_.Replace("\", "/") -ne $proofRelativePath })
     }
 
+    $requestedPathValidation = $null
+    if ($PSBoundParameters.ContainsKey("ChangedPath")) {
+        $requestedPathValidation = Resolve-SpecToDiffRequestedChangedPaths -RequestedPaths $ChangedPath -ActualChangedPaths $changedPaths
+        if (-not $requestedPathValidation.isValid) {
+            Write-PreflightResult -Record ([ordered]@{
+                schemaVersion = "1.0"
+                status = "failed"
+                workingDirectory = $resolvedWorkingDirectory
+                promptPath = $resolvedPromptPath
+                proofPath = $resolvedProofPath
+                changedPaths = @($changedPaths)
+                requestedChangedPaths = @($requestedPathValidation.paths)
+                validation = $null
+                blockingReasons = @($requestedPathValidation.blockingReasons)
+            }) -ExitCode 1
+        }
+        $changedPaths = @($requestedPathValidation.paths)
+    }
+
     $validation = Test-SpecToDiffCompletionProof `
         -PromptRecord $promptRecord `
         -ArtifactRecord $artifactRecord `
@@ -79,6 +100,7 @@ try {
         promptPath = $resolvedPromptPath
         proofPath = $resolvedProofPath
         changedPaths = @($changedPaths)
+        requestedChangedPaths = if ($null -ne $requestedPathValidation) { @($requestedPathValidation.paths) } else { $null }
         validation = $validation
     }
 

@@ -2834,7 +2834,10 @@ function Get-SpecToDiffPathEvidenceMap {
         if ([string]::IsNullOrWhiteSpace($diffText)) {
             $absolutePath = Join-Path -Path $WorkingDirectory -ChildPath $path
             if (Test-Path -LiteralPath $absolutePath) {
-                $diffText = [System.IO.File]::ReadAllText($absolutePath)
+                $item = Get-Item -LiteralPath $absolutePath -ErrorAction Stop
+                if (-not $item.PSIsContainer) {
+                    $diffText = [System.IO.File]::ReadAllText($absolutePath)
+                }
             }
         }
 
@@ -2842,6 +2845,52 @@ function Get-SpecToDiffPathEvidenceMap {
     }
 
     return $evidence
+}
+
+function Resolve-SpecToDiffRequestedChangedPaths {
+    param(
+        [string[]]$RequestedPaths,
+        [string[]]$ActualChangedPaths
+    )
+
+    $actual = @(Normalize-RepoRelativePathList -Paths $ActualChangedPaths)
+    $normalized = New-Object System.Collections.Generic.List[string]
+    $blockingReasons = New-Object System.Collections.Generic.List[string]
+    foreach ($requestedPath in @($RequestedPaths)) {
+        if ([string]::IsNullOrWhiteSpace($requestedPath)) {
+            [void]$blockingReasons.Add("Requested changed path must not be blank.")
+            continue
+        }
+
+        $candidate = ([string]$requestedPath).Trim().Replace("\", "/")
+        $segments = $candidate -split "/", -1
+        $malformed = (
+            [System.IO.Path]::IsPathRooted($candidate) -or
+            $candidate.StartsWith("/") -or
+            $candidate.Contains(":") -or
+            $candidate.Contains("*") -or
+            $candidate.Contains("?") -or
+            @($segments | Where-Object { $_ -eq "" -or $_ -eq "." -or $_ -eq ".." }).Count -gt 0
+        )
+        if ($malformed) {
+            [void]$blockingReasons.Add(("Requested changed path '{0}' is malformed or escapes the repository." -f $requestedPath))
+            continue
+        }
+        if ($normalized.Contains($candidate)) {
+            [void]$blockingReasons.Add(("Requested changed path '{0}' was supplied more than once." -f $candidate))
+            continue
+        }
+        [void]$normalized.Add($candidate)
+        if ($candidate -notin $actual) {
+            [void]$blockingReasons.Add(("Requested changed path '{0}' is not present in the actual changed-path inventory." -f $candidate))
+        }
+    }
+
+    return [pscustomobject]@{
+        isValid = ($blockingReasons.Count -eq 0 -and $normalized.Count -gt 0)
+        paths = @($normalized.ToArray())
+        blockingReasons = @($blockingReasons.ToArray())
+    }
 }
 
 function Test-SpecToDiffCompletionProof {
