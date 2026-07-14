@@ -341,6 +341,21 @@ try {
     $workerContextPath = $workerContextRecord.outputPath
     $workerContextRef = $workerContextRecord.relativePath
 
+    $inputHandoffRefs = @()
+    if ($null -ne $promptRecord -and $promptRecord.PSObject.Properties.Name -contains "HandoffRefs") {
+        $inputHandoffRefs = @($promptRecord.HandoffRefs | ForEach-Object { Normalize-StackHandoffRef -RepoRoot $repoRoot -Reference ([string]$_) })
+    }
+    if ($inputHandoffRefs.Count -eq 0 -and $null -ne $promptRecord -and $promptRecord.PSObject.Properties.Name -contains "PausedHandoffRefs") {
+        $inputHandoffRefs = @($promptRecord.PausedHandoffRefs | ForEach-Object { Normalize-StackHandoffRef -RepoRoot $repoRoot -Reference ([string]$_) })
+    }
+    if ($inputHandoffRefs.Count -eq 0) {
+        $inputHandoffRefs = @((Normalize-StackHandoffRef -RepoRoot $repoRoot -Reference $PromptPath))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($workerContextRef)) {
+        $inputHandoffRefs += $workerContextRef
+    }
+    $inputHandoffRefs = @($inputHandoffRefs | Select-Object -Unique)
+
     $effectivePrompt = $promptRecord.Body.Trim()
     if (-not [string]::IsNullOrWhiteSpace($promptRecord.DocsUpdateNote)) {
         $effectivePrompt = $effectivePrompt + "`r`n`r`nDocs update note: " + $promptRecord.DocsUpdateNote.Trim()
@@ -357,12 +372,19 @@ try {
         "- Do not stage, commit, amend, merge, rebase, reset, switch branches, check out another branch, or move Git refs. The runner exclusively owns Git state transitions.",
         "- Do not push. Push remains manual-only."
     ) -join "`r`n"
-    $workerContextInstructions = @(
+    $workerContextInstructionLines = @(
         "Worker context contract:",
         ("- Deterministic worker context artifact: `{0}`." -f $workerContextRef),
+        "- Governed input handoff references:"
+    )
+    foreach ($reference in $inputHandoffRefs) {
+        $workerContextInstructionLines += ("  - {0}" -f [string]$reference)
+    }
+    $workerContextInstructionLines += @(
         "- Use the worker context artifact, paused handoff refs, and merge request refs as the governed context surfaces.",
         "- Do not rely on raw hidden transcript history or ad hoc pasted summaries."
-    ) -join "`r`n"
+    )
+    $workerContextInstructions = $workerContextInstructionLines -join "`r`n"
     $effectivePrompt = $effectivePrompt + "`r`n`r`n" + $workerContextInstructions + "`r`n`r`n" + $commitContractInstructions
     if ($null -ne $specToDiffPolicy -and $specToDiffPolicy.enabled) {
         $effectivePrompt = $effectivePrompt + "`r`n`r`n" + (Get-SpecToDiffInstructionBlock -Policy $specToDiffPolicy)
@@ -381,20 +403,6 @@ try {
     }
     Write-TextFile -Path (Join-Path -Path $logDirectory -ChildPath "effective.prompt.md") -Content $effectivePrompt
 
-    $inputHandoffRefs = @()
-    if ($null -ne $promptRecord -and $promptRecord.PSObject.Properties.Name -contains "HandoffRefs") {
-        $inputHandoffRefs = @($promptRecord.HandoffRefs | ForEach-Object { Normalize-StackHandoffRef -RepoRoot $repoRoot -Reference ([string]$_) })
-    }
-    if ($inputHandoffRefs.Count -eq 0 -and $null -ne $promptRecord -and $promptRecord.PSObject.Properties.Name -contains "PausedHandoffRefs") {
-        $inputHandoffRefs = @($promptRecord.PausedHandoffRefs | ForEach-Object { Normalize-StackHandoffRef -RepoRoot $repoRoot -Reference ([string]$_) })
-    }
-    if ($inputHandoffRefs.Count -eq 0) {
-        $inputHandoffRefs = @((Normalize-StackHandoffRef -RepoRoot $repoRoot -Reference $PromptPath))
-    }
-    if (-not [string]::IsNullOrWhiteSpace($workerContextRef)) {
-        $inputHandoffRefs += $workerContextRef
-    }
-    $inputHandoffRefs = @($inputHandoffRefs | Select-Object -Unique)
     $governedContextRefs = New-Object System.Collections.Generic.List[string]
     foreach ($reference in $inputHandoffRefs) {
         if (-not [string]::IsNullOrWhiteSpace([string]$reference)) {

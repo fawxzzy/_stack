@@ -97,6 +97,7 @@ Rules:
 
 - the context artifact is built from the promoted knowledge query plane
 - `_stack` passes the context artifact path into worker handoff refs and prompt scaffolding
+- `_stack` renders every normalized `input_handoff_refs` entry into the effective worker prompt; recording a reference only in the assignment receipt is not sufficient worker context
 - `metadata_only` archives stay metadata-only inside the context pack
 - `derived_only` archives may contribute derived summary, topic map, and evidence refs
 - raw evidence is never hydrated into the worker context artifact

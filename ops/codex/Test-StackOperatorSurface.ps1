@@ -2398,8 +2398,11 @@ Blocked / Skipped Reporting Rules:
     }
 
     $renderingPromptPath = Join-Path -Path $integrationRepoRoot -ChildPath ".codex\inbox\spec-to-diff-rendering-fixture.md"
+    $renderingHandoffPath = Join-Path -Path $integrationRepoRoot -ChildPath ".codex\inbox\governed-handoff-fixture.json"
+    [System.IO.File]::WriteAllText($renderingHandoffPath, '{"fixture":true}' + "`r`n")
     $renderingPrompt = @'
 Title: Spec-to-diff prompt rendering fixture
+Handoff Ref: .codex/inbox/governed-handoff-fixture.json
 
 Objective:
 Prove the shared runner renders machine-readable prompt sections exactly.
@@ -2453,6 +2456,12 @@ stack_spec_to_diff_prompt_parser_repair_receipt:
     Assert-CleanSpecToDiffInstructionBlock -Block $renderingActualBlock -Context "Repo runner prompt-rendering fixture" -ExpectedCriterionIds @("ac-01", "ac-02") -ExpectedNoneDeclaredCount 3
     if ($renderingActualBlock.Contains("ac-03")) {
         throw "Repo runner prompt-rendering fixture incorrectly rendered ac-03."
+    }
+    if (-not $renderingEffectivePrompt.Contains("- Governed input handoff references:")) {
+        throw "Repo runner prompt-rendering fixture omitted the governed handoff reference heading."
+    }
+    if (-not $renderingEffectivePrompt.Contains('  - .codex/inbox/governed-handoff-fixture.json')) {
+        throw "Repo runner prompt-rendering fixture omitted the normalized governed handoff reference."
     }
 
     $unsupportedPromptPath = Join-Path -Path $integrationRepoRoot -ChildPath ".codex\inbox\unsupported-model-fixture.md"
