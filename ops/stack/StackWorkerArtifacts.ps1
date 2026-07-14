@@ -516,7 +516,7 @@ function Resolve-AtlasObservationSessionId {
         ForEach-Object { ([string]$_).Replace("\", "/") }
 
     foreach ($candidate in $candidates) {
-        if ($candidate -match '/runtime/atlas/sessions/(?<session>[^/]+)/') {
+        if ($candidate -match '(?:^|/)runtime/atlas/sessions/(?<session>[^/]+)/') {
             return [string]$Matches.session
         }
         if ($candidate -match '^(?<session>session-.+)-assignment(?:[-/]|$)') {

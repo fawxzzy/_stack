@@ -85,6 +85,12 @@ $stackLockContext = Get-StackLockContext -RepoRoot $repoRoot
 $testToolId = "read_only_scan"
 $testRegistryDigest = "sha256:stack-worker-test-governed"
 
+$correlationSessionId = Resolve-AtlasObservationSessionId `
+    -SourceArtifactRefs @("runtime/atlas/sessions/acceptance-correlation-test/cortex-stack-dispatch-request.json")
+Assert-Condition -Condition ($correlationSessionId -eq "acceptance-correlation-test") -Message "Canonical Atlas session handoff path did not preserve its correlation identity."
+$nonSessionCorrelation = Resolve-AtlasObservationSessionId -SourceArtifactRefs @("tmp/atlas/unrelated.json")
+Assert-Condition -Condition ([string]::IsNullOrWhiteSpace($nonSessionCorrelation)) -Message "Non-session handoff path must not create a correlation identity."
+
 $activeOwnerPathSurfaces = @(
     "workspace.manifest.json",
     "ops/codex/repos/playbook/config.toml",

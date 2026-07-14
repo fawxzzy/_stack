@@ -402,6 +402,7 @@ function Write-AtlasContractsV2TerminalReceipt {
         authority_actions = @()
         summary = if ([string]::IsNullOrWhiteSpace($Reason)) { $null } else { $Reason }
         extensions = [ordered]@{
+            run_id = $Producer.runId
             runner_status = $RunnerStatus
             validation_owner = "atlas-root"
             artifact_refs = [ordered]@{ context_packet = $Producer.paths.contextPacket; approval_record = $Producer.paths.approvalRecord; evidence_bundle = $Producer.paths.evidenceBundle }

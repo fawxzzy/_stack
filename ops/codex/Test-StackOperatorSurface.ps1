@@ -2351,6 +2351,10 @@ Blocked / Skipped Reporting Rules:
     if (-not [bool]$integrationManifest.atlasContractsV2.validation.executionReceipt.ok) {
         throw "Integration fixture did not validate the Atlas Contracts v2 terminal receipt."
     }
+    $integrationExecutionReceipt = Get-Content -LiteralPath ([string]$integrationManifest.atlasContractsV2.artifactPaths.executionReceipt) -Raw | ConvertFrom-Json
+    if ([string]$integrationExecutionReceipt.extensions.run_id -ne [string]$integrationManifest.runId) {
+        throw "Integration fixture terminal receipt did not preserve the native run id."
+    }
     foreach ($artifactName in @("contextPacket", "approvalRecord", "evidenceBundle")) {
         if (-not [bool]$integrationManifest.atlasContractsV2.validation.$artifactName.ok) {
             throw ("Integration fixture did not validate the Atlas Contracts v2 {0}." -f $artifactName)

@@ -409,7 +409,13 @@ try {
         }
     }
     $governedFlowContext = Resolve-AtlasGovernedFlowContext -RepoRoot $repoRoot -References @($governedContextRefs.ToArray())
-    $governedSessionId = if ($null -ne $governedFlowContext) { [string]$governedFlowContext.session_id } else { $runId }
+    $governedSessionId = if ($null -ne $governedFlowContext) {
+        [string]$governedFlowContext.session_id
+    }
+    else {
+        $correlationSessionId = Resolve-AtlasObservationSessionId -SourceArtifactRefs @($governedContextRefs.ToArray())
+        if ([string]::IsNullOrWhiteSpace($correlationSessionId)) { $runId } else { $correlationSessionId }
+    }
     $governedToolId = if ($null -ne $governedFlowContext) { [string]$governedFlowContext.tool_id } else { "" }
     $governedExtensionId = if ($null -ne $governedFlowContext) { [string]$governedFlowContext.extension_id } else { $null }
     $governedRegistryDigest = if ($null -ne $governedFlowContext) { [string]$governedFlowContext.registry_digest } else { "" }
