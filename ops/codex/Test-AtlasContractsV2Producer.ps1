@@ -23,6 +23,7 @@ try {
     Assert-Condition -Condition (-not $producerSource.Contains("Validate-AtlasContractsV2Artifact.mjs")) -Message "Owner-side generic validator launcher must not be present."
     Assert-Condition -Condition (-not $producerSource.Contains("validate-json-schema.mjs")) -Message "Producer must not import or copy the Atlas validator engine."
     Assert-Condition -Condition (-not (Test-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "Validate-AtlasContractsV2Artifact.mjs"))) -Message "Discarded owner-side validator file must not exist."
+    Assert-Condition -Condition ($script:AtlasContractsV2ArtifactNames.contextPacket -eq "atlas.context-packet.v2.json" -and $script:AtlasContractsV2ArtifactNames.approvalRecord -eq "atlas.approval-record.v2.json" -and $script:AtlasContractsV2ArtifactNames.evidenceBundle -eq "atlas.evidence-bundle.v2.json") -Message "Producer must expose exact Atlas Contracts v2 Cluster 2 filenames."
 
     New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
     $runtimePolicy = [pscustomobject]@{
@@ -62,35 +63,51 @@ try {
         -AllowedPaths @("ops/**") `
         -ForbiddenPaths @("runtime/**") `
         -VerificationCommands @("git diff --check")
-    Assert-Condition -Condition $producer.preflightValidated -Message "ComponentManifest and JobEnvelope must validate before execution."
-    foreach ($artifactName in @("componentManifest", "jobEnvelope")) {
+    Assert-Condition -Condition $producer.preflightValidated -Message "All required preflight artifacts must validate before execution."
+    foreach ($artifactName in @("componentManifest", "jobEnvelope", "contextPacket", "approvalRecord")) {
         $path = [string]$producer.paths.$artifactName
         Assert-Condition -Condition (Test-Path -LiteralPath $path) -Message "Producer did not write required preflight artifact path: $path"
     }
-    foreach ($validation in @($producer.validation.componentManifest, $producer.validation.jobEnvelope)) {
+    foreach ($validation in @($producer.validation.componentManifest, $producer.validation.jobEnvelope, $producer.validation.contextPacket, $producer.validation.approvalRecord)) {
         Assert-Condition -Condition $validation.ok -Message "Atlas validator did not accept preflight artifact."
         Assert-Condition -Condition ($validation.cliPath -eq (Join-Path $atlasRoot "packages\atlas-contracts\scripts\validate-artifact.mjs")) -Message "Producer did not invoke the canonical Atlas validator path."
     }
     $workerInstructions = Get-AtlasContractsV2WorkerInstructions -Producer $producer
     Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.componentManifest) -Message "Worker context must expose the exact ComponentManifest path."
     Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.jobEnvelope) -Message "Worker context must expose the exact JobEnvelope path."
+    Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.contextPacket) -Message "Worker context must expose the exact ContextPacket path."
+    Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.approvalRecord) -Message "Worker context must expose the exact ApprovalRecord path."
     Assert-Condition -Condition $workerInstructions.Contains("parent runner log") -Message "Worker context must explain the worktree visibility boundary."
     $envelope = Get-Content -LiteralPath $producer.paths.jobEnvelope -Raw | ConvertFrom-Json
     foreach ($authorityName in @("push", "deploy", "production", "discord", "board", "data_mutation")) {
         Assert-Condition -Condition ([string]$envelope.extensions.external_authority.$authorityName -eq "denied") -Message "External authority '$authorityName' must default to denied even with full local access."
     }
+    $contextPacket = Get-Content -LiteralPath $producer.paths.contextPacket -Raw | ConvertFrom-Json
+    Assert-Condition -Condition ([string]$contextPacket.job_id -eq [string]$producer.jobId -and [string]$contextPacket.component_id -eq [string]$producer.componentId) -Message "ContextPacket must correlate to the governed job and component."
+    Assert-Condition -Condition (@($contextPacket.sources | Where-Object { $_.authority -eq "authoritative" }).Count -gt 0) -Message "ContextPacket must include authoritative runner sources."
+    $approvalRecord = Get-Content -LiteralPath $producer.paths.approvalRecord -Raw | ConvertFrom-Json
+    Assert-Condition -Condition ([string]$approvalRecord.job_id -eq [string]$producer.jobId) -Message "ApprovalRecord must correlate to the governed job."
+    Assert-Condition -Condition ([string]$approvalRecord.decision -eq "rejected" -and [string]$approvalRecord.action.kind -eq "external-mutation") -Message "ApprovalRecord must honestly reject ungranted external mutation authority."
 
     $unknownMajor = Invoke-AtlasContractsV2Validation -Contracts $producer.contracts -SchemaId "atlas.component-manifest.v99" -ArtifactPath $producer.paths.componentManifest -EvidencePath (Join-Path $temporaryRoot "unknown-major.validation.json")
     Assert-Condition -Condition (-not $unknownMajor.ok) -Message "Unknown contract major must be rejected."
     Assert-Condition -Condition ($unknownMajor.reasonCode -eq "atlas_contracts_v2_validator_unsupported_contract_version") -Message "Unknown contract major must preserve the stable _stack reason code."
     Assert-Condition -Condition ([string]$unknownMajor.result.code -eq "UNSUPPORTED_CONTRACT_VERSION") -Message "Unknown contract major must retain the Atlas CLI JSON result."
 
-    $successReceipt = Write-AtlasContractsV2TerminalReceipt -Producer $producer -RunnerStatus "success" -RuntimePolicy $runtimePolicy -VerificationCommands @("git diff --check") -Branch "codex/fixture" -Worktree "fixture-worktree" -EvidenceRefs @("fixture.log")
+    $verificationRecord = [pscustomobject]@{ command = "git diff --check"; exitCode = 0; stdoutPath = "fixture-verify.stdout.log"; stderrPath = "fixture-verify.stderr.log" }
+    $successReceipt = Write-AtlasContractsV2TerminalReceipt -Producer $producer -RunnerStatus "success" -RuntimePolicy $runtimePolicy -VerificationCommands @("git diff --check") -VerificationRecords @($verificationRecord) -Branch "codex/fixture" -Worktree "fixture-worktree" -EvidenceRefs @("fixture.log")
     Assert-Condition -Condition $successReceipt.ok -Message "Successful terminal receipt must validate through Atlas CLI."
+    $successEvidenceBundle = Get-Content -LiteralPath $producer.paths.evidenceBundle -Raw | ConvertFrom-Json
+    Assert-Condition -Condition ([string]$successEvidenceBundle.evidence[0].status -eq "passed" -and [string]$successEvidenceBundle.classifications[0] -eq "verified") -Message "Successful terminal EvidenceBundle must derive verified evidence from actual verification records."
     $failedReceipt = Write-AtlasContractsV2TerminalReceipt -Producer $producer -RunnerStatus "codex_failed" -RuntimePolicy $runtimePolicy -VerificationCommands @("git diff --check") -Branch "codex/fixture" -Worktree "fixture-worktree" -Reason "fixture failure" -EvidenceRefs @("fixture.log")
     Assert-Condition -Condition $failedReceipt.ok -Message "Non-success terminal receipt must validate through Atlas CLI."
     Assert-Condition -Condition (Test-Path -LiteralPath $producer.paths.executionReceipt) -Message "Producer did not write the required terminal ExecutionReceipt artifact."
     $receipt = Get-Content -LiteralPath $producer.paths.executionReceipt -Raw | ConvertFrom-Json
+    $evidenceBundle = Get-Content -LiteralPath $producer.paths.evidenceBundle -Raw | ConvertFrom-Json
+    Assert-Condition -Condition $producer.validation.evidenceBundle.ok -Message "Terminal EvidenceBundle must validate through Atlas CLI."
+    Assert-Condition -Condition ([string]$evidenceBundle.job_id -eq [string]$producer.jobId -and [string]$evidenceBundle.environment.component_id -eq [string]$producer.componentId -and [string]$evidenceBundle.extensions.run_id -eq [string]$producer.runId) -Message "EvidenceBundle must retain job, component, and run correlations."
+    Assert-Condition -Condition ([string]$evidenceBundle.evidence[0].status -eq "unavailable" -and [string]$evidenceBundle.classifications[0] -eq "unknown") -Message "Terminal EvidenceBundle must honestly record unavailable verification facts."
+    Assert-Condition -Condition (@($receipt.evidence_refs | Where-Object { $_ -eq $producer.paths.contextPacket -or $_ -eq $producer.paths.approvalRecord -or $_ -eq $producer.paths.evidenceBundle }).Count -eq 3) -Message "ExecutionReceipt must retain durable references to the new artifacts."
     Assert-Condition -Condition ([string]$receipt.status -eq "failed") -Message "Non-success runner state must produce a failed ExecutionReceipt."
     Assert-Condition -Condition (@($receipt.authority_actions).Count -eq 0) -Message "Producer must not claim external authority actions."
 

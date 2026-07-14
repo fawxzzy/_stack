@@ -2079,7 +2079,7 @@ if (!atlasContractsV2 || atlasContractsV2.status?.preflight !== "validated") {
   process.stderr.write("Atlas Contracts v2 preflight was not receipted before fake Codex execution.\n");
   process.exit(43);
 }
-for (const artifactName of ["componentManifest", "jobEnvelope"]) {
+for (const artifactName of ["componentManifest", "jobEnvelope", "contextPacket", "approvalRecord"]) {
   if (!atlasContractsV2.artifactPaths?.[artifactName] || atlasContractsV2.validation?.[artifactName]?.ok !== true) {
     process.stderr.write(`Atlas Contracts v2 ${artifactName} was not validated before fake Codex execution.\n`);
     process.exit(44);
@@ -2120,7 +2120,9 @@ if (workerGitFixture) {
 
 if (!prompt.includes("Atlas Contracts v2 preflight contract:") ||
     !prompt.includes(atlasContractsV2.artifactPaths.componentManifest) ||
-    !prompt.includes(atlasContractsV2.artifactPaths.jobEnvelope)) {
+    !prompt.includes(atlasContractsV2.artifactPaths.jobEnvelope) ||
+    !prompt.includes(atlasContractsV2.artifactPaths.contextPacket) ||
+    !prompt.includes(atlasContractsV2.artifactPaths.approvalRecord)) {
   process.stderr.write("Runner did not inject exact Atlas Contracts v2 preflight paths into the worker prompt.\n");
   process.exit(47);
 }
@@ -2278,7 +2280,7 @@ Blocked / Skipped Reporting Rules:
     if ($null -eq $integrationManifest.atlasContractsV2 -or [string]$integrationManifest.atlasContractsV2.status.preflight -ne "validated" -or [string]$integrationManifest.atlasContractsV2.status.terminal -ne "success") {
         throw "Integration fixture did not preserve the Atlas Contracts v2 preflight and terminal state."
     }
-    foreach ($artifactName in @("componentManifest", "jobEnvelope", "executionReceipt")) {
+    foreach ($artifactName in @("componentManifest", "jobEnvelope", "contextPacket", "approvalRecord", "evidenceBundle", "executionReceipt")) {
         $artifactPath = [string]$integrationManifest.atlasContractsV2.artifactPaths.$artifactName
         if ([string]::IsNullOrWhiteSpace($artifactPath) -or -not (Test-Path -LiteralPath $artifactPath)) {
             throw ("Integration fixture did not retain the Atlas Contracts v2 {0} artifact." -f $artifactName)
@@ -2286,6 +2288,15 @@ Blocked / Skipped Reporting Rules:
     }
     if (-not [bool]$integrationManifest.atlasContractsV2.validation.executionReceipt.ok) {
         throw "Integration fixture did not validate the Atlas Contracts v2 terminal receipt."
+    }
+    foreach ($artifactName in @("contextPacket", "approvalRecord", "evidenceBundle")) {
+        if (-not [bool]$integrationManifest.atlasContractsV2.validation.$artifactName.ok) {
+            throw ("Integration fixture did not validate the Atlas Contracts v2 {0}." -f $artifactName)
+        }
+    }
+    $integrationApprovalRecord = Get-Content -LiteralPath ([string]$integrationManifest.atlasContractsV2.artifactPaths.approvalRecord) -Raw | ConvertFrom-Json
+    if ([string]$integrationApprovalRecord.decision -ne "rejected") {
+        throw "Integration fixture fabricated external authority approval."
     }
 
     $runtimePolicyRecord = $integrationManifest.runtimePolicy
