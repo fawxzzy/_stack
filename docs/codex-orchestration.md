@@ -169,7 +169,7 @@ Purpose:
 
 Entry surfaces:
 
-- `pnpm run codex:atlas-workspace:task -- -PromptPath C:\path\to\prompt.md -CanonicalRootPath C:\ATLAS`
+- `pnpm run codex:atlas-workspace:task -- -PromptPath <prompt-path> -CanonicalRootPath <atlas-root>`
 - `ops/codex/Invoke-CodexCanonicalWorkspaceTask.ps1`
 - `ops/codex/execution-classes/atlas-workspace.writer.json`
 
@@ -480,7 +480,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepo
 Run one canonical Atlas workspace prompt directly:
 
 ```powershell
-pnpm run codex:atlas-workspace:task -- -PromptPath C:\path\to\prompt.md -CanonicalRootPath C:\ATLAS
+pnpm run codex:atlas-workspace:task -- -PromptPath <prompt-path> -CanonicalRootPath <atlas-root>
 ```
 
 Run the Playbook watcher:

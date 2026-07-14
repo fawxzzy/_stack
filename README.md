@@ -20,7 +20,7 @@
 - `pnpm run codex:atlas:inbox`
 - `pnpm run codex:atlas:inbox:once`
 - `pnpm run codex:atlas:task -- -PromptPath C:\path\to\prompt.md`
-- `pnpm run codex:atlas-workspace:task -- -PromptPath C:\path\to\prompt.md -CanonicalRootPath C:\ATLAS`
+- `pnpm run codex:atlas-workspace:task -- -PromptPath <prompt-path> -CanonicalRootPath <atlas-root>`
 - `pnpm run codex:discordos:inbox`
 - `pnpm run codex:discordos:inbox:once`
 - `pnpm run codex:discordos:task -- -PromptPath C:\path\to\prompt.md`
@@ -206,7 +206,7 @@
 ## Scope boundaries
 - `_stack` owns workflow commands, editor tasks, receipts scaffolding, and operator docs.
 - `_stack` now also owns the shared Codex inbox/worktree orchestration engine and can self-manage those same operator surfaces through its own thin adapter, but not repo implementation policy.
-- `_stack` also owns one canonical Atlas workspace writer surface for tasks that must operate directly against `C:\ATLAS` without creating a worktree.
+- `_stack` also owns one canonical Atlas workspace writer surface for tasks that must operate directly against the canonical Atlas workspace root without creating a worktree.
 - Fitness, Mazer, and Trove use Vercel from the local CLI path.
 - Playbook, Lifeline, and Atlas are currently non-Vercel and self-hosted. DiscordOS is Vercel-backed but production approval remains current-thread and per project.
 - Playbook, Atlas, Lifeline, DiscordOS, and `_stack` are wired as thin shared-runner adapters only; `_stack` still does not add dispatcher-level multi-repo Codex orchestration in this pass.

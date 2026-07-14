@@ -1,6 +1,6 @@
 # Canonical Atlas Workspace Writer
 
-`codex:atlas-workspace:task` is an `_stack`-owned execution class for governed tasks that must operate directly against the canonical `C:\ATLAS` workspace root without creating a git worktree.
+`codex:atlas-workspace:task` is an `_stack`-owned execution class for governed tasks that must operate directly against the canonical Atlas workspace root without creating a git worktree.
 
 ## Purpose
 
@@ -10,7 +10,7 @@
 
 ## Entry Surface
 
-- Command: `pnpm run codex:atlas-workspace:task -- -PromptPath C:\path\to\prompt.md -CanonicalRootPath C:\ATLAS`
+- Command: `pnpm run codex:atlas-workspace:task -- -PromptPath <prompt-path> -CanonicalRootPath <atlas-root>`
 - Runner: `ops/codex/Invoke-CodexCanonicalWorkspaceTask.ps1`
 - Contract: `ops/codex/execution-classes/atlas-workspace.writer.json`
 - Runtime defaults: `ops/codex/repos/stack/config.toml`
@@ -114,7 +114,7 @@ The canonical `.git` guard follows that rule directly:
 
 `Registered Worktree Lease`
 
-- A nested owner-linked worktree beneath `C:\ATLAS` is preserved by stable registration identity, not by freezing its working contents, because the owner repository remains concurrently mutable outside the canonical writer.
+- A nested owner-linked worktree beneath the canonical Atlas workspace root is preserved by stable registration identity, not by freezing its working contents, because the owner repository remains concurrently mutable outside the canonical writer.
 
 `Registered Worktree Drift Observation`
 

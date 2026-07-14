@@ -35,7 +35,7 @@ Use for workflow commands and shared operator tooling executed from `_stack`.
   - `verify`
   - `deploy`
   - shared Codex inbox and task runs for `_stack` operator surfaces
-  - canonical Atlas workspace writer runs that must target the explicit `C:\ATLAS` root without a git worktree
+  - canonical Atlas workspace writer runs that must target the explicit canonical Atlas workspace root without a git worktree
 - Constraint:
   - Prefer `_stack/package.json` scripts and `_stack/.vscode/tasks.json` tasks before inventing ad hoc workspace commands.
 
