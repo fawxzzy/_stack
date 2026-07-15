@@ -21,6 +21,7 @@ const CARD_TYPES = new Set([
 ]);
 const uniqueSorted = (values) => [...new Set(values)].sort((left, right) => left.localeCompare(right));
 const atlasPath = (value) => `repos/_stack/${value.replaceAll("\\", "/")}`;
+const normalizeLineEndings = (value) => value.replace(/\r\n?/g, "\n");
 
 function normalizeTimestamp(value) {
   const candidate = /^\d{4}-\d{2}-\d{2}$/.test(value ?? "") ? `${value}T00:00:00.000Z` : value;
@@ -147,7 +148,7 @@ export function runProjectBoardOwnerExport(argv, repoRoot = process.cwd()) {
   const rendered = renderProjectBoardOwnerExport(repoRoot);
   const outputPath = path.join(repoRoot, OUTPUT_PATH);
   if (check) {
-    if (!fs.existsSync(outputPath) || fs.readFileSync(outputPath, "utf8") !== rendered) {
+    if (!fs.existsSync(outputPath) || normalizeLineEndings(fs.readFileSync(outputPath, "utf8")) !== normalizeLineEndings(rendered)) {
       throw new Error(`${OUTPUT_PATH} is stale; run pnpm board:export`);
     }
     process.stdout.write(`stack-project-board-owner-export: ok (${JSON.parse(rendered).cards.length} cards)\n`);

@@ -69,7 +69,10 @@ test("check mode detects output drift", () => {
     fs.copyFileSync(registryPath, path.join(tempRoot, "queue/owner-work-registry.json"));
     runProjectBoardOwnerExport([], tempRoot);
     assert.doesNotThrow(() => runProjectBoardOwnerExport(["--check"], tempRoot));
-    fs.writeFileSync(path.join(tempRoot, "exports/stack.project-board.owner-export.v1.json"), "{}\n");
+    const outputPath = path.join(tempRoot, "exports/stack.project-board.owner-export.v1.json");
+    fs.writeFileSync(outputPath, fs.readFileSync(outputPath, "utf8").replace(/\n/g, "\r\n"));
+    assert.doesNotThrow(() => runProjectBoardOwnerExport(["--check"], tempRoot));
+    fs.writeFileSync(outputPath, "{}\n");
     assert.throws(() => runProjectBoardOwnerExport(["--check"], tempRoot), /is stale/);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -78,7 +81,7 @@ test("check mode detects output drift", () => {
 
 test("committed export matches deterministic rendering", () => {
   assert.equal(
-    fs.readFileSync(path.join(root, "exports/stack.project-board.owner-export.v1.json"), "utf8"),
-    renderProjectBoardOwnerExport(root)
+    fs.readFileSync(path.join(root, "exports/stack.project-board.owner-export.v1.json"), "utf8").replace(/\r\n?/g, "\n"),
+    renderProjectBoardOwnerExport(root).replace(/\r\n?/g, "\n")
   );
 });
