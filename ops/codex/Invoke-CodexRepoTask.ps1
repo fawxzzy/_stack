@@ -564,7 +564,10 @@ try {
         -ExecutionClass "codex:repo:task" `
         -BaseRef $baseRef `
         -Branch $branchName `
+        -WorkspaceRoot $repoRoot `
         -Worktree $worktreePath `
+        -WorkerId $workerId `
+        -RecoveryCheckpoint $workerRunningStatusPath `
         -AllowedPaths @(ConvertTo-StringArray -Value $adapterContract.allowedMutationSurfaces) `
         -ForbiddenPaths @($forbiddenGlobs) `
         -VerificationCommands @($effectiveVerifyCommands) `
@@ -954,7 +957,10 @@ try {
     if ($cleanupWorktreeOnSuccess) {
         Write-RunnerMessage -Message ("Removing successful worktree {0}" -f $worktreePath)
         $removeResult = Invoke-Git -Arguments @("worktree", "remove", $worktreePath) -WorkingDirectory $repoRoot
-        Assert-CommandSucceeded -Result $removeResult -Description "git worktree remove"
+        if ($removeResult.ExitCode -ne 0) {
+            $status = "worktree_cleanup_failed"
+            Assert-CommandSucceeded -Result $removeResult -Description "git worktree remove"
+        }
         $worktreePath = $null
     }
 }
@@ -968,19 +974,29 @@ catch {
 }
 finally {
     if ($null -ne $atlasContractsV2) {
-        $atlasContractsV2ReceiptValidation = Write-AtlasContractsV2TerminalReceipt `
-            -Producer $atlasContractsV2 `
-            -RunnerStatus $status `
-            -ChangedPaths @($changedPaths) `
-            -CommitSha $commitSha `
-            -RuntimePolicy $runtimePolicy `
-            -VerificationCommands @($effectiveVerifyCommands) `
-            -VerificationRecords @($verifyRecords) `
-            -Branch $branchName `
-            -Worktree $worktreePath `
-            -Reason $atlasContractsV2FailureReason `
-            -EvidenceRefs @($codexStdOutPath, $codexStdErrPath, $summaryPath, $manifestPath)
-        if (-not [bool]$atlasContractsV2ReceiptValidation.ok -and $status -eq "success") {
+        $leaseReleaseProven = $status -in @("success", "success_no_changes")
+        try {
+            $atlasContractsV2ReceiptValidation = Write-AtlasContractsV2TerminalReceipt `
+                -Producer $atlasContractsV2 `
+                -RunnerStatus $status `
+                -ChangedPaths @($changedPaths) `
+                -CommitSha $commitSha `
+                -RuntimePolicy $runtimePolicy `
+                -VerificationCommands @($effectiveVerifyCommands) `
+                -VerificationRecords @($verifyRecords) `
+                -Branch $branchName `
+                -Worktree $atlasContractsV2.lease.workspace.worktree `
+                -Reason $atlasContractsV2FailureReason `
+                -EvidenceRefs @($codexStdOutPath, $codexStdErrPath, $summaryPath, $manifestPath) `
+                -LeaseReleaseProven $leaseReleaseProven `
+                -LeaseRecoveryCheckpoint $manifestPath
+        }
+        catch {
+            $atlasContractsV2FailureReason = $_.Exception.Message
+            $atlasContractsV2ReceiptValidation = [pscustomobject]@{ ok = $false; reasonCode = $atlasContractsV2FailureReason }
+            $status = "atlas_contracts_v2_receipt_validation_failed"
+        }
+        if (-not [bool]$atlasContractsV2ReceiptValidation.ok -and $status -in @("success", "success_no_changes")) {
             $status = "atlas_contracts_v2_receipt_validation_failed"
         }
     }
