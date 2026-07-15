@@ -2,6 +2,8 @@
 
 `queue/` is a lightweight task-drop area for future automation and wrapper scripts. It is intentionally simple and manual.
 
+`owner-work-registry.json` is the machine-readable owner admission source for the `_stack` project board. An empty registry with `state: ready-empty` is authoritative: it means no `_stack` work is currently owner-admitted. Atlas candidates must not be copied into that registry or the board without an explicit `_stack` ownership decision.
+
 ## Layout
 
 - `pending/`
@@ -50,3 +52,4 @@ Rules:
 - mutating prompts should name the expected changed and unchanged paths when that is knowable up front
 - if a mutating criterion cannot be completed or proven, the worker must report it as blocked, skipped, or failed rather than claiming success
 - exploratory or non-mutating prompts may omit the mutating-task sections when the task is intentionally analysis-only
+- the deterministic board export at `exports/stack.project-board.owner-export.v1.json` contains only records admitted through `owner-work-registry.json`; `pending/`, `claimed/`, and Atlas proposals do not implicitly become board cards

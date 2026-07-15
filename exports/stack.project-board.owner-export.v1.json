@@ -1,0 +1,30 @@
+{
+  "contract_version": "atlas.project-board.owner-export.v1",
+  "export_id": "pbe_stack_owner_registry_d19487b95ae4",
+  "project_id": "_stack",
+  "board_id": "discordos:project-feedback:stack",
+  "owner": "_stack",
+  "adapter_id": "stack-owner-registry-v1",
+  "source_revision": "sha256:d19487b95ae46dabd1750d73aee6919700d31fa7554991217b11999b6dab7189",
+  "generated_at": "2026-07-14T00:00:00.000Z",
+  "sources": [
+    {
+      "source_id": "stack-owner-registry",
+      "kind": "json",
+      "repository": "_stack",
+      "path": "repos/_stack/queue/owner-work-registry.json",
+      "revision": "sha256:d19487b95ae46dabd1750d73aee6919700d31fa7554991217b11999b6dab7189",
+      "observed_at": "2026-07-14T00:00:00.000Z"
+    }
+  ],
+  "cards": [],
+  "extensions": {
+    "source_digest": "sha256:d19487b95ae46dabd1750d73aee6919700d31fa7554991217b11999b6dab7189",
+    "source_work_item_count": 0,
+    "exported_card_count": 0,
+    "owner_queue_state": "ready-empty",
+    "owner_queue_state_reason": "No _stack-owned pending or claimed task is currently admitted. Atlas candidates remain proposals until accepted here by the _stack owner.",
+    "atlas_candidates_admitted": false,
+    "discord_mutation_authorized": false
+  }
+}
