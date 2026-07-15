@@ -11,6 +11,7 @@
 - The workspace-root dispatcher protocol lives at `docs/dispatcher-protocol.md`.
 - Child-task handoff templates live at `templates/child-task-handoff.md`.
 - Future automation task drops live at `queue`.
+- `_stack` project-board ownership is declared in `queue/owner-work-registry.json`; `state: ready-empty` intentionally exports zero cards and prevents Atlas proposals from becoming owner work by implication.
 - Fitness verify guidance lives at `docs/fitness-verify.md`.
 - Workflow-pack and execution owner-boundary adoption lives at `docs/STACK-ORCHESTRATION-ADOPTION.md`.
 - Shared Codex runner guidance lives at `docs/codex-orchestration.md`.
