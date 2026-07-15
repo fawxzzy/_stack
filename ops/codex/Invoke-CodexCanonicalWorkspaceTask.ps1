@@ -1332,7 +1332,12 @@ try {
         -RuntimePolicy $runtimePolicy `
         -ExecutionClass $executionClass `
         -Branch $atlasContractsV2Branch `
-        -Worktree $repoRoot `
+        -WorkspaceRoot $repoRoot `
+        -Worktree $null `
+        -WorkerId ("canonical-worker-{0}" -f $runId) `
+        -CanonicalWorkspace `
+        -CanonicalWriterResource $lockPath `
+        -RecoveryCheckpoint $manifestPath `
         -AllowedPaths @($admittedChangedPaths) `
         -ForbiddenPaths @(".git/**") `
         -VerificationCommands @($verificationCommands)
@@ -1581,19 +1586,33 @@ finally {
     }
 
     if ($null -ne $atlasContractsV2) {
-        $atlasContractsV2ReceiptValidation = Write-AtlasContractsV2TerminalReceipt `
-            -Producer $atlasContractsV2 `
-            -RunnerStatus $status `
-            -ChangedPaths @($taskChangedPaths) `
-            -CommitSha $commitSha `
-            -RuntimePolicy $runtimePolicy `
-            -VerificationCommands @($verificationCommands) `
-            -VerificationRecords @($verifyRecords) `
-            -Branch $atlasContractsV2Branch `
-            -Worktree $repoRoot `
-            -Reason $atlasContractsV2FailureReason `
-            -EvidenceRefs @($codexStdOutPath, $codexStdErrPath, $summaryPath, $manifestPath)
-        if (-not [bool]$atlasContractsV2ReceiptValidation.ok -and $status -eq "success") {
+        $leaseReleaseProven = $status -in @("success", "success_no_changes") -and $null -ne $lockRelease -and [bool]$lockRelease.released
+        if ($status -in @("success", "success_no_changes") -and -not $leaseReleaseProven) {
+            $status = "worker_lease_recovery_required"
+            $atlasContractsV2FailureReason = "Canonical writer lock release could not be proven."
+        }
+        try {
+            $atlasContractsV2ReceiptValidation = Write-AtlasContractsV2TerminalReceipt `
+                -Producer $atlasContractsV2 `
+                -RunnerStatus $status `
+                -ChangedPaths @($taskChangedPaths) `
+                -CommitSha $commitSha `
+                -RuntimePolicy $runtimePolicy `
+                -VerificationCommands @($verificationCommands) `
+                -VerificationRecords @($verifyRecords) `
+                -Branch $atlasContractsV2Branch `
+                -Worktree $null `
+                -Reason $atlasContractsV2FailureReason `
+                -EvidenceRefs @($codexStdOutPath, $codexStdErrPath, $summaryPath, $manifestPath) `
+                -LeaseReleaseProven $leaseReleaseProven `
+                -LeaseRecoveryCheckpoint $manifestPath
+        }
+        catch {
+            $atlasContractsV2FailureReason = $_.Exception.Message
+            $atlasContractsV2ReceiptValidation = [pscustomobject]@{ ok = $false; reasonCode = $atlasContractsV2FailureReason }
+            $status = "atlas_contracts_v2_receipt_validation_failed"
+        }
+        if (-not [bool]$atlasContractsV2ReceiptValidation.ok -and $status -in @("success", "success_no_changes")) {
             $status = "atlas_contracts_v2_receipt_validation_failed"
         }
     }

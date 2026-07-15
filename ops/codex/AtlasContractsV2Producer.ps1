@@ -7,6 +7,7 @@ $script:AtlasContractsV2ArtifactNames = [ordered]@{
     jobEnvelope = "atlas.job-envelope.v2.json"
     contextPacket = "atlas.context-packet.v2.json"
     approvalRecord = "atlas.approval-record.v2.json"
+    workerLease = "atlas.worker-lease.v2.json"
     evidenceBundle = "atlas.evidence-bundle.v2.json"
     executionReceipt = "atlas.execution-receipt.v2.json"
 }
@@ -108,6 +109,13 @@ function Assert-AtlasContractsV2Validation {
     if (-not [bool]$Validation.ok) { throw ([string]$Validation.reasonCode) }
 }
 
+function Get-AtlasContractsV2ArtifactDigest {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $hash = Get-FileHash -LiteralPath $Path -Algorithm SHA256
+    return "sha256:{0}" -f $hash.Hash.ToLowerInvariant()
+}
+
 function Get-AtlasContractsV2Surface {
     param($Producer, [string]$TerminalStatus = $null, $ReceiptValidation = $null, [string]$PreflightFailureReason = $null)
     if ($null -eq $Producer) {
@@ -126,6 +134,8 @@ function Get-AtlasContractsV2Surface {
             jobEnvelope = $Producer.validation.jobEnvelope
             contextPacket = $Producer.validation.contextPacket
             approvalRecord = $Producer.validation.approvalRecord
+            workerLease = $Producer.validation.workerLease
+            workerLeaseTerminal = $Producer.validation.workerLeaseTerminal
             evidenceBundle = $Producer.validation.evidenceBundle
             executionReceipt = $ReceiptValidation
         }
@@ -134,11 +144,16 @@ function Get-AtlasContractsV2Surface {
             jobId = $Producer.jobId
             runId = $Producer.runId
             executionClass = $Producer.executionClass
+            workerId = $Producer.workerId
+            leaseId = $Producer.leaseId
+            workspace = $Producer.lease.workspace
         }
         status = [ordered]@{
             preflight = if ([bool]$Producer.preflightValidated) { "validated" } else { "failed" }
             terminal = $TerminalStatus
             receiptValidated = if ($null -eq $ReceiptValidation) { $null } else { [bool]$ReceiptValidation.ok }
+            lease = [string]$Producer.lease.status
+            leaseDigest = $Producer.leaseDigest
             reasonCode = $PreflightFailureReason
         }
     }
@@ -154,7 +169,12 @@ function New-AtlasContractsV2Producer {
         [Parameter(Mandatory = $true)][string]$ExecutionClass,
         [string]$BaseRef,
         [string]$Branch,
+        [string]$WorkspaceRoot,
         [string]$Worktree,
+        [string]$WorkerId,
+        [switch]$CanonicalWorkspace,
+        [string]$CanonicalWriterResource,
+        [string]$RecoveryCheckpoint,
         [string[]]$AllowedPaths = @(),
         [string[]]$ForbiddenPaths = @(),
         [string[]]$VerificationCommands = @(),
@@ -170,8 +190,30 @@ function New-AtlasContractsV2Producer {
         $paths[$key] = Join-Path -Path $LogDirectory -ChildPath $script:AtlasContractsV2ArtifactNames[$key]
         $validationPaths[$key] = "$($paths[$key]).validation.json"
     }
+    $validationPaths.workerLeaseTerminal = "$($paths.workerLease).terminal.validation.json"
     $runtime = ConvertTo-AtlasContractsV2Runtime -RuntimePolicy $RuntimePolicy
     $jobId = "atlas-stack-{0}" -f $RunId
+    $leaseId = "atlas-stack-lease-{0}" -f $RunId
+    if ([string]::IsNullOrWhiteSpace($WorkerId)) { $WorkerId = "worker-{0}" -f $RunId }
+    if ([string]::IsNullOrWhiteSpace($WorkspaceRoot)) {
+        $WorkspaceRoot = if (-not [string]::IsNullOrWhiteSpace($Worktree)) { $Worktree } else { $contracts.atlasRoot }
+    }
+    $threadId = if ([string]::IsNullOrWhiteSpace($env:CODEX_THREAD_ID)) { $null } else { [string]$env:CODEX_THREAD_ID }
+    $turnId = if ([string]::IsNullOrWhiteSpace($env:CODEX_TURN_ID)) { $null } else { [string]$env:CODEX_TURN_ID }
+    $acquiredAt = (Get-Date).ToUniversalTime().ToString("o")
+    $resources = @()
+    if ($CanonicalWorkspace.IsPresent) {
+        $resources += [ordered]@{ kind = "custom"; resource_id = $WorkspaceRoot; exclusive = $true; metadata = [ordered]@{ resource_type = "canonical-workspace"; posture = "primary-workspace" } }
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($Worktree)) {
+        $resources += [ordered]@{ kind = "worktree"; resource_id = $Worktree; exclusive = $true; metadata = [ordered]@{ posture = "isolated-governed-worktree" } }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Branch)) {
+        $resources += [ordered]@{ kind = "branch"; resource_id = $Branch; exclusive = $true; metadata = [ordered]@{ posture = if ($CanonicalWorkspace.IsPresent) { "canonical-writer-branch" } else { "isolated-task-branch" } } }
+    }
+    if ($CanonicalWorkspace.IsPresent -and -not [string]::IsNullOrWhiteSpace($CanonicalWriterResource)) {
+        $resources += [ordered]@{ kind = "custom"; resource_id = $CanonicalWriterResource; exclusive = $true; metadata = [ordered]@{ resource_type = "canonical-single-writer"; posture = "writer-lock" } }
+    }
     $component = [ordered]@{
         contract_version = "atlas.component-manifest.v2"
         component_id = "stack"
@@ -203,6 +245,7 @@ function New-AtlasContractsV2Producer {
             base_ref = $BaseRef
             branch = $Branch
             worktree = $Worktree
+            lease_id = $leaseId
             native_thread_id = $env:CODEX_THREAD_ID
             native_turn_id = $env:CODEX_TURN_ID
             local_capability = $runtime.permissions
@@ -219,6 +262,7 @@ function New-AtlasContractsV2Producer {
             [ordered]@{ kind = "repository"; ref = "AGENTS.md"; authority = "authoritative"; digest = $null },
             [ordered]@{ kind = "receipt"; ref = $paths.componentManifest; authority = "authoritative"; digest = $null },
             [ordered]@{ kind = "receipt"; ref = $paths.jobEnvelope; authority = "authoritative"; digest = $null },
+            [ordered]@{ kind = "receipt"; ref = $paths.workerLease; authority = "authoritative"; digest = $null },
             [ordered]@{ kind = "decision"; ref = "runtime-policy"; authority = "advisory"; digest = $null }
         )
         rules = @(
@@ -252,10 +296,32 @@ function New-AtlasContractsV2Producer {
         )
         extensions = [ordered]@{ component_id = "stack"; run_id = $RunId; external_authority = "denied" }
     }
+    $workerLease = [ordered]@{
+        contract_version = "atlas.worker-lease.v2"
+        lease_id = $leaseId
+        job_id = $jobId
+        component_id = "stack"
+        status = "active"
+        acquired_at = $acquiredAt
+        expires_at = $null
+        renewed_at = $null
+        released_at = $null
+        owner = [ordered]@{ worker_id = $WorkerId; thread_id = $threadId; turn_id = $turnId }
+        workspace = [ordered]@{ root = $WorkspaceRoot; worktree = if ($CanonicalWorkspace.IsPresent) { $null } else { $Worktree }; branch = if ([string]::IsNullOrWhiteSpace($Branch)) { $null } else { $Branch } }
+        resources = @($resources)
+        recovery = [ordered]@{ strategy = "resume"; checkpoint = if ([string]::IsNullOrWhiteSpace($RecoveryCheckpoint)) { $null } else { $RecoveryCheckpoint } }
+        extensions = [ordered]@{
+            run_id = $RunId
+            execution_class = $ExecutionClass
+            workspace_posture = if ($CanonicalWorkspace.IsPresent) { "canonical-workspace" } else { "isolated-worktree" }
+            external_authority = "denied"
+        }
+    }
     Write-TextFile -Path $paths.componentManifest -Content (($component | ConvertTo-Json -Depth 16) + "`r`n")
     Write-TextFile -Path $paths.jobEnvelope -Content (($envelope | ConvertTo-Json -Depth 16) + "`r`n")
     Write-TextFile -Path $paths.contextPacket -Content (($contextPacket | ConvertTo-Json -Depth 16) + "`r`n")
     Write-TextFile -Path $paths.approvalRecord -Content (($approvalRecord | ConvertTo-Json -Depth 16) + "`r`n")
+    Write-TextFile -Path $paths.workerLease -Content (($workerLease | ConvertTo-Json -Depth 16) + "`r`n")
     $componentValidation = Invoke-AtlasContractsV2Validation -Contracts $contracts -SchemaId "atlas.component-manifest.v2" -ArtifactPath $paths.componentManifest -EvidencePath $validationPaths.componentManifest
     Assert-AtlasContractsV2Validation -Validation $componentValidation
     $jobValidation = Invoke-AtlasContractsV2Validation -Contracts $contracts -SchemaId "atlas.job-envelope.v2" -ArtifactPath $paths.jobEnvelope -EvidencePath $validationPaths.jobEnvelope
@@ -264,16 +330,22 @@ function New-AtlasContractsV2Producer {
     Assert-AtlasContractsV2Validation -Validation $contextValidation
     $approvalValidation = Invoke-AtlasContractsV2Validation -Contracts $contracts -SchemaId "atlas.approval-record.v2" -ArtifactPath $paths.approvalRecord -EvidencePath $validationPaths.approvalRecord
     Assert-AtlasContractsV2Validation -Validation $approvalValidation
+    $workerLeaseValidation = Invoke-AtlasContractsV2Validation -Contracts $contracts -SchemaId "atlas.worker-lease.v2" -ArtifactPath $paths.workerLease -EvidencePath $validationPaths.workerLease
+    if (-not [bool]$workerLeaseValidation.ok) { throw "atlas_contracts_v2_worker_lease_preflight_invalid" }
 
     return [pscustomobject]@{
         contracts = $contracts
         paths = $paths
         validationPaths = $validationPaths
-        validation = [ordered]@{ componentManifest = $componentValidation; jobEnvelope = $jobValidation; contextPacket = $contextValidation; approvalRecord = $approvalValidation; evidenceBundle = $null }
+        validation = [ordered]@{ componentManifest = $componentValidation; jobEnvelope = $jobValidation; contextPacket = $contextValidation; approvalRecord = $approvalValidation; workerLease = $workerLeaseValidation; workerLeaseTerminal = $null; evidenceBundle = $null }
         componentId = "stack"
         jobId = $jobId
         runId = $RunId
         executionClass = $ExecutionClass
+        workerId = $WorkerId
+        leaseId = $leaseId
+        lease = $workerLease
+        leaseDigest = $null
         envelope = $envelope
         preflightValidated = $true
     }
@@ -295,11 +367,48 @@ function Get-AtlasContractsV2WorkerInstructions {
         ("- JobEnvelope validation: `{0}`." -f [string]$Producer.validationPaths.jobEnvelope),
         ("- ContextPacket: `{0}`." -f [string]$Producer.paths.contextPacket),
         ("- ApprovalRecord: `{0}`." -f [string]$Producer.paths.approvalRecord),
+        ("- WorkerLease (active): `{0}`." -f [string]$Producer.paths.workerLease),
         ("- ContextPacket validation: `{0}`." -f [string]$Producer.validationPaths.contextPacket),
         ("- ApprovalRecord validation: `{0}`." -f [string]$Producer.validationPaths.approvalRecord),
+        ("- WorkerLease active validation: `{0}`." -f [string]$Producer.validationPaths.workerLease),
         "- These artifacts live in the parent runner log, not necessarily inside the isolated worktree.",
         "- Read the exact paths above when the task requires preflight evidence; do not rediscover them by scanning worktree-local `.codex/logs`."
     ) -join "`r`n"
+}
+
+function Complete-AtlasContractsV2WorkerLease {
+    param(
+        [Parameter(Mandatory = $true)]$Producer,
+        [Parameter(Mandatory = $true)][string]$RunnerStatus,
+        [bool]$ReleaseProven = $false,
+        [string]$RecoveryCheckpoint
+    )
+
+    $acceptedCompletion = $RunnerStatus -in @("success", "success_no_changes")
+    $terminalAt = [DateTimeOffset]::UtcNow
+    $acquiredAt = [DateTimeOffset]::Parse([string]$Producer.lease.acquired_at)
+    if ($terminalAt -lt $acquiredAt) { $terminalAt = $acquiredAt }
+    if ($acceptedCompletion -and $ReleaseProven) {
+        $Producer.lease.status = "released"
+        $Producer.lease.released_at = $terminalAt.UtcDateTime.ToString("o")
+        $Producer.lease.recovery.strategy = "release"
+    }
+    else {
+        $Producer.lease.status = "recovery-required"
+        $Producer.lease.released_at = $null
+        $Producer.lease.recovery.strategy = "resume"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RecoveryCheckpoint)) {
+        $Producer.lease.recovery.checkpoint = $RecoveryCheckpoint
+    }
+    $Producer.lease.extensions.terminal_runner_status = $RunnerStatus
+    $Producer.lease.extensions.release_proven = [bool]$ReleaseProven
+    Write-TextFile -Path $Producer.paths.workerLease -Content (($Producer.lease | ConvertTo-Json -Depth 16) + "`r`n")
+    $validation = Invoke-AtlasContractsV2Validation -Contracts $Producer.contracts -SchemaId "atlas.worker-lease.v2" -ArtifactPath $Producer.paths.workerLease -EvidencePath $Producer.validationPaths.workerLeaseTerminal
+    $Producer.validation.workerLeaseTerminal = $validation
+    if (-not [bool]$validation.ok) { throw "atlas_contracts_v2_worker_lease_terminal_invalid" }
+    $Producer.leaseDigest = Get-AtlasContractsV2ArtifactDigest -Path $Producer.paths.workerLease
+    return [pscustomobject]@{ status = [string]$Producer.lease.status; digest = [string]$Producer.leaseDigest; validation = $validation }
 }
 
 function Write-AtlasContractsV2TerminalReceipt {
@@ -314,9 +423,12 @@ function Write-AtlasContractsV2TerminalReceipt {
         [string]$Branch,
         [string]$Worktree,
         [string]$Reason,
-        [string[]]$EvidenceRefs = @()
+        [string[]]$EvidenceRefs = @(),
+        [bool]$LeaseReleaseProven = $false,
+        [string]$LeaseRecoveryCheckpoint
     )
 
+    $leaseTerminal = Complete-AtlasContractsV2WorkerLease -Producer $Producer -RunnerStatus $RunnerStatus -ReleaseProven $LeaseReleaseProven -RecoveryCheckpoint $LeaseRecoveryCheckpoint
     $receiptStatus = switch ($RunnerStatus) {
         "success" { "succeeded" }
         "success_no_changes" { "succeeded" }
@@ -328,6 +440,7 @@ function Write-AtlasContractsV2TerminalReceipt {
         "mutation_admission_failed" { "failed" }
         default { "failed" }
     }
+    if ([string]$leaseTerminal.status -ne "released" -and $receiptStatus -eq "succeeded") { $receiptStatus = "failed" }
     $verification = @($VerificationRecords | ForEach-Object {
         [ordered]@{
             command = [string]$_.command
@@ -383,7 +496,8 @@ function Write-AtlasContractsV2TerminalReceipt {
     if (-not [string]::IsNullOrWhiteSpace($CommitSha)) { $commitList = [object[]]@($CommitSha) }
     $blockerList = [object[]]@()
     if ($receiptStatus -ne "succeeded") {
-        if ([string]::IsNullOrWhiteSpace($Reason)) { $blockerList = [object[]]@($RunnerStatus) }
+        if ([string]::IsNullOrWhiteSpace($Reason) -and [string]$leaseTerminal.status -eq "recovery-required") { $blockerList = [object[]]@("worker_lease_recovery_required") }
+        elseif ([string]::IsNullOrWhiteSpace($Reason)) { $blockerList = [object[]]@($RunnerStatus) }
         else { $blockerList = [object[]]@($Reason) }
     }
     $receipt = [ordered]@{
@@ -398,10 +512,10 @@ function Write-AtlasContractsV2TerminalReceipt {
         changed_paths = @($ChangedPaths)
         commits = $commitList
         verification = $verification
-        evidence_refs = @($EvidenceRefs | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) + @($Producer.paths.contextPacket, $Producer.paths.approvalRecord, $Producer.paths.evidenceBundle, $Producer.validationPaths.contextPacket, $Producer.validationPaths.approvalRecord, $Producer.validationPaths.evidenceBundle)
+        evidence_refs = @($EvidenceRefs | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) + @($Producer.paths.contextPacket, $Producer.paths.approvalRecord, $Producer.paths.workerLease, $Producer.paths.evidenceBundle, $Producer.validationPaths.contextPacket, $Producer.validationPaths.approvalRecord, $Producer.validationPaths.workerLease, $Producer.validationPaths.workerLeaseTerminal, $Producer.validationPaths.evidenceBundle)
         blockers = $blockerList
         follow_up = @()
-        correlations = [ordered]@{ card_id = $Producer.envelope.correlations.card_id; thread_id = $env:CODEX_THREAD_ID; turn_id = $env:CODEX_TURN_ID; branch = $Branch; worktree = $Worktree }
+        correlations = [ordered]@{ card_id = $Producer.envelope.correlations.card_id; thread_id = $Producer.lease.owner.thread_id; turn_id = $Producer.lease.owner.turn_id; branch = $Producer.lease.workspace.branch; worktree = $Producer.lease.workspace.worktree }
         authority_actions = @()
         summary = if ([string]::IsNullOrWhiteSpace($Reason)) { $null } else { $Reason }
         extensions = [ordered]@{
@@ -409,9 +523,10 @@ function Write-AtlasContractsV2TerminalReceipt {
             runner_status = $RunnerStatus
             validation_owner = "atlas-root"
             runtime_requested = ConvertTo-AtlasContractsV2Runtime -RuntimePolicy $RuntimePolicy -Layer "requested"
-            identity_correlations = [ordered]@{ component_id = $Producer.componentId; job_id = $Producer.jobId; run_id = $Producer.runId; execution_class = $Producer.executionClass; branch = $Branch; worktree = $Worktree }
-            artifact_refs = [ordered]@{ context_packet = $Producer.paths.contextPacket; approval_record = $Producer.paths.approvalRecord; evidence_bundle = $Producer.paths.evidenceBundle }
-            validation_evidence_refs = @($Producer.validationPaths.componentManifest, $Producer.validationPaths.jobEnvelope, $Producer.validationPaths.contextPacket, $Producer.validationPaths.approvalRecord, $Producer.validationPaths.evidenceBundle)
+            identity_correlations = [ordered]@{ component_id = $Producer.componentId; job_id = $Producer.jobId; run_id = $Producer.runId; execution_class = $Producer.executionClass; worker_id = $Producer.workerId; branch = $Producer.lease.workspace.branch; workspace_root = $Producer.lease.workspace.root; worktree = $Producer.lease.workspace.worktree; thread_id = $Producer.lease.owner.thread_id; turn_id = $Producer.lease.owner.turn_id }
+            artifact_refs = [ordered]@{ context_packet = $Producer.paths.contextPacket; approval_record = $Producer.paths.approvalRecord; worker_lease = $Producer.paths.workerLease; evidence_bundle = $Producer.paths.evidenceBundle }
+            worker_lease_binding = [ordered]@{ lease_id = $Producer.leaseId; status = [string]$leaseTerminal.status; digest = [string]$leaseTerminal.digest; artifact_ref = $Producer.paths.workerLease; active_validation_ref = $Producer.validationPaths.workerLease; terminal_validation_ref = $Producer.validationPaths.workerLeaseTerminal }
+            validation_evidence_refs = @($Producer.validationPaths.componentManifest, $Producer.validationPaths.jobEnvelope, $Producer.validationPaths.contextPacket, $Producer.validationPaths.approvalRecord, $Producer.validationPaths.workerLease, $Producer.validationPaths.workerLeaseTerminal, $Producer.validationPaths.evidenceBundle)
             compatibility = [ordered]@{ v1 = "preserved"; cluster_1_artifacts = @("atlas.component-manifest.v2.json", "atlas.job-envelope.v2.json", "atlas.execution-receipt.v2.json"); run_manifest_surface = "atlasContractsV2" }
             commit_state = [ordered]@{ status = if ([string]::IsNullOrWhiteSpace($CommitSha)) { "not-created" } else { "recorded" }; sha = if ([string]::IsNullOrWhiteSpace($CommitSha)) { $null } else { $CommitSha }; branch = $Branch }
             prohibited_action_confirmation = [ordered]@{ push = "not-exercised"; deploy = "not-exercised"; production = "not-exercised"; discord = "not-exercised"; board = "not-exercised"; data_mutation = "not-exercised" }

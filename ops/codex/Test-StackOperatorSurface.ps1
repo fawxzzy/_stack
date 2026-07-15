@@ -2141,7 +2141,7 @@ if (!atlasContractsV2 || atlasContractsV2.status?.preflight !== "validated") {
   process.stderr.write("Atlas Contracts v2 preflight was not receipted before fake Codex execution.\n");
   process.exit(43);
 }
-for (const artifactName of ["componentManifest", "jobEnvelope", "contextPacket", "approvalRecord"]) {
+for (const artifactName of ["componentManifest", "jobEnvelope", "contextPacket", "approvalRecord", "workerLease"]) {
   if (!atlasContractsV2.artifactPaths?.[artifactName] || atlasContractsV2.validation?.[artifactName]?.ok !== true) {
     process.stderr.write(`Atlas Contracts v2 ${artifactName} was not validated before fake Codex execution.\n`);
     process.exit(44);
@@ -2184,7 +2184,8 @@ if (!prompt.includes("Atlas Contracts v2 preflight contract:") ||
     !prompt.includes(atlasContractsV2.artifactPaths.componentManifest) ||
     !prompt.includes(atlasContractsV2.artifactPaths.jobEnvelope) ||
     !prompt.includes(atlasContractsV2.artifactPaths.contextPacket) ||
-    !prompt.includes(atlasContractsV2.artifactPaths.approvalRecord)) {
+    !prompt.includes(atlasContractsV2.artifactPaths.approvalRecord) ||
+    !prompt.includes(atlasContractsV2.artifactPaths.workerLease)) {
   process.stderr.write("Runner did not inject exact Atlas Contracts v2 preflight paths into the worker prompt.\n");
   process.exit(47);
 }
@@ -2342,7 +2343,7 @@ Blocked / Skipped Reporting Rules:
     if ($null -eq $integrationManifest.atlasContractsV2 -or [string]$integrationManifest.atlasContractsV2.status.preflight -ne "validated" -or [string]$integrationManifest.atlasContractsV2.status.terminal -ne "success") {
         throw "Integration fixture did not preserve the Atlas Contracts v2 preflight and terminal state."
     }
-    foreach ($artifactName in @("componentManifest", "jobEnvelope", "contextPacket", "approvalRecord", "evidenceBundle", "executionReceipt")) {
+    foreach ($artifactName in @("componentManifest", "jobEnvelope", "contextPacket", "approvalRecord", "workerLease", "evidenceBundle", "executionReceipt")) {
         $artifactPath = [string]$integrationManifest.atlasContractsV2.artifactPaths.$artifactName
         if ([string]::IsNullOrWhiteSpace($artifactPath) -or -not (Test-Path -LiteralPath $artifactPath)) {
             throw ("Integration fixture did not retain the Atlas Contracts v2 {0} artifact." -f $artifactName)
@@ -2355,12 +2356,22 @@ Blocked / Skipped Reporting Rules:
     if ([string]$integrationExecutionReceipt.extensions.run_id -ne [string]$integrationManifest.runId) {
         throw "Integration fixture terminal receipt did not preserve the native run id."
     }
-    foreach ($artifactName in @("contextPacket", "approvalRecord", "evidenceBundle")) {
+    foreach ($artifactName in @("contextPacket", "approvalRecord", "workerLease", "workerLeaseTerminal", "evidenceBundle")) {
         if (-not [bool]$integrationManifest.atlasContractsV2.validation.$artifactName.ok) {
             throw ("Integration fixture did not validate the Atlas Contracts v2 {0}." -f $artifactName)
         }
     }
     $integrationApprovalRecord = Get-Content -LiteralPath ([string]$integrationManifest.atlasContractsV2.artifactPaths.approvalRecord) -Raw | ConvertFrom-Json
+    $integrationWorkerLease = Get-Content -LiteralPath ([string]$integrationManifest.atlasContractsV2.artifactPaths.workerLease) -Raw | ConvertFrom-Json
+    if ([string]$integrationWorkerLease.status -ne "released" -or [string]::IsNullOrWhiteSpace([string]$integrationWorkerLease.released_at)) {
+        throw "Integration fixture did not release the repo-task WorkerLease at accepted completion."
+    }
+    if ([string]$integrationWorkerLease.workspace.worktree -ne [string]$integrationExecutionReceipt.correlations.worktree -or [string]$integrationWorkerLease.workspace.branch -ne [string]$integrationExecutionReceipt.correlations.branch) {
+        throw "Integration fixture WorkerLease and ExecutionReceipt did not retain the exact isolated worktree and branch identity."
+    }
+    if ([string]$integrationExecutionReceipt.extensions.worker_lease_binding.lease_id -ne [string]$integrationWorkerLease.lease_id -or [string]$integrationExecutionReceipt.extensions.worker_lease_binding.status -ne "released") {
+        throw "Integration fixture ExecutionReceipt did not bind the released WorkerLease."
+    }
     if ([string]$integrationApprovalRecord.decision -ne "rejected") {
         throw "Integration fixture fabricated external authority approval."
     }
