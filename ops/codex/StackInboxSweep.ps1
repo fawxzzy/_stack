@@ -219,7 +219,7 @@ function Test-StackInboxAdmission {
     $runtimeReasoning = if ($values.Contains("runtimereasoning")) { [string]$values["runtimereasoning"] } else { "" }
     if (-not [string]::IsNullOrWhiteSpace($runtimeReasoning) -and $runtimeReasoning -notin @("medium", "high", "xhigh")) { [void]$errors.Add("unsupported_runtime_reasoning") }
     $runtimeWebSearch = if ($values.Contains("runtimewebsearch")) { [string]$values["runtimewebsearch"] } else { "" }
-    if (-not [string]::IsNullOrWhiteSpace($runtimeWebSearch) -and $runtimeWebSearch -notin @("live", "disabled", "cached")) { [void]$errors.Add("unsupported_runtime_web_search") }
+    if (-not [string]::IsNullOrWhiteSpace($runtimeWebSearch) -and $runtimeWebSearch -notin @("live", "disabled")) { [void]$errors.Add("unsupported_runtime_web_search") }
 
     $metadata = [pscustomobject]@{
         owner = $owner
@@ -839,7 +839,11 @@ function Invoke-StackInboxRunOnceSweep {
         $recovery = Get-StackInboxRecoverableClaims -StateRoot $StateRoot -CurrentOwner $owner -SweepId $SweepId -CorrelationId $correlationId
         $claims = New-Object System.Collections.Generic.List[object]
         foreach ($claim in @($recovery.recoverable)) { [void]$claims.Add($claim); $counts.recovered += 1 }
-        foreach ($terminal in @($recovery.terminalized)) { [void]$terminalRecords.Add($terminal); $counts.quarantined += 1 }
+        foreach ($terminal in @($recovery.terminalized)) {
+            [void]$terminalRecords.Add($terminal)
+            if ([string]$terminal.disposition -eq "archived") { $counts.archived += 1 }
+            else { $counts.quarantined += 1 }
+        }
         $counts.pre_move_recovered = @($recovery.pre_move_recovered).Count
 
         foreach ($prompt in @(Get-ChildItem -LiteralPath $InboxDirectory -Filter *.md -File | Where-Object { $_.Name -ne "README.md" } | Sort-Object Name)) {

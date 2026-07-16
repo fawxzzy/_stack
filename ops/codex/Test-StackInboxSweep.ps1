@@ -188,9 +188,12 @@ try {
     Write-TestPrompt -Path (Join-Path $admissionInbox "stale.md") -AcceptedAt "2026-04-08T00:00:00.0000000Z" -IdempotencyKey "stale.one" -JobId "stale-job"
     Write-TestPrompt -Path (Join-Path $admissionInbox "foreign.md") -Owner "another-owner" -IdempotencyKey "foreign.one" -JobId "foreign-job"
     Write-TestPrompt -Path (Join-Path $admissionInbox "mixed-policy.md") -IdempotencyKey "mixed.one" -JobId "mixed-job" -AdditionalHeaders @("Runtime Permission Profile: :danger-full-access", "Runtime Sandbox Mode: danger-full-access")
+    Write-TestPrompt -Path (Join-Path $admissionInbox "cached-web-search.md") -IdempotencyKey "cached-web.one" -JobId "cached-web-job" -AdditionalHeaders @("Runtime Web Search: cached")
     $admissionResult = Invoke-TestSweep -Inbox $admissionInbox -State (Join-Path $admissionRoot "state") -TaskScript $fakeTask
-    Assert-Sweep ($admissionResult.counts.quarantined -eq 2 -and $admissionResult.counts.left_in_place -eq 1 -and $admissionResult.counts.executed -eq 0) "Stale, malformed, or foreign admission did not fail closed."
+    Assert-Sweep ($admissionResult.counts.quarantined -eq 3 -and $admissionResult.counts.left_in_place -eq 1 -and $admissionResult.counts.executed -eq 0) "Stale, malformed, unsupported-policy, or foreign admission did not fail closed."
     Assert-Sweep (Test-Path -LiteralPath (Join-Path $admissionInbox "foreign.md")) "Foreign prompt was moved without ownership evidence."
+    $cachedWebTerminal = @($admissionResult.terminal_records | Where-Object { [string]$_.idempotency_key -eq "cached-web.one" })
+    Assert-Sweep ($cachedWebTerminal.Count -eq 1 -and [string]$cachedWebTerminal[0].reason_code -eq "malformed_or_unsupported_metadata" -and @($cachedWebTerminal[0].details.errors) -contains "unsupported_runtime_web_search" -and -not [bool]$cachedWebTerminal[0].execution_started) "Cached web-search policy was not rejected before claim and execution."
 
     $crashRoot = New-TestRoot -Name "crash-recovery"
     [void]$roots.Add($crashRoot)
@@ -207,6 +210,19 @@ try {
     $recovered = Invoke-TestSweep -Inbox $crashInbox -State $crashState -TaskScript $fakeTask
     Assert-Sweep ($recovered.counts.recovered -eq 1 -and $recovered.counts.executed -eq 1 -and $recovered.counts.archived -eq 1) "A pre-execution crash claim was not safely recovered."
     Assert-Sweep ([int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw) -eq ($beforeCrashCount + 1)) "Recoverable claim did not execute exactly once."
+
+    $completedResultPrompt = Join-Path $crashInbox "completed-result.md"
+    Write-TestPrompt -Path $completedResultPrompt -IdempotencyKey "crash.completed-result" -JobId "crash-completed-result-job"
+    $completedResultAdmission = Test-StackInboxAdmission -Path $completedResultPrompt
+    $completedResultClaim = New-StackInboxClaim -PromptPath $completedResultPrompt -StateRoot $crashState -TaskName "AtlasStackInboxSweep" -SweepId "crashed-after-result" -CorrelationId "crashed-after-result-correlation" -Admission $completedResultAdmission -Owner $deadOwner
+    Copy-Item -LiteralPath ([string]$firstTerminal.result_path) -Destination ([string]$completedResultClaim.record.result_path)
+    $completedResultClaim.record.state = "executing"
+    $completedResultClaim.record.execution_started_at = "2026-07-16T00:00:00.0000000Z"
+    Write-StackInboxJsonAtomic -Path $completedResultClaim.claim_path -Value $completedResultClaim.record
+    $beforeCompletedResultRecovery = [int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw)
+    $completedResultRecovery = Invoke-TestSweep -Inbox $crashInbox -State $crashState -TaskScript $fakeTask
+    Assert-Sweep ($completedResultRecovery.counts.executed -eq 0 -and $completedResultRecovery.counts.archived -eq 1 -and $completedResultRecovery.counts.quarantined -eq 0 -and [string]$completedResultRecovery.terminal_records[0].disposition -eq "archived") "Crash-after-result recovery did not count its terminal archive as archived."
+    Assert-Sweep ([int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw) -eq $beforeCompletedResultRecovery) "Crash-after-result recovery re-executed a completed task."
 
     $ambiguousPrompt = Join-Path $crashInbox "ambiguous.md"
     Write-TestPrompt -Path $ambiguousPrompt -IdempotencyKey "crash.ambiguous" -JobId "crash-ambiguous-job"
