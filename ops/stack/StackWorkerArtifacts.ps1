@@ -13,6 +13,15 @@ function Get-StackLogicalRepoRoot {
     )
 
     $resolvedRepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
+    try {
+        $gitCommonDirectory = (& git -C $resolvedRepoRoot rev-parse --git-common-dir 2>$null).Trim()
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($gitCommonDirectory)) {
+            if (-not [System.IO.Path]::IsPathRooted($gitCommonDirectory)) { $gitCommonDirectory = Join-Path $resolvedRepoRoot $gitCommonDirectory }
+            $logicalRepoRoot = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($gitCommonDirectory))
+            if (-not [string]::IsNullOrWhiteSpace($logicalRepoRoot)) { return $logicalRepoRoot }
+        }
+    }
+    catch { }
     $worktreesRoot = [System.IO.Path]::GetDirectoryName($resolvedRepoRoot)
     if (-not [string]::IsNullOrWhiteSpace($worktreesRoot) -and ([System.IO.Path]::GetFileName($worktreesRoot) -ieq "worktrees")) {
         $codexRoot = [System.IO.Path]::GetDirectoryName($worktreesRoot)

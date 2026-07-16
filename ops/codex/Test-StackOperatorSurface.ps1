@@ -168,6 +168,10 @@ $requiredFiles = @(
     "ops/Test-MazerDeployLink.ps1",
     "ops/Test-TroveDeployLink.ps1",
     "ops/codex/Start-CodexInboxRunner.ps1",
+    "ops/codex/StackInboxSweep.ps1",
+    "ops/codex/Invoke-StackInboxSweepLauncher.ps1",
+    "ops/codex/Install-StackInboxSweepTask.ps1",
+    "ops/codex/Test-StackInboxSweep.ps1",
     "ops/codex/Invoke-CodexRepoTask.ps1",
     "ops/codex/Invoke-CodexCanonicalWorkspaceTask.ps1",
     "ops/codex/AtlasContractsV2Producer.ps1",
@@ -225,6 +229,9 @@ $requiredScripts = @(
     "codex:playbook-doctrine:task",
     "codex:stack:inbox",
     "codex:stack:inbox:once",
+    "codex:stack:inbox:test",
+    "codex:stack:inbox:task:install",
+    "codex:stack:inbox:task:enable",
     "codex:stack:inbox:bootstrap:once",
     "codex:stack:task",
     "codex:stack:task:bootstrap",
@@ -607,6 +614,9 @@ if ([string]$stackConfig.runtime_policy.permission_profile -ne ":danger-full-acc
 }
 if ($stackConfig.runtime_policy.ContainsKey("sandbox_mode")) {
     throw "_stack runtime policy defaults must not mix a modern permission profile with a legacy sandbox mode."
+}
+if ([string]$stackConfig.runtime_policy.model -ne "gpt-5.6-sol" -or [string]$stackConfig.runtime_policy.reasoning -ne "xhigh" -or [string]$stackConfig.runtime_policy.approval -ne "never" -or [string]$stackConfig.runtime_policy.web_search -ne "live") {
+    throw "_stack scheduled inbox runtime policy must default to Sol/xhigh/live/no-approvals."
 }
 
 $physicalStackRoot = (Resolve-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "..\..")).Path
@@ -1982,14 +1992,9 @@ finally {
 }
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "..\..")).Path
-$logicalStackRoot = [System.IO.Path]::GetFullPath($repoRoot)
-$worktreesRoot = [System.IO.Path]::GetDirectoryName($logicalStackRoot)
-if (-not [string]::IsNullOrWhiteSpace($worktreesRoot) -and ([System.IO.Path]::GetFileName($worktreesRoot) -ieq "worktrees")) {
-    $codexRoot = [System.IO.Path]::GetDirectoryName($worktreesRoot)
-    if (-not [string]::IsNullOrWhiteSpace($codexRoot) -and ([System.IO.Path]::GetFileName($codexRoot) -ieq ".codex")) {
-        $logicalStackRoot = [System.IO.Path]::GetDirectoryName($codexRoot)
-    }
-}
+$gitCommonDirectory = (Invoke-GitChecked -WorkingDirectory $repoRoot -Arguments @("rev-parse", "--git-common-dir")).StdOut.Trim()
+if (-not [System.IO.Path]::IsPathRooted($gitCommonDirectory)) { $gitCommonDirectory = Join-Path $repoRoot $gitCommonDirectory }
+$logicalStackRoot = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($gitCommonDirectory))
 $workspaceRoot = (Resolve-Path -LiteralPath (Join-Path -Path $logicalStackRoot -ChildPath "..\..")).Path
 $integrationRepoRoot = Join-Path -Path $workspaceRoot -ChildPath ("repos\stack-runtime-policy-fixture-{0}" -f ([guid]::NewGuid().ToString("N")))
 $integrationPromptPath = $null

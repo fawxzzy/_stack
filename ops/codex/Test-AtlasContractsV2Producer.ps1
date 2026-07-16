@@ -10,10 +10,10 @@ function Assert-Condition {
 }
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "..\..")).Path
-$logicalStackRoot = $repoRoot
-if ((Split-Path -Leaf (Split-Path -Parent $logicalStackRoot)) -ieq "worktrees" -and (Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $logicalStackRoot))) -ieq ".codex") {
-    $logicalStackRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $logicalStackRoot))
-}
+$gitCommonDirectory = (& git -C $repoRoot rev-parse --git-common-dir).Trim()
+if ($LASTEXITCODE -ne 0) { throw "Unable to resolve the _stack Git common directory for Atlas Contracts v2 tests." }
+if (-not [System.IO.Path]::IsPathRooted($gitCommonDirectory)) { $gitCommonDirectory = Join-Path $repoRoot $gitCommonDirectory }
+$logicalStackRoot = Split-Path -Parent ([System.IO.Path]::GetFullPath($gitCommonDirectory))
 $atlasRoot = (Resolve-Path -LiteralPath (Join-Path -Path $logicalStackRoot -ChildPath "..\..")).Path
 $temporaryRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("atlas-contracts-v2-producer-{0}" -f [guid]::NewGuid().ToString("N"))
 $previousThreadId = $env:CODEX_THREAD_ID

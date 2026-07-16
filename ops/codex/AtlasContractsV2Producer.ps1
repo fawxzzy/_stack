@@ -249,6 +249,13 @@ function New-AtlasContractsV2Producer {
             native_thread_id = $env:CODEX_THREAD_ID
             native_turn_id = $env:CODEX_TURN_ID
             local_capability = $runtime.permissions
+            inbox = [ordered]@{
+                sweep_id = if ([string]::IsNullOrWhiteSpace($env:ATLAS_INBOX_SWEEP_ID)) { $null } else { [string]$env:ATLAS_INBOX_SWEEP_ID }
+                correlation_id = if ([string]::IsNullOrWhiteSpace($env:ATLAS_INBOX_SWEEP_CORRELATION_ID)) { $null } else { [string]$env:ATLAS_INBOX_SWEEP_CORRELATION_ID }
+                idempotency_key = [string](Get-ObjectPropertyValue -Object $PromptRecord -Name "IdempotencyKey" -DefaultValue $env:ATLAS_INBOX_IDEMPOTENCY_KEY)
+                inbox_job_id = [string](Get-ObjectPropertyValue -Object $PromptRecord -Name "InboxJobId" -DefaultValue $env:ATLAS_INBOX_JOB_ID)
+                accepted_at = [string](Get-ObjectPropertyValue -Object $PromptRecord -Name "AcceptedAt" -DefaultValue $null)
+            }
             external_authority = [ordered]@{ push = "denied"; deploy = "denied"; production = "denied"; discord = "denied"; board = "denied"; data_mutation = "denied" }
         }
     }

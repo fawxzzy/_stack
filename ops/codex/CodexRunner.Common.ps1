@@ -1058,6 +1058,11 @@ function Parse-PromptFile {
             "runtimeapprovalpolicy" { $metadata.RuntimeApproval = $value }
             "runtimewebsearch" { $metadata.RuntimeWebSearch = $value }
             "runtimewebsearchmode" { $metadata.RuntimeWebSearch = $value }
+            "inboxcontract" { $metadata.InboxContract = $value }
+            "inboxowner" { $metadata.InboxOwner = $value }
+            "acceptedat" { $metadata.AcceptedAt = $value }
+            "idempotencykey" { $metadata.IdempotencyKey = $value }
+            "jobid" { $metadata.InboxJobId = $value }
             default { }
         }
 
@@ -1114,6 +1119,11 @@ function Parse-PromptFile {
     $allowNoChangesRaw = if ($metadata.ContainsKey("AllowNoChanges")) { $metadata["AllowNoChanges"] } else { $null }
     $allowNoChanges = ConvertTo-StrictPromptBoolean -Value $allowNoChangesRaw -DefaultValue $false -Name "Allow No Changes"
     $noChangeProofPath = if ($metadata.ContainsKey("NoChangeProofPath")) { $metadata["NoChangeProofPath"] } else { $null }
+    $inboxContract = if ($metadata.ContainsKey("InboxContract")) { $metadata["InboxContract"] } else { $null }
+    $inboxOwner = if ($metadata.ContainsKey("InboxOwner")) { $metadata["InboxOwner"] } else { $null }
+    $acceptedAt = if ($metadata.ContainsKey("AcceptedAt")) { $metadata["AcceptedAt"] } else { $null }
+    $idempotencyKey = if ($metadata.ContainsKey("IdempotencyKey")) { $metadata["IdempotencyKey"] } else { $null }
+    $inboxJobId = if ($metadata.ContainsKey("InboxJobId")) { $metadata["InboxJobId"] } else { $null }
 
     return [pscustomobject]@{
         Title = $title
@@ -1140,6 +1150,11 @@ function Parse-PromptFile {
         RuntimeSandboxMode = $runtimeSandboxMode
         RuntimeApproval = $runtimeApproval
         RuntimeWebSearch = $runtimeWebSearch
+        InboxContract = $inboxContract
+        InboxOwner = $inboxOwner
+        AcceptedAt = $acceptedAt
+        IdempotencyKey = $idempotencyKey
+        InboxJobId = $inboxJobId
         AcceptanceCriteria = @($acceptanceCriteria)
         ExpectedChangedPaths = @($expectedChangedPaths)
         ExpectedUnchangedPaths = @($expectedUnchangedPaths)

@@ -1,29 +1,83 @@
 {
   "contract_version": "atlas.project-board.owner-export.v1",
-  "export_id": "pbe_stack_owner_registry_d19487b95ae4",
+  "export_id": "pbe_stack_owner_registry_4c53bac4ad36",
   "project_id": "_stack",
   "board_id": "discordos:project-feedback:stack",
   "owner": "_stack",
   "adapter_id": "stack-owner-registry-v1",
-  "source_revision": "sha256:d19487b95ae46dabd1750d73aee6919700d31fa7554991217b11999b6dab7189",
-  "generated_at": "2026-07-14T00:00:00.000Z",
+  "source_revision": "sha256:4c53bac4ad367682f9bf65fb6dcda8a86895512cb0e677bc7e77368d8ad368a9",
+  "generated_at": "2026-07-16T00:00:00.000Z",
   "sources": [
     {
       "source_id": "stack-owner-registry",
       "kind": "json",
       "repository": "_stack",
       "path": "repos/_stack/queue/owner-work-registry.json",
-      "revision": "sha256:d19487b95ae46dabd1750d73aee6919700d31fa7554991217b11999b6dab7189",
-      "observed_at": "2026-07-14T00:00:00.000Z"
+      "revision": "sha256:4c53bac4ad367682f9bf65fb6dcda8a86895512cb0e677bc7e77368d8ad368a9",
+      "observed_at": "2026-07-16T00:00:00.000Z"
     }
   ],
-  "cards": [],
+  "cards": [
+    {
+      "idempotency_key": "pbk_stack_stk-scheduled-inbox-sweep_v1",
+      "record_kind": "project-work",
+      "record_status": "active",
+      "record": {
+        "contract_version": "atlas.card-record.v2",
+        "card_id": "STK-SCHEDULED-INBOX-SWEEP",
+        "project_id": "_stack",
+        "board_id": "discordos:project-feedback:stack",
+        "title": "Deterministic scheduled RunOnce inbox sweep",
+        "description": "Replace replay-prone ambient _stack inbox processing with one scheduled, bounded, claim-safe, correlated RunOnce sweep.",
+        "card_type": "reliability",
+        "lifecycle": "in-progress",
+        "priority": null,
+        "owner": "_stack",
+        "dependencies": [],
+        "board_version": 1,
+        "updated_at": "2026-07-16T00:00:00.000Z",
+        "source_ref": "repos/_stack/queue/owner-work-registry.json#STK-SCHEDULED-INBOX-SWEEP",
+        "extensions": {
+          "owner_status": "in-progress",
+          "owner_registry_schema_version": 1
+        }
+      },
+      "source": {
+        "source_id": "stack-owner-registry",
+        "source_ref": "repos/_stack/queue/owner-work-registry.json#STK-SCHEDULED-INBOX-SWEEP",
+        "source_status": "current",
+        "source_updated_at": "2026-07-16T00:00:00.000Z"
+      },
+      "content": {
+        "summary": "Replace replay-prone ambient _stack inbox processing with one scheduled, bounded, claim-safe, correlated RunOnce sweep.",
+        "objective": "Replace replay-prone ambient _stack inbox processing with one scheduled, bounded, claim-safe, correlated RunOnce sweep.",
+        "acceptance_criteria": [
+          "The stable current-user task performs exactly one sweep and exits.",
+          "Freshness, ownership, atomic claim, overlap, crash recovery, Contracts v2 correlation, and terminal replay rejection are proven.",
+          "The exact stale April prompt is quarantined without execution and the final task is Ready with result 0."
+        ],
+        "discoveries": [],
+        "next_actions": [],
+        "blockers": [],
+        "evidence": [
+          "repos/_stack/docs/codex-orchestration.md",
+          "repos/_stack/ops/codex/StackInboxSweep.ps1",
+          "repos/_stack/ops/codex/Test-StackInboxSweep.ps1"
+        ]
+      },
+      "relationships": {
+        "parent_card_id": null,
+        "duplicate_of": null,
+        "superseded_by": null
+      }
+    }
+  ],
   "extensions": {
-    "source_digest": "sha256:d19487b95ae46dabd1750d73aee6919700d31fa7554991217b11999b6dab7189",
-    "source_work_item_count": 0,
-    "exported_card_count": 0,
-    "owner_queue_state": "ready-empty",
-    "owner_queue_state_reason": "No _stack-owned pending or claimed task is currently admitted. Atlas candidates remain proposals until accepted here by the _stack owner.",
+    "source_digest": "sha256:4c53bac4ad367682f9bf65fb6dcda8a86895512cb0e677bc7e77368d8ad368a9",
+    "source_work_item_count": 1,
+    "exported_card_count": 1,
+    "owner_queue_state": "active",
+    "owner_queue_state_reason": "The owner-admitted scheduled RunOnce inbox reliability lane is implemented on its review branch and remains in progress until review and merge.",
     "atlas_candidates_admitted": false,
     "discord_mutation_authorized": false
   }

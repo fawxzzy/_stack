@@ -13,6 +13,8 @@ param(
     [string]$SandboxMode = "",
     [string]$ApprovalPolicy = "",
     [string]$WebSearch = "",
+    [string]$ResultPath = "",
+    [switch]$SkipPromptArchive,
     [switch]$KeepWorktree,
     [switch]$SkipVerification,
     [switch]$NoCommit
@@ -571,7 +573,7 @@ try {
         -AllowedPaths @(ConvertTo-StringArray -Value $adapterContract.allowedMutationSurfaces) `
         -ForbiddenPaths @($forbiddenGlobs) `
         -VerificationCommands @($effectiveVerifyCommands) `
-        -ParentJobId $governedSessionId
+        -ParentJobId $(if (-not [string]::IsNullOrWhiteSpace($env:ATLAS_INBOX_SWEEP_CORRELATION_ID)) { [string]$env:ATLAS_INBOX_SWEEP_CORRELATION_ID } else { $governedSessionId })
     $effectivePrompt = $effectivePrompt + "`r`n`r`n" + (Get-AtlasContractsV2WorkerInstructions -Producer $atlasContractsV2)
     Write-TextFile -Path (Join-Path -Path $logDirectory -ChildPath "effective.prompt.md") -Content $effectivePrompt
     Write-TextFile -Path $manifestPath -Content (([ordered]@{
@@ -1000,7 +1002,7 @@ finally {
             $status = "atlas_contracts_v2_receipt_validation_failed"
         }
     }
-    if ($null -ne $promptRecord) {
+    if ($null -ne $promptRecord -and -not $SkipPromptArchive.IsPresent) {
         try {
             $archiveSlug = ConvertTo-Slug -Value ([System.IO.Path]::GetFileNameWithoutExtension($PromptPath))
             $archivePath = New-ArchivePath -ArchiveDirectory $archiveDirectory -Slug $archiveSlug -Status $status -Extension ([System.IO.Path]::GetExtension($PromptPath))
@@ -1295,6 +1297,29 @@ finally {
 
         Write-TextFile -Path $manifestPath -Content (($manifest | ConvertTo-Json -Depth 8) + "`r`n")
     }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($ResultPath)) {
+    $resultRecord = [ordered]@{
+        contract_version = "atlas.stack.repo-task-result.v1"
+        run_id = $runId
+        status = $status
+        exit_code = Get-StatusExitCode -Status $status
+        manifest_path = $manifestPath
+        prompt_path = $PromptPath
+        archive_path = $archivePath
+        sweep_id = if ([string]::IsNullOrWhiteSpace($env:ATLAS_INBOX_SWEEP_ID)) { $null } else { [string]$env:ATLAS_INBOX_SWEEP_ID }
+        sweep_correlation_id = if ([string]::IsNullOrWhiteSpace($env:ATLAS_INBOX_SWEEP_CORRELATION_ID)) { $null } else { [string]$env:ATLAS_INBOX_SWEEP_CORRELATION_ID }
+        idempotency_key = if ([string]::IsNullOrWhiteSpace($env:ATLAS_INBOX_IDEMPOTENCY_KEY)) { $null } else { [string]$env:ATLAS_INBOX_IDEMPOTENCY_KEY }
+        inbox_job_id = if ([string]::IsNullOrWhiteSpace($env:ATLAS_INBOX_JOB_ID)) { $null } else { [string]$env:ATLAS_INBOX_JOB_ID }
+        runtime_policy = Get-RuntimePolicyReceipt -RuntimePolicy $runtimePolicy
+        atlas_contracts_v2 = if ($null -eq $atlasContractsV2) { $null } else { [ordered]@{
+            job_envelope = $atlasContractsV2.paths.jobEnvelope
+            worker_lease = $atlasContractsV2.paths.workerLease
+            execution_receipt = $atlasContractsV2.paths.executionReceipt
+        } }
+    }
+    Write-TextFile -Path $ResultPath -Content (($resultRecord | ConvertTo-Json -Depth 16) + "`r`n")
 }
 
 exit (Get-StatusExitCode -Status $status)

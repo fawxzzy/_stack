@@ -1,13 +1,33 @@
 {
   "schemaVersion": 1,
   "projectId": "_stack",
-  "updatedAt": "2026-07-14",
-  "state": "ready-empty",
-  "stateReason": "No _stack-owned pending or claimed task is currently admitted. Atlas candidates remain proposals until accepted here by the _stack owner.",
+  "updatedAt": "2026-07-16",
+  "state": "active",
+  "stateReason": "The owner-admitted scheduled RunOnce inbox reliability lane is implemented on its review branch and remains in progress until review and merge.",
   "sourceRefs": [
     "queue/README.md",
     "queue/pending",
     "queue/claimed"
   ],
-  "workItems": []
+  "workItems": [
+    {
+      "id": "STK-SCHEDULED-INBOX-SWEEP",
+      "title": "Deterministic scheduled RunOnce inbox sweep",
+      "status": "in-progress",
+      "goal": "Replace replay-prone ambient _stack inbox processing with one scheduled, bounded, claim-safe, correlated RunOnce sweep.",
+      "type": "reliability",
+      "priority": null,
+      "dependencies": [],
+      "acceptanceCriteria": [
+        "The stable current-user task performs exactly one sweep and exits.",
+        "Freshness, ownership, atomic claim, overlap, crash recovery, Contracts v2 correlation, and terminal replay rejection are proven.",
+        "The exact stale April prompt is quarantined without execution and the final task is Ready with result 0."
+      ],
+      "evidence": [
+        "docs/codex-orchestration.md",
+        "ops/codex/Test-StackInboxSweep.ps1",
+        "ops/codex/StackInboxSweep.ps1"
+      ]
+    }
+  ]
 }

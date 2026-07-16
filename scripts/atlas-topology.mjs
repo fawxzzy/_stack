@@ -2,13 +2,26 @@
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const STACK_ROOT = path.resolve(SCRIPT_DIRECTORY, "..");
 
+function resolveLogicalStackRoot() {
+  try {
+    const raw = execFileSync("git", ["-C", STACK_ROOT, "rev-parse", "--git-common-dir"], { encoding: "utf8" }).trim();
+    const commonDirectory = path.isAbsolute(raw) ? raw : path.resolve(STACK_ROOT, raw);
+    return path.dirname(commonDirectory);
+  } catch {
+    return STACK_ROOT;
+  }
+}
+
+const LOGICAL_STACK_ROOT = resolveLogicalStackRoot();
+
 export const DEFAULT_ATLAS_TOPOLOGY_MANIFEST_PATH = path.resolve(
-  STACK_ROOT,
+  LOGICAL_STACK_ROOT,
   "..",
   "..",
   "docs",

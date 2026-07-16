@@ -36,10 +36,13 @@
           "shared-defaults"
         ],
         "defaultPosture": {
+          "model": "gpt-5.6-sol",
+          "reasoning": "xhigh",
+          "speed": "standard",
           "permissions": "full-access",
           "permissionProfile": ":danger-full-access",
           "approval": "never",
-          "webSearch": "disabled"
+          "webSearch": "live"
         },
         "bootstrapCompatibility": {
           "sandboxMode": "danger-full-access",
@@ -65,6 +68,20 @@
           "externalAuthorityDefault": "denied"
         },
         "pushPolicy": "manual-only"
+      },
+      "scheduledInbox": {
+        "executionMode": "run-once",
+        "taskName": "AtlasStackInboxSweep",
+        "cadence": "PT5M",
+        "multipleInstancesPolicy": "IgnoreNew",
+        "applicationLease": "atomic-exclusive-process-identity",
+        "freshnessMinutes": 30,
+        "runtimePlacement": "runtime/codex/stack",
+        "promptLifecycle": [
+          "inbox",
+          "processing-claim",
+          "terminal-archive-or-quarantine"
+        ]
       }
     },
     "fitness": {
