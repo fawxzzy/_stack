@@ -77,6 +77,31 @@ function Get-StackInboxFileEvidence {
     }
 }
 
+function Test-StackInboxEvidenceIdentity {
+    param($Expected, $Observed)
+
+    if ($null -eq $Expected -or $null -eq $Observed) { return $false }
+    return (
+        [long](Get-StackInboxObjectValue -Object $Observed -Name "bytes" -DefaultValue -1) -eq [long](Get-StackInboxObjectValue -Object $Expected -Name "bytes" -DefaultValue -2) -and
+        [string](Get-StackInboxObjectValue -Object $Observed -Name "sha256" -DefaultValue "") -eq [string](Get-StackInboxObjectValue -Object $Expected -Name "sha256" -DefaultValue "") -and
+        [string](Get-StackInboxObjectValue -Object $Observed -Name "last_modified_utc" -DefaultValue "") -eq [string](Get-StackInboxObjectValue -Object $Expected -Name "last_modified_utc" -DefaultValue "")
+    )
+}
+
+function Get-StackInboxValidatedClaimEvidence {
+    param([Parameter(Mandatory = $true)]$Record)
+
+    $observed = Get-StackInboxObjectValue -Object $Record -Name "observed_claim_evidence" -DefaultValue $null
+    if ($null -ne $observed) { return $observed }
+    $admitted = Get-StackInboxObjectValue -Object $Record -Name "admitted_evidence" -DefaultValue $null
+    if ($null -ne $admitted) { return $admitted }
+    return [pscustomobject]@{
+        bytes = [long](Get-StackInboxObjectValue -Object $Record -Name "bytes" -DefaultValue -1)
+        sha256 = [string](Get-StackInboxObjectValue -Object $Record -Name "content_sha256" -DefaultValue "")
+        last_modified_utc = [string](Get-StackInboxObjectValue -Object $Record -Name "source_last_modified_utc" -DefaultValue "")
+    }
+}
+
 function Get-StackInboxLogMetadata {
     param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -218,7 +243,9 @@ function Test-StackInboxAdmission {
     }
     $runtimeReasoning = if ($values.Contains("runtimereasoning")) { [string]$values["runtimereasoning"] } else { "" }
     if (-not [string]::IsNullOrWhiteSpace($runtimeReasoning) -and $runtimeReasoning -notin @("medium", "high", "xhigh")) { [void]$errors.Add("unsupported_runtime_reasoning") }
-    $runtimeWebSearch = if ($values.Contains("runtimewebsearch")) { [string]$values["runtimewebsearch"] } else { "" }
+    $runtimeWebSearchKeys = @(@("runtimewebsearch", "runtimewebsearchmode") | Where-Object { $values.Contains($_) })
+    if ($runtimeWebSearchKeys.Count -gt 1) { [void]$errors.Add("ambiguous_runtime_web_search_metadata") }
+    $runtimeWebSearch = if ($runtimeWebSearchKeys.Count -eq 1) { [string]$values[$runtimeWebSearchKeys[0]] } else { "" }
     if (-not [string]::IsNullOrWhiteSpace($runtimeWebSearch) -and $runtimeWebSearch -notin @("live", "disabled")) { [void]$errors.Add("unsupported_runtime_web_search") }
 
     $metadata = [pscustomobject]@{
@@ -504,12 +531,7 @@ function New-StackInboxClaim {
     catch { $observedClaimEvidence = $null }
     $record.observed_claim_evidence = $observedClaimEvidence
     $record.claim_identity_validated_at = ConvertTo-StackInboxUtcString -Value (Get-StackInboxUtcNow)
-    $claimIdentityValid = (
-        $null -ne $observedClaimEvidence -and
-        [long]$observedClaimEvidence.bytes -eq [long]$Admission.evidence.bytes -and
-        [string]$observedClaimEvidence.sha256 -eq [string]$Admission.evidence.sha256 -and
-        [string]$observedClaimEvidence.last_modified_utc -eq [string]$Admission.evidence.last_modified_utc
-    )
+    $claimIdentityValid = Test-StackInboxEvidenceIdentity -Expected $Admission.evidence -Observed $observedClaimEvidence
     if ($claimIdentityValid) {
         $record.state = "claimed"
         $record.claimed_at = ConvertTo-StackInboxUtcString -Value (Get-StackInboxUtcNow)
@@ -523,7 +545,10 @@ function New-StackInboxClaim {
 }
 
 function Test-StackInboxContractsCorrelation {
-    param([Parameter(Mandatory = $true)]$TaskResult)
+    param(
+        [Parameter(Mandatory = $true)]$TaskResult,
+        [Parameter(Mandatory = $true)]$Claim
+    )
 
     $paths = Get-StackInboxObjectValue -Object $TaskResult -Name "atlas_contracts_v2" -DefaultValue $null
     if ($null -eq $paths) { return [pscustomobject]@{ ok = $false; reason_code = "contracts_v2_paths_missing"; identities = $null } }
@@ -533,6 +558,36 @@ function Test-StackInboxContractsCorrelation {
     if ($null -eq $envelope -or $null -eq $lease -or $null -eq $receipt) { return [pscustomobject]@{ ok = $false; reason_code = "contracts_v2_artifact_missing_or_malformed"; identities = $null } }
     if ([string]$envelope.contract_version -ne "atlas.job-envelope.v2" -or [string]$lease.contract_version -ne "atlas.worker-lease.v2" -or [string]$receipt.contract_version -ne "atlas.execution-receipt.v2") {
         return [pscustomobject]@{ ok = $false; reason_code = "contracts_v2_version_mismatch"; identities = $null }
+    }
+    foreach ($binding in @(
+        [pscustomobject]@{ result_name = "sweep_id"; claim_name = "sweep_id" },
+        [pscustomobject]@{ result_name = "sweep_correlation_id"; claim_name = "sweep_correlation_id" },
+        [pscustomobject]@{ result_name = "idempotency_key"; claim_name = "idempotency_key" },
+        [pscustomobject]@{ result_name = "inbox_job_id"; claim_name = "inbox_job_id" }
+    )) {
+        $resultValue = [string](Get-StackInboxObjectValue -Object $TaskResult -Name $binding.result_name -DefaultValue "")
+        $claimValue = [string](Get-StackInboxObjectValue -Object $Claim.record -Name $binding.claim_name -DefaultValue "")
+        if ($resultValue -ne $claimValue) {
+            return [pscustomobject]@{ ok = $false; reason_code = "task_result_claim_identity_mismatch"; identities = $null }
+        }
+    }
+    $envelopeInbox = Get-StackInboxObjectValue -Object $envelope.extensions -Name "inbox" -DefaultValue $null
+    $receiptInbox = Get-StackInboxObjectValue -Object $receipt.extensions -Name "inbox" -DefaultValue $null
+    if ($null -eq $envelopeInbox -or $null -eq $receiptInbox) {
+        return [pscustomobject]@{ ok = $false; reason_code = "contracts_v2_inbox_claim_identity_mismatch"; identities = $null }
+    }
+    foreach ($binding in @(
+        [pscustomobject]@{ inbox_name = "sweep_id"; claim_name = "sweep_id" },
+        [pscustomobject]@{ inbox_name = "correlation_id"; claim_name = "sweep_correlation_id" },
+        [pscustomobject]@{ inbox_name = "idempotency_key"; claim_name = "idempotency_key" },
+        [pscustomobject]@{ inbox_name = "inbox_job_id"; claim_name = "inbox_job_id" }
+    )) {
+        $claimValue = [string](Get-StackInboxObjectValue -Object $Claim.record -Name $binding.claim_name -DefaultValue "")
+        $envelopeValue = [string](Get-StackInboxObjectValue -Object $envelopeInbox -Name $binding.inbox_name -DefaultValue "")
+        $receiptValue = [string](Get-StackInboxObjectValue -Object $receiptInbox -Name $binding.inbox_name -DefaultValue "")
+        if ($envelopeValue -ne $claimValue -or $receiptValue -ne $claimValue) {
+            return [pscustomobject]@{ ok = $false; reason_code = "contracts_v2_inbox_claim_identity_mismatch"; identities = $null }
+        }
     }
     if ([string]$envelope.job_id -ne [string]$lease.job_id -or [string]$envelope.job_id -ne [string]$receipt.job_id) {
         return [pscustomobject]@{ ok = $false; reason_code = "contracts_v2_job_correlation_mismatch"; identities = $null }
@@ -558,6 +613,7 @@ function Test-StackInboxContractsCorrelation {
             receipt_path = [string]$paths.execution_receipt
             lease_status = [string]$lease.status
             receipt_status = [string]$receipt.status
+            inbox = $envelopeInbox
         }
     }
 }
@@ -570,7 +626,7 @@ function Complete-StackInboxClaim {
         [int]$TaskExitCode
     )
 
-    $correlation = Test-StackInboxContractsCorrelation -TaskResult $TaskResult
+    $correlation = Test-StackInboxContractsCorrelation -TaskResult $TaskResult -Claim $Claim
     $runnerStatus = [string](Get-StackInboxObjectValue -Object $TaskResult -Name "status" -DefaultValue "unknown")
     $acceptedSuccess = $TaskExitCode -eq 0 -and $runnerStatus -in @("success", "success_no_changes") -and [bool]$correlation.ok -and [string]$correlation.identities.receipt_status -eq "succeeded" -and [string]$correlation.identities.lease_status -eq "released"
     $kind = if ($acceptedSuccess) { "archive" } else { "quarantine" }
@@ -622,8 +678,9 @@ function Quarantine-StackInboxClaimWithoutExecution {
 
     $terminalId = "terminal-{0}" -f ([guid]::NewGuid().ToString("N"))
     $terminalPath = Join-Path (Join-Path $StateRoot "terminal") "$terminalId.json"
-    $identityChangedAfterClaim = $ReasonCode -eq "admission_evidence_changed_after_claim"
-    $observedClaimEvidence = Get-StackInboxObjectValue -Object $Claim.record -Name "observed_claim_evidence" -DefaultValue $null
+    $identityChangedWithoutExecution = $ReasonCode -in @("admission_evidence_changed_after_claim", "recovered_claim_evidence_mismatch")
+    $expectedClaimEvidence = if ($ReasonCode -eq "recovered_claim_evidence_mismatch") { Get-StackInboxObjectValue -Object $Claim.record -Name "recovery_expected_claim_evidence" -DefaultValue $null } else { Get-StackInboxObjectValue -Object $Claim.record -Name "admitted_evidence" -DefaultValue $null }
+    $observedClaimEvidence = if ($ReasonCode -eq "recovered_claim_evidence_mismatch") { Get-StackInboxObjectValue -Object $Claim.record -Name "recovery_observed_claim_evidence" -DefaultValue $null } else { Get-StackInboxObjectValue -Object $Claim.record -Name "observed_claim_evidence" -DefaultValue $null }
     $record = [ordered]@{
         contract_version = $script:StackInboxTerminalContractVersion
         terminal_id = $terminalId
@@ -632,13 +689,14 @@ function Quarantine-StackInboxClaimWithoutExecution {
         sweep_correlation_id = [string]$Claim.record.sweep_correlation_id
         disposition = "quarantined"
         reason_code = $ReasonCode
-        content_sha256 = if ($identityChangedAfterClaim -and $null -ne $observedClaimEvidence) { [string]$observedClaimEvidence.sha256 } else { [string]$Claim.record.content_sha256 }
-        idempotency_key = if ($identityChangedAfterClaim) { $null } else { [string]$Claim.record.idempotency_key }
-        inbox_job_id = if ($identityChangedAfterClaim) { $null } else { [string]$Claim.record.inbox_job_id }
+        content_sha256 = if ($identityChangedWithoutExecution -and $null -ne $observedClaimEvidence) { [string]$observedClaimEvidence.sha256 } else { [string]$Claim.record.content_sha256 }
+        idempotency_key = if ($identityChangedWithoutExecution) { $null } else { [string]$Claim.record.idempotency_key }
+        inbox_job_id = if ($identityChangedWithoutExecution) { $null } else { [string]$Claim.record.inbox_job_id }
         accepted_at = [string]$Claim.record.accepted_at
         admitted_evidence = Get-StackInboxObjectValue -Object $Claim.record -Name "admitted_evidence" -DefaultValue $null
+        expected_claim_evidence = $expectedClaimEvidence
         observed_claim_evidence = $observedClaimEvidence
-        replay_identity_recorded = -not $identityChangedAfterClaim
+        replay_identity_recorded = -not $identityChangedWithoutExecution
         execution_started = -not [string]::IsNullOrWhiteSpace([string]$Claim.record.execution_started_at)
         execution_started_at = $Claim.record.execution_started_at
         terminal_at = ConvertTo-StackInboxUtcString -Value (Get-StackInboxUtcNow)
@@ -718,6 +776,20 @@ function Get-StackInboxRecoverableClaims {
                     })
                 }
             }
+            continue
+        }
+        $expectedRecoveryEvidence = Get-StackInboxValidatedClaimEvidence -Record $record
+        try { $observedRecoveryEvidence = Get-StackInboxFileEvidence -Path $claim.prompt_path }
+        catch { $observedRecoveryEvidence = $null }
+        if (-not (Test-StackInboxEvidenceIdentity -Expected $expectedRecoveryEvidence -Observed $observedRecoveryEvidence)) {
+            $record.state = "claim_invalid"
+            $record.claim_validation_reason_code = "recovered_claim_evidence_mismatch"
+            $record.claim_identity_validated_at = ConvertTo-StackInboxUtcString -Value (Get-StackInboxUtcNow)
+            $record | Add-Member -MemberType NoteProperty -Name recovery_expected_claim_evidence -Value $expectedRecoveryEvidence -Force
+            $record | Add-Member -MemberType NoteProperty -Name recovery_observed_claim_evidence -Value $observedRecoveryEvidence -Force
+            Write-StackInboxJsonAtomic -Path $claim.claim_path -Value $record
+            $claim.record = $record
+            [void]$terminalized.Add((Quarantine-StackInboxClaimWithoutExecution -Claim $claim -StateRoot $StateRoot -ReasonCode "recovered_claim_evidence_mismatch"))
             continue
         }
         $record.owner = $CurrentOwner

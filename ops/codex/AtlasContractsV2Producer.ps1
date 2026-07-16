@@ -528,6 +528,7 @@ function Write-AtlasContractsV2TerminalReceipt {
             run_id = $Producer.runId
             runner_status = $RunnerStatus
             validation_owner = "atlas-root"
+            inbox = $Producer.envelope.extensions.inbox
             runtime_requested = ConvertTo-AtlasContractsV2Runtime -RuntimePolicy $RuntimePolicy -Layer "requested"
             identity_correlations = [ordered]@{ component_id = $Producer.componentId; job_id = $Producer.jobId; run_id = $Producer.runId; execution_class = $Producer.executionClass; worker_id = $Producer.workerId; branch = $Producer.lease.workspace.branch; workspace_root = $Producer.lease.workspace.root; worktree = $Producer.lease.workspace.worktree; thread_id = $Producer.lease.owner.thread_id; turn_id = $Producer.lease.owner.turn_id }
             artifact_refs = [ordered]@{ context_packet = $Producer.paths.contextPacket; approval_record = $Producer.paths.approvalRecord; worker_lease = $Producer.paths.workerLease; evidence_bundle = $Producer.paths.evidenceBundle }

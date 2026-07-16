@@ -79,14 +79,14 @@ $jobId = "atlas-stack-$runId"
 $leaseId = "atlas-stack-lease-$runId"
 $job = [ordered]@{ contract_version = "atlas.job-envelope.v2"; job_id = $jobId; extensions = [ordered]@{ run_id = $runId; inbox = [ordered]@{ sweep_id = $env:ATLAS_INBOX_SWEEP_ID; correlation_id = $env:ATLAS_INBOX_SWEEP_CORRELATION_ID; idempotency_key = $env:ATLAS_INBOX_IDEMPOTENCY_KEY; inbox_job_id = $env:ATLAS_INBOX_JOB_ID } } }
 $lease = [ordered]@{ contract_version = "atlas.worker-lease.v2"; lease_id = $leaseId; job_id = $jobId; status = "released" }
-$receipt = [ordered]@{ contract_version = "atlas.execution-receipt.v2"; receipt_id = "atlas-stack-receipt-$runId"; job_id = $jobId; status = "succeeded"; extensions = [ordered]@{ run_id = $runId; worker_lease_binding = [ordered]@{ lease_id = $leaseId; status = "released" } } }
+$receipt = [ordered]@{ contract_version = "atlas.execution-receipt.v2"; receipt_id = "atlas-stack-receipt-$runId"; job_id = $jobId; status = "succeeded"; extensions = [ordered]@{ run_id = $runId; inbox = $job.extensions.inbox; worker_lease_binding = [ordered]@{ lease_id = $leaseId; status = "released" } } }
 [IO.File]::WriteAllText($jobPath, ($job | ConvertTo-Json -Depth 8))
 [IO.File]::WriteAllText($leasePath, ($lease | ConvertTo-Json -Depth 8))
 [IO.File]::WriteAllText($receiptPath, ($receipt | ConvertTo-Json -Depth 8))
 $counter = 0
 if (Test-Path -LiteralPath $env:STACK_INBOX_FAKE_COUNTER) { $counter = [int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw) }
 [IO.File]::WriteAllText($env:STACK_INBOX_FAKE_COUNTER, [string]($counter + 1))
-$result = [ordered]@{ contract_version = "atlas.stack.repo-task-result.v1"; run_id = $runId; status = "success_no_changes"; exit_code = 0; sweep_id = $env:ATLAS_INBOX_SWEEP_ID; sweep_correlation_id = $env:ATLAS_INBOX_SWEEP_CORRELATION_ID; atlas_contracts_v2 = [ordered]@{ job_envelope = $jobPath; worker_lease = $leasePath; execution_receipt = $receiptPath }; runtime_policy = [ordered]@{ resolved = [ordered]@{ model = "gpt-5.6-sol"; reasoning = "xhigh"; permissions = [ordered]@{ mode = "full-access"; profile = ":danger-full-access" }; sandbox_mode = $null; approval = "never"; web_search = "live" } } }
+$result = [ordered]@{ contract_version = "atlas.stack.repo-task-result.v1"; run_id = $runId; status = "success_no_changes"; exit_code = 0; sweep_id = $env:ATLAS_INBOX_SWEEP_ID; sweep_correlation_id = $env:ATLAS_INBOX_SWEEP_CORRELATION_ID; idempotency_key = $env:ATLAS_INBOX_IDEMPOTENCY_KEY; inbox_job_id = $env:ATLAS_INBOX_JOB_ID; atlas_contracts_v2 = [ordered]@{ job_envelope = $jobPath; worker_lease = $leasePath; execution_receipt = $receiptPath }; runtime_policy = [ordered]@{ resolved = [ordered]@{ model = "gpt-5.6-sol"; reasoning = "xhigh"; permissions = [ordered]@{ mode = "full-access"; profile = ":danger-full-access" }; sandbox_mode = $null; approval = "never"; web_search = "live" } } }
 [IO.File]::WriteAllText($ResultPath, ($result | ConvertTo-Json -Depth 12))
 $noiseLine = "N" * 2048
 for ($index = 0; $index -lt 512; $index += 1) { Write-Output ("stdout-{0:D4}-{1}" -f $index, $noiseLine) }
@@ -189,11 +189,17 @@ try {
     Write-TestPrompt -Path (Join-Path $admissionInbox "foreign.md") -Owner "another-owner" -IdempotencyKey "foreign.one" -JobId "foreign-job"
     Write-TestPrompt -Path (Join-Path $admissionInbox "mixed-policy.md") -IdempotencyKey "mixed.one" -JobId "mixed-job" -AdditionalHeaders @("Runtime Permission Profile: :danger-full-access", "Runtime Sandbox Mode: danger-full-access")
     Write-TestPrompt -Path (Join-Path $admissionInbox "cached-web-search.md") -IdempotencyKey "cached-web.one" -JobId "cached-web-job" -AdditionalHeaders @("Runtime Web Search: cached")
+    Write-TestPrompt -Path (Join-Path $admissionInbox "cached-web-search-mode.md") -IdempotencyKey "cached-web-mode.one" -JobId "cached-web-mode-job" -AdditionalHeaders @("Runtime Web Search Mode: cached")
+    Write-TestPrompt -Path (Join-Path $admissionInbox "ambiguous-web-search.md") -IdempotencyKey "ambiguous-web.one" -JobId "ambiguous-web-job" -AdditionalHeaders @("Runtime Web Search: live", "Runtime Web Search Mode: live")
     $admissionResult = Invoke-TestSweep -Inbox $admissionInbox -State (Join-Path $admissionRoot "state") -TaskScript $fakeTask
-    Assert-Sweep ($admissionResult.counts.quarantined -eq 3 -and $admissionResult.counts.left_in_place -eq 1 -and $admissionResult.counts.executed -eq 0) "Stale, malformed, unsupported-policy, or foreign admission did not fail closed."
+    Assert-Sweep ($admissionResult.counts.quarantined -eq 5 -and $admissionResult.counts.left_in_place -eq 1 -and $admissionResult.counts.executed -eq 0) "Stale, malformed, unsupported-policy, ambiguous-policy, or foreign admission did not fail closed."
     Assert-Sweep (Test-Path -LiteralPath (Join-Path $admissionInbox "foreign.md")) "Foreign prompt was moved without ownership evidence."
     $cachedWebTerminal = @($admissionResult.terminal_records | Where-Object { [string]$_.idempotency_key -eq "cached-web.one" })
     Assert-Sweep ($cachedWebTerminal.Count -eq 1 -and [string]$cachedWebTerminal[0].reason_code -eq "malformed_or_unsupported_metadata" -and @($cachedWebTerminal[0].details.errors) -contains "unsupported_runtime_web_search" -and -not [bool]$cachedWebTerminal[0].execution_started) "Cached web-search policy was not rejected before claim and execution."
+    $cachedWebModeTerminal = @($admissionResult.terminal_records | Where-Object { [string]$_.idempotency_key -eq "cached-web-mode.one" })
+    Assert-Sweep ($cachedWebModeTerminal.Count -eq 1 -and @($cachedWebModeTerminal[0].details.errors) -contains "unsupported_runtime_web_search" -and -not [bool]$cachedWebModeTerminal[0].execution_started) "Cached Runtime Web Search Mode alias was not rejected before claim and execution."
+    $ambiguousWebTerminal = @($admissionResult.terminal_records | Where-Object { [string]$_.idempotency_key -eq "ambiguous-web.one" })
+    Assert-Sweep ($ambiguousWebTerminal.Count -eq 1 -and @($ambiguousWebTerminal[0].details.errors) -contains "ambiguous_runtime_web_search_metadata" -and -not [bool]$ambiguousWebTerminal[0].execution_started) "Dual runtime web-search aliases were not rejected as ambiguous before claim and execution."
 
     $identityRoot = New-TestRoot -Name "claim-identity"
     [void]$roots.Add($identityRoot)
@@ -226,10 +232,31 @@ try {
     $crashState = Join-Path $crashRoot "state"
     New-Item -ItemType Directory -Path $crashInbox | Out-Null
     Initialize-StackInboxStateDirectories -StateRoot $crashState
+    $deadOwner = [pscustomobject]@{ pid = 2147483646; process_start_time_utc = "2000-01-01T00:00:00.0000000Z" }
+
+    $recoveryIdentityRoot = New-TestRoot -Name "recovered-claim-identity"
+    [void]$roots.Add($recoveryIdentityRoot)
+    $recoveryIdentityInbox = Join-Path $recoveryIdentityRoot "inbox"
+    $recoveryIdentityState = Join-Path $recoveryIdentityRoot "state"
+    New-Item -ItemType Directory -Path $recoveryIdentityInbox | Out-Null
+    Initialize-StackInboxStateDirectories -StateRoot $recoveryIdentityState
+    $recoveryIdentityPrompt = Join-Path $recoveryIdentityInbox "mutated-recovery.md"
+    Write-TestPrompt -Path $recoveryIdentityPrompt -IdempotencyKey "recovery.identity" -JobId "recovery-identity-job" -Body "# Recovery admitted bytes"
+    $recoveryIdentityAdmission = Test-StackInboxAdmission -Path $recoveryIdentityPrompt
+    $recoveryIdentityClaim = New-StackInboxClaim -PromptPath $recoveryIdentityPrompt -StateRoot $recoveryIdentityState -TaskName "AtlasStackInboxSweep" -SweepId "recovery-identity-crash" -CorrelationId "recovery-identity-correlation" -Admission $recoveryIdentityAdmission -Owner $deadOwner
+    [System.IO.File]::AppendAllText($recoveryIdentityClaim.prompt_path, "`r`n# Mutated while owner was dead`r`n", (New-Object System.Text.UTF8Encoding($false)))
+    (Get-Item -LiteralPath $recoveryIdentityClaim.prompt_path).LastWriteTimeUtc = [DateTime]::UtcNow.AddSeconds(-5)
+    $beforeRecoveryIdentity = [int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw)
+    $recoveryIdentityResult = Invoke-TestSweep -Inbox $recoveryIdentityInbox -State $recoveryIdentityState -TaskScript $fakeTask
+    $recoveryIdentityTerminal = @($recoveryIdentityResult.terminal_records | Where-Object { [string]$_.reason_code -eq "recovered_claim_evidence_mismatch" })
+    Assert-Sweep ($recoveryIdentityResult.counts.recovered -eq 0 -and $recoveryIdentityResult.counts.executed -eq 0 -and $recoveryIdentityResult.counts.quarantined -eq 1 -and $recoveryIdentityTerminal.Count -eq 1) "A dead claim with changed processing bytes was not quarantined before recovery execution."
+    Assert-Sweep ($null -ne $recoveryIdentityTerminal[0].expected_claim_evidence -and $null -ne $recoveryIdentityTerminal[0].observed_claim_evidence -and [string]$recoveryIdentityTerminal[0].expected_claim_evidence.sha256 -ne [string]$recoveryIdentityTerminal[0].observed_claim_evidence.sha256 -and -not [bool]$recoveryIdentityTerminal[0].replay_identity_recorded) "Recovered claim identity quarantine did not preserve evidence without false replay identity."
+    Assert-Sweep ([int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw) -eq $beforeRecoveryIdentity) "Changed recovered claim bytes reached child execution."
+    Assert-Sweep ($null -eq (Find-StackInboxReplayRecord -StateRoot $recoveryIdentityState -Admission $recoveryIdentityAdmission)) "Changed recovered claim poisoned replay history for the never-executed admitted bytes."
+
     $crashPrompt = Join-Path $crashInbox "recoverable.md"
     Write-TestPrompt -Path $crashPrompt -IdempotencyKey "crash.recoverable" -JobId "crash-recoverable-job"
     $crashAdmission = Test-StackInboxAdmission -Path $crashPrompt
-    $deadOwner = [pscustomobject]@{ pid = 2147483646; process_start_time_utc = "2000-01-01T00:00:00.0000000Z" }
     $crashClaim = New-StackInboxClaim -PromptPath $crashPrompt -StateRoot $crashState -TaskName "AtlasStackInboxSweep" -SweepId "crashed-sweep" -CorrelationId "crashed-correlation" -Admission $crashAdmission -Owner $deadOwner
     $beforeCrashCount = [int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw)
     $recovered = Invoke-TestSweep -Inbox $crashInbox -State $crashState -TaskScript $fakeTask
@@ -240,14 +267,46 @@ try {
     Write-TestPrompt -Path $completedResultPrompt -IdempotencyKey "crash.completed-result" -JobId "crash-completed-result-job"
     $completedResultAdmission = Test-StackInboxAdmission -Path $completedResultPrompt
     $completedResultClaim = New-StackInboxClaim -PromptPath $completedResultPrompt -StateRoot $crashState -TaskName "AtlasStackInboxSweep" -SweepId "crashed-after-result" -CorrelationId "crashed-after-result-correlation" -Admission $completedResultAdmission -Owner $deadOwner
-    Copy-Item -LiteralPath ([string]$firstTerminal.result_path) -Destination ([string]$completedResultClaim.record.result_path)
-    $completedResultClaim.record.state = "executing"
-    $completedResultClaim.record.execution_started_at = "2026-07-16T00:00:00.0000000Z"
-    Write-StackInboxJsonAtomic -Path $completedResultClaim.claim_path -Value $completedResultClaim.record
+    $completedTaskInvocation = Invoke-StackInboxClaimTask -Claim $completedResultClaim -TaskScriptPath $fakeTask -PowerShellExecutable (Join-Path $PSHOME "powershell.exe")
+    Assert-Sweep ($completedTaskInvocation.exit_code -eq 0 -and $null -ne $completedTaskInvocation.result) "Valid crash-after-result fixture did not produce its own claim-bound task result."
     $beforeCompletedResultRecovery = [int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw)
     $completedResultRecovery = Invoke-TestSweep -Inbox $crashInbox -State $crashState -TaskScript $fakeTask
     Assert-Sweep ($completedResultRecovery.counts.executed -eq 0 -and $completedResultRecovery.counts.archived -eq 1 -and $completedResultRecovery.counts.quarantined -eq 0 -and [string]$completedResultRecovery.terminal_records[0].disposition -eq "archived") "Crash-after-result recovery did not count its terminal archive as archived."
     Assert-Sweep ([int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw) -eq $beforeCompletedResultRecovery) "Crash-after-result recovery re-executed a completed task."
+
+    $swappedRoot = New-TestRoot -Name "swapped-result"
+    [void]$roots.Add($swappedRoot)
+    $swappedInbox = Join-Path $swappedRoot "inbox"
+    $swappedState = Join-Path $swappedRoot "state"
+    New-Item -ItemType Directory -Path $swappedInbox | Out-Null
+    Initialize-StackInboxStateDirectories -StateRoot $swappedState
+    $swappedPromptA = Join-Path $swappedInbox "claim-a.md"
+    Write-TestPrompt -Path $swappedPromptA -IdempotencyKey "swapped.claim.a" -JobId "swapped-claim-a"
+    $swappedAdmissionA = Test-StackInboxAdmission -Path $swappedPromptA
+    $swappedClaimA = New-StackInboxClaim -PromptPath $swappedPromptA -StateRoot $swappedState -TaskName "AtlasStackInboxSweep" -SweepId "swapped-sweep-a" -CorrelationId "swapped-correlation-a" -Admission $swappedAdmissionA -Owner (Get-StackInboxCurrentProcessIdentity)
+    $swappedInvocationA = Invoke-StackInboxClaimTask -Claim $swappedClaimA -TaskScriptPath $fakeTask -PowerShellExecutable (Join-Path $PSHOME "powershell.exe")
+    Assert-Sweep ($swappedInvocationA.exit_code -eq 0 -and $null -ne $swappedInvocationA.result) "Source claim did not produce a valid claim-bound task result for the swap regression."
+    [void](Complete-StackInboxClaim -Claim $swappedClaimA -StateRoot $swappedState -TaskResult $swappedInvocationA.result -TaskExitCode $swappedInvocationA.exit_code)
+    $swappedPromptB = Join-Path $swappedInbox "claim-b.md"
+    Write-TestPrompt -Path $swappedPromptB -IdempotencyKey "swapped.claim.b" -JobId "swapped-claim-b"
+    $swappedAdmissionB = Test-StackInboxAdmission -Path $swappedPromptB
+    $swappedClaimB = New-StackInboxClaim -PromptPath $swappedPromptB -StateRoot $swappedState -TaskName "AtlasStackInboxSweep" -SweepId "swapped-sweep-b" -CorrelationId "swapped-correlation-b" -Admission $swappedAdmissionB -Owner $deadOwner
+    Copy-Item -LiteralPath ([string]$swappedClaimA.record.result_path) -Destination ([string]$swappedClaimB.record.result_path)
+    $swappedResult = Read-StackInboxJson -Path ([string]$swappedClaimB.record.result_path)
+    $swappedTopLevelValidation = Test-StackInboxContractsCorrelation -TaskResult $swappedResult -Claim $swappedClaimB
+    Assert-Sweep (-not [bool]$swappedTopLevelValidation.ok -and [string]$swappedTopLevelValidation.reason_code -eq "task_result_claim_identity_mismatch") "A swapped task result was not rejected by top-level claim identity binding."
+    $swappedResult.sweep_id = [string]$swappedClaimB.record.sweep_id
+    $swappedResult.sweep_correlation_id = [string]$swappedClaimB.record.sweep_correlation_id
+    $swappedResult.idempotency_key = [string]$swappedClaimB.record.idempotency_key
+    $swappedResult.inbox_job_id = [string]$swappedClaimB.record.inbox_job_id
+    Write-StackInboxJsonAtomic -Path ([string]$swappedClaimB.record.result_path) -Value $swappedResult
+    $swappedClaimB.record.state = "executing"
+    $swappedClaimB.record.execution_started_at = "2026-07-16T00:00:00.0000000Z"
+    Write-StackInboxJsonAtomic -Path $swappedClaimB.claim_path -Value $swappedClaimB.record
+    $beforeSwappedRecovery = [int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw)
+    $swappedRecovery = Invoke-TestSweep -Inbox $swappedInbox -State $swappedState -TaskScript $fakeTask
+    Assert-Sweep ($swappedRecovery.counts.executed -eq 0 -and $swappedRecovery.counts.archived -eq 0 -and $swappedRecovery.counts.quarantined -eq 1 -and [string]$swappedRecovery.terminal_records[0].reason_code -eq "contracts_v2_inbox_claim_identity_mismatch") "Swapped JobEnvelope/ExecutionReceipt inbox bindings were not terminally quarantined."
+    Assert-Sweep ([int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw) -eq $beforeSwappedRecovery) "Swapped result recovery launched child execution."
 
     $ambiguousPrompt = Join-Path $crashInbox "ambiguous.md"
     Write-TestPrompt -Path $ambiguousPrompt -IdempotencyKey "crash.ambiguous" -JobId "crash-ambiguous-job"

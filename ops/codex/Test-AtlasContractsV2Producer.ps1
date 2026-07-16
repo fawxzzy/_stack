@@ -18,10 +18,18 @@ $atlasRoot = (Resolve-Path -LiteralPath (Join-Path -Path $logicalStackRoot -Chil
 $temporaryRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("atlas-contracts-v2-producer-{0}" -f [guid]::NewGuid().ToString("N"))
 $previousThreadId = $env:CODEX_THREAD_ID
 $previousTurnId = $env:CODEX_TURN_ID
+$previousInboxSweepId = $env:ATLAS_INBOX_SWEEP_ID
+$previousInboxCorrelationId = $env:ATLAS_INBOX_SWEEP_CORRELATION_ID
+$previousInboxIdempotencyKey = $env:ATLAS_INBOX_IDEMPOTENCY_KEY
+$previousInboxJobId = $env:ATLAS_INBOX_JOB_ID
 
 try {
     $env:CODEX_THREAD_ID = "thread-producer-fixture"
     $env:CODEX_TURN_ID = "turn-producer-fixture"
+    $env:ATLAS_INBOX_SWEEP_ID = "producer-fixture-sweep"
+    $env:ATLAS_INBOX_SWEEP_CORRELATION_ID = "producer-fixture-correlation"
+    $env:ATLAS_INBOX_IDEMPOTENCY_KEY = "producer.fixture.idempotency"
+    $env:ATLAS_INBOX_JOB_ID = "producer-fixture-inbox-job"
     $producerSource = Get-Content -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "AtlasContractsV2Producer.ps1") -Raw
     Assert-Condition -Condition $producerSource.Contains("scripts\validate-artifact.mjs") -Message "Producer must invoke the Atlas-owned validate-artifact.mjs CLI."
     Assert-Condition -Condition (-not $producerSource.Contains("Validate-AtlasContractsV2Artifact.mjs")) -Message "Owner-side generic validator launcher must not be present."
@@ -147,6 +155,8 @@ process.exit(rejected ? 1 : 0);
     $verificationRecord = [pscustomobject]@{ command = "git diff --check"; exitCode = 0; stdoutPath = "fixture-verify.stdout.log"; stderrPath = "fixture-verify.stderr.log" }
     $successReceipt = Write-AtlasContractsV2TerminalReceipt -Producer $producer -RunnerStatus "success" -RuntimePolicy $runtimePolicy -VerificationCommands @("git diff --check") -VerificationRecords @($verificationRecord) -Branch "codex/fixture" -Worktree (Join-Path $temporaryRoot "fixture-worktree") -EvidenceRefs @("fixture.log") -LeaseReleaseProven $true -LeaseRecoveryCheckpoint (Join-Path $temporaryRoot "run.json")
     Assert-Condition -Condition $successReceipt.ok -Message "Successful terminal receipt must validate through Atlas CLI."
+    $successfulExecutionReceipt = Get-Content -LiteralPath $producer.paths.executionReceipt -Raw | ConvertFrom-Json
+    Assert-Condition -Condition ([string]$successfulExecutionReceipt.extensions.inbox.sweep_id -eq "producer-fixture-sweep" -and [string]$successfulExecutionReceipt.extensions.inbox.correlation_id -eq "producer-fixture-correlation" -and [string]$successfulExecutionReceipt.extensions.inbox.idempotency_key -eq "producer.fixture.idempotency" -and [string]$successfulExecutionReceipt.extensions.inbox.inbox_job_id -eq "producer-fixture-inbox-job") -Message "ExecutionReceipt must preserve the same inbox identity binding as JobEnvelope."
     $releasedLease = Get-Content -LiteralPath $producer.paths.workerLease -Raw | ConvertFrom-Json
     Assert-Condition -Condition ([string]$releasedLease.status -eq "released" -and -not [string]::IsNullOrWhiteSpace([string]$releasedLease.released_at) -and ([DateTimeOffset]$releasedLease.released_at) -ge ([DateTimeOffset]$releasedLease.acquired_at)) -Message "Accepted completion must release the same WorkerLease with monotonic terminal timing."
     Assert-Condition -Condition ([bool]$producer.validation.workerLeaseTerminal.ok) -Message "Terminal WorkerLease must validate through the Atlas-owned CLI before receipt acceptance."
@@ -187,5 +197,9 @@ process.exit(rejected ? 1 : 0);
 finally {
     $env:CODEX_THREAD_ID = $previousThreadId
     $env:CODEX_TURN_ID = $previousTurnId
+    $env:ATLAS_INBOX_SWEEP_ID = $previousInboxSweepId
+    $env:ATLAS_INBOX_SWEEP_CORRELATION_ID = $previousInboxCorrelationId
+    $env:ATLAS_INBOX_IDEMPOTENCY_KEY = $previousInboxIdempotencyKey
+    $env:ATLAS_INBOX_JOB_ID = $previousInboxJobId
     if (Test-Path -LiteralPath $temporaryRoot) { Remove-Item -LiteralPath $temporaryRoot -Recurse -Force }
 }
