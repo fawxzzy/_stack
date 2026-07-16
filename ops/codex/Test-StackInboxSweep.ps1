@@ -54,6 +54,7 @@ param(
 $ErrorActionPreference = "Stop"
 $providedRuntimePaths = @(@($ConfigPath, $RepoRoot, $AdapterPath) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
 if ($providedRuntimePaths.Count -notin @(0, 3)) { throw "Runtime path arguments must retain their values." }
+if ($providedRuntimePaths.Count -eq 3 -and ([IO.Path]::GetFileName($ConfigPath) -ne "config.toml" -or [IO.Path]::GetFileName($RepoRoot) -ne "repo" -or [IO.Path]::GetFileName($AdapterPath) -ne "adapter.json")) { throw "Runtime path argument names and values were not paired exactly." }
 $runId = "fake-" + [guid]::NewGuid().ToString("N")
 $artifactRoot = Join-Path (Split-Path -Parent $ResultPath) "fake-contracts"
 New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null

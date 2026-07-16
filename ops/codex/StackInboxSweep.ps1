@@ -725,14 +725,23 @@ function Invoke-StackInboxClaimTask {
     $Claim.record.execution_started_at = ConvertTo-StackInboxUtcString -Value (Get-StackInboxUtcNow)
     Write-StackInboxJsonAtomic -Path $Claim.claim_path -Value $Claim.record
     $arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $TaskScriptPath, "-PromptPath", $Claim.prompt_path, "-ResultPath", $Claim.record.result_path, "-SkipPromptArchive")
-    foreach ($pair in @(
-        @("ConfigPath", $ConfigPath), @("RepoRoot", $RepoRoot), @("AdapterPath", $AdapterPath), @("CodexCommand", $CodexCommand),
-        @("Model", $Model), @("Reasoning", $Reasoning), @("Speed", $Speed), @("Permissions", $Permissions),
-        @("PermissionProfile", $PermissionProfile), @("SandboxMode", $SandboxMode), @("ApprovalPolicy", $ApprovalPolicy), @("WebSearch", $WebSearch)
+    foreach ($option in @(
+        [pscustomobject]@{ name = "ConfigPath"; value = $ConfigPath },
+        [pscustomobject]@{ name = "RepoRoot"; value = $RepoRoot },
+        [pscustomobject]@{ name = "AdapterPath"; value = $AdapterPath },
+        [pscustomobject]@{ name = "CodexCommand"; value = $CodexCommand },
+        [pscustomobject]@{ name = "Model"; value = $Model },
+        [pscustomobject]@{ name = "Reasoning"; value = $Reasoning },
+        [pscustomobject]@{ name = "Speed"; value = $Speed },
+        [pscustomobject]@{ name = "Permissions"; value = $Permissions },
+        [pscustomobject]@{ name = "PermissionProfile"; value = $PermissionProfile },
+        [pscustomobject]@{ name = "SandboxMode"; value = $SandboxMode },
+        [pscustomobject]@{ name = "ApprovalPolicy"; value = $ApprovalPolicy },
+        [pscustomobject]@{ name = "WebSearch"; value = $WebSearch }
     )) {
-        if (-not [string]::IsNullOrWhiteSpace([string]$pair[1])) {
-            $arguments += ("-{0}" -f $pair[0])
-            $arguments += [string]$pair[1]
+        if (-not [string]::IsNullOrWhiteSpace([string]$option.value)) {
+            $arguments += ("-{0}" -f $option.name)
+            $arguments += [string]$option.value
         }
     }
     $oldSweepId = $env:ATLAS_INBOX_SWEEP_ID
