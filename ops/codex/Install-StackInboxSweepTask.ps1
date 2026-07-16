@@ -9,6 +9,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "CodexRunner.Common.ps1")
+
 function Get-StackInboxTextSha256 {
     param([Parameter(Mandatory = $true)][string]$Text)
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
@@ -85,7 +87,7 @@ function Install-StackInboxLauncherSnapshot {
                 source_blob = $sourceBlob
                 source_matches_revision = $matchesRevision
                 bytes = (Get-Item -LiteralPath $destinationPath).Length
-                sha256 = (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                sha256 = Get-DeterministicFileSha256 -Path $destinationPath
             })
         }
         if ($RequireCommittedSource -and -not $sourceCommitted) { throw "stack_inbox_launcher_source_not_exact_committed_head" }
@@ -99,7 +101,7 @@ function Install-StackInboxLauncherSnapshot {
         $manifestPath = Join-Path $stagingPath "launcher-manifest.json"
         $manifestJson = ($manifest | ConvertTo-Json -Depth 8) + "`r`n"
         [System.IO.File]::WriteAllText($manifestPath, $manifestJson, (New-Object System.Text.UTF8Encoding($false)))
-        $manifestDigest = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $manifestDigest = Get-DeterministicFileSha256 -Path $manifestPath
         [System.IO.File]::WriteAllText((Join-Path $stagingPath "launcher-manifest.sha256"), "$manifestDigest`r`n", (New-Object System.Text.UTF8Encoding($false)))
 
         $existingDigest = $null

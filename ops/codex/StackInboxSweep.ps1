@@ -72,7 +72,7 @@ function Get-StackInboxFileEvidence {
         name = $item.Name
         path = $item.FullName
         bytes = [long]$item.Length
-        sha256 = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        sha256 = Get-DeterministicFileSha256 -Path $item.FullName
         last_modified_utc = $item.LastWriteTimeUtc.ToString("o")
     }
 }
@@ -95,7 +95,7 @@ function Get-StackInboxLogMetadata {
         path = $Path
         bytes = [long](Get-Item -LiteralPath $Path).Length
         line_count = $lineCount
-        sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+        sha256 = Get-DeterministicFileSha256 -Path $Path
         exists = $true
     }
 }

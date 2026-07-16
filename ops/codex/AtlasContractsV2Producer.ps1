@@ -112,8 +112,7 @@ function Assert-AtlasContractsV2Validation {
 function Get-AtlasContractsV2ArtifactDigest {
     param([Parameter(Mandatory = $true)][string]$Path)
 
-    $hash = Get-FileHash -LiteralPath $Path -Algorithm SHA256
-    return "sha256:{0}" -f $hash.Hash.ToLowerInvariant()
+    return "sha256:{0}" -f (Get-DeterministicFileSha256 -Path $Path)
 }
 
 function Get-AtlasContractsV2Surface {

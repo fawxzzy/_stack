@@ -11,6 +11,11 @@ $taskXmlAfterInstallDotSource = if ($null -ne $taskAfterInstallDotSource) { Expo
 if (($null -eq $taskBeforeInstallDotSource) -ne ($null -eq $taskAfterInstallDotSource) -or $taskXmlBeforeInstallDotSource -ne $taskXmlAfterInstallDotSource) {
     throw "Dot-sourcing the task installer registered or modified AtlasStackInboxSweep."
 }
+foreach ($hashSurface in @("CodexRunner.Common.ps1", "StackInboxSweep.ps1", "Install-StackInboxSweepTask.ps1", "Invoke-StackInboxSweepLauncher.ps1", "AtlasContractsV2Producer.ps1")) {
+    $hashSurfaceText = Get-Content -LiteralPath (Join-Path $PSScriptRoot $hashSurface) -Raw
+    if ($hashSurfaceText -match '\bGet-FileHash\b') { throw ("Scheduled sweep integrity surface retains unavailable Get-FileHash dependency: {0}" -f $hashSurface) }
+}
+function Get-FileHash { throw "get_file_hash_dependency_forbidden_by_test" }
 
 function Assert-Sweep {
     param([bool]$Condition, [Parameter(Mandatory = $true)][string]$Message)
