@@ -678,7 +678,9 @@ function Quarantine-StackInboxClaimWithoutExecution {
 
     $terminalId = "terminal-{0}" -f ([guid]::NewGuid().ToString("N"))
     $terminalPath = Join-Path (Join-Path $StateRoot "terminal") "$terminalId.json"
-    $identityChangedWithoutExecution = $ReasonCode -in @("admission_evidence_changed_after_claim", "recovered_claim_evidence_mismatch")
+    $identityEvidenceMismatch = $ReasonCode -in @("admission_evidence_changed_after_claim", "recovered_claim_evidence_mismatch")
+    $executionStarted = -not [string]::IsNullOrWhiteSpace([string]$Claim.record.execution_started_at)
+    $identityChangedWithoutExecution = $identityEvidenceMismatch -and -not $executionStarted
     $expectedClaimEvidence = if ($ReasonCode -eq "recovered_claim_evidence_mismatch") { Get-StackInboxObjectValue -Object $Claim.record -Name "recovery_expected_claim_evidence" -DefaultValue $null } else { Get-StackInboxObjectValue -Object $Claim.record -Name "admitted_evidence" -DefaultValue $null }
     $observedClaimEvidence = if ($ReasonCode -eq "recovered_claim_evidence_mismatch") { Get-StackInboxObjectValue -Object $Claim.record -Name "recovery_observed_claim_evidence" -DefaultValue $null } else { Get-StackInboxObjectValue -Object $Claim.record -Name "observed_claim_evidence" -DefaultValue $null }
     $record = [ordered]@{
@@ -689,7 +691,7 @@ function Quarantine-StackInboxClaimWithoutExecution {
         sweep_correlation_id = [string]$Claim.record.sweep_correlation_id
         disposition = "quarantined"
         reason_code = $ReasonCode
-        content_sha256 = if ($identityChangedWithoutExecution -and $null -ne $observedClaimEvidence) { [string]$observedClaimEvidence.sha256 } else { [string]$Claim.record.content_sha256 }
+        content_sha256 = if ($identityEvidenceMismatch -and $null -ne $observedClaimEvidence) { [string]$observedClaimEvidence.sha256 } else { [string]$Claim.record.content_sha256 }
         idempotency_key = if ($identityChangedWithoutExecution) { $null } else { [string]$Claim.record.idempotency_key }
         inbox_job_id = if ($identityChangedWithoutExecution) { $null } else { [string]$Claim.record.inbox_job_id }
         accepted_at = [string]$Claim.record.accepted_at
@@ -697,7 +699,7 @@ function Quarantine-StackInboxClaimWithoutExecution {
         expected_claim_evidence = $expectedClaimEvidence
         observed_claim_evidence = $observedClaimEvidence
         replay_identity_recorded = -not $identityChangedWithoutExecution
-        execution_started = -not [string]::IsNullOrWhiteSpace([string]$Claim.record.execution_started_at)
+        execution_started = $executionStarted
         execution_started_at = $Claim.record.execution_started_at
         terminal_at = ConvertTo-StackInboxUtcString -Value (Get-StackInboxUtcNow)
         prompt_path = $null
@@ -742,13 +744,6 @@ function Get-StackInboxRecoverableClaims {
         if ([string]$record.state -eq "claim_invalid" -and [string]$record.claim_validation_reason_code -eq "admission_evidence_changed_after_claim") {
             [void]$terminalized.Add((Quarantine-StackInboxClaimWithoutExecution -Claim $claim -StateRoot $StateRoot -ReasonCode "admission_evidence_changed_after_claim")); continue
         }
-        if (Test-Path -LiteralPath ([string]$record.result_path) -PathType Leaf) {
-            $taskResult = Read-StackInboxJson -Path ([string]$record.result_path)
-            if ($null -ne $taskResult) { [void]$terminalized.Add((Complete-StackInboxClaim -Claim $claim -StateRoot $StateRoot -TaskResult $taskResult -TaskExitCode ([int](Get-StackInboxObjectValue -Object $taskResult -Name "exit_code" -DefaultValue 1)))); continue }
-        }
-        if (-not [string]::IsNullOrWhiteSpace([string]$record.execution_started_at)) {
-            [void]$terminalized.Add((Quarantine-StackInboxClaimWithoutExecution -Claim $claim -StateRoot $StateRoot -ReasonCode "ambiguous_crash_after_execution_start")); continue
-        }
         if (-not (Test-Path -LiteralPath $claim.prompt_path -PathType Leaf)) {
             if ([string]$record.state -eq "prepared" -and (Test-Path -LiteralPath ([string]$record.source_path) -PathType Leaf)) {
                 $sourceEvidence = Get-StackInboxFileEvidence -Path ([string]$record.source_path)
@@ -791,6 +786,13 @@ function Get-StackInboxRecoverableClaims {
             $claim.record = $record
             [void]$terminalized.Add((Quarantine-StackInboxClaimWithoutExecution -Claim $claim -StateRoot $StateRoot -ReasonCode "recovered_claim_evidence_mismatch"))
             continue
+        }
+        if (Test-Path -LiteralPath ([string]$record.result_path) -PathType Leaf) {
+            $taskResult = Read-StackInboxJson -Path ([string]$record.result_path)
+            if ($null -ne $taskResult) { [void]$terminalized.Add((Complete-StackInboxClaim -Claim $claim -StateRoot $StateRoot -TaskResult $taskResult -TaskExitCode ([int](Get-StackInboxObjectValue -Object $taskResult -Name "exit_code" -DefaultValue 1)))); continue }
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$record.execution_started_at)) {
+            [void]$terminalized.Add((Quarantine-StackInboxClaimWithoutExecution -Claim $claim -StateRoot $StateRoot -ReasonCode "ambiguous_crash_after_execution_start")); continue
         }
         $record.owner = $CurrentOwner
         $record.sweep_id = $SweepId

@@ -274,6 +274,21 @@ try {
     Assert-Sweep ($completedResultRecovery.counts.executed -eq 0 -and $completedResultRecovery.counts.archived -eq 1 -and $completedResultRecovery.counts.quarantined -eq 0 -and [string]$completedResultRecovery.terminal_records[0].disposition -eq "archived") "Crash-after-result recovery did not count its terminal archive as archived."
     Assert-Sweep ([int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw) -eq $beforeCompletedResultRecovery) "Crash-after-result recovery re-executed a completed task."
 
+    $tamperedResultPrompt = Join-Path $crashInbox "tampered-after-result.md"
+    Write-TestPrompt -Path $tamperedResultPrompt -IdempotencyKey "crash.tampered-result" -JobId "crash-tampered-result-job"
+    $tamperedResultAdmission = Test-StackInboxAdmission -Path $tamperedResultPrompt
+    $tamperedResultClaim = New-StackInboxClaim -PromptPath $tamperedResultPrompt -StateRoot $crashState -TaskName "AtlasStackInboxSweep" -SweepId "crashed-tampered-result" -CorrelationId "crashed-tampered-result-correlation" -Admission $tamperedResultAdmission -Owner $deadOwner
+    $tamperedTaskInvocation = Invoke-StackInboxClaimTask -Claim $tamperedResultClaim -TaskScriptPath $fakeTask -PowerShellExecutable (Join-Path $PSHOME "powershell.exe")
+    Assert-Sweep ($tamperedTaskInvocation.exit_code -eq 0 -and $null -ne $tamperedTaskInvocation.result) "Tampered crash-after-result fixture did not first produce a valid claim-bound task result."
+    [System.IO.File]::AppendAllText($tamperedResultClaim.prompt_path, "`r`n# Mutated after saved result`r`n", (New-Object System.Text.UTF8Encoding($false)))
+    (Get-Item -LiteralPath $tamperedResultClaim.prompt_path).LastWriteTimeUtc = [DateTime]::UtcNow.AddSeconds(-5)
+    $beforeTamperedResultRecovery = [int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw)
+    $tamperedResultRecovery = Invoke-TestSweep -Inbox $crashInbox -State $crashState -TaskScript $fakeTask
+    $tamperedResultTerminal = @($tamperedResultRecovery.terminal_records | Where-Object { [string]$_.reason_code -eq "recovered_claim_evidence_mismatch" })
+    Assert-Sweep ($tamperedResultRecovery.counts.executed -eq 0 -and $tamperedResultRecovery.counts.archived -eq 0 -and $tamperedResultRecovery.counts.quarantined -eq 1 -and $tamperedResultTerminal.Count -eq 1) "A valid saved result was accepted before the recovered prompt evidence mismatch was quarantined."
+    Assert-Sweep ([bool]$tamperedResultTerminal[0].execution_started -and [bool]$tamperedResultTerminal[0].replay_identity_recorded -and [string]$tamperedResultTerminal[0].idempotency_key -eq "crash.tampered-result" -and [string]$tamperedResultTerminal[0].expected_claim_evidence.sha256 -ne [string]$tamperedResultTerminal[0].observed_claim_evidence.sha256) "Post-execution prompt tampering did not preserve conservative replay identity and both evidence sets."
+    Assert-Sweep ([int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw) -eq $beforeTamperedResultRecovery) "Tampered saved-result recovery launched child execution."
+
     $swappedRoot = New-TestRoot -Name "swapped-result"
     [void]$roots.Add($swappedRoot)
     $swappedInbox = Join-Path $swappedRoot "inbox"
