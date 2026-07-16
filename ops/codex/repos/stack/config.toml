@@ -2,10 +2,13 @@ repo_root = "../../../../"
 adapter_path = "./adapter.json"
 
 [runtime_policy]
-model = "gpt-5.4"
-reasoning = "high"
+model = "gpt-5.6-sol"
+reasoning = "xhigh"
 speed = "standard"
 permissions = "full-access"
 permission_profile = ":danger-full-access"
 approval = "never"
-web_search = "disabled"
+web_search = "live"
+
+[scheduled_inbox]
+freshness_minutes = 30

@@ -35,6 +35,7 @@ Use for workflow commands and shared operator tooling executed from `_stack`.
   - `verify`
   - `deploy`
   - shared Codex inbox and task runs for `_stack` operator surfaces
+  - the single scheduled `_stack` RunOnce inbox sweep; Task Scheduler is only its periodic trigger
   - canonical Atlas workspace writer runs that must target the explicit canonical Atlas workspace root without a git worktree
 - Constraint:
   - Prefer `_stack/package.json` scripts and `_stack/.vscode/tasks.json` tasks before inventing ad hoc workspace commands.
@@ -81,10 +82,11 @@ Use only when the task explicitly spans more than one repo and coordination is r
 8. Governed Codex jobs must resolve and receipt one runtime-policy envelope before execution; precedence is explicit command argument, prompt metadata, repo config, then shared defaults.
 9. Runtime-policy receipts must record requested versus effective settings plus `codex_version`, `warnings`, and `blockers` so hidden model, speed, or permission drift is observable in the run manifest.
 10. `codex:atlas-workspace:task` is a separate `_stack` execution class. It must validate an explicit canonical `ATLAS` root, preserve pre-existing dirt, stage only exact admitted paths, and keep push manual-only.
-11. Fitness, Mazer, and Trove currently use Vercel.
-12. Playbook, Lifeline, and Atlas are currently self-hosted and should not be routed through Vercel workflows.
-13. Cross-repo work should produce thin orchestration artifacts in `_stack` and keep repo mutations delegated.
-14. Do not restructure sibling repos from the dispatcher layer.
+11. `_stack` inbox automation is RunOnce-only through `AtlasStackInboxSweep`; do not add a daemon, persistent poller, service, database queue, or second scheduler.
+12. Fitness, Mazer, and Trove currently use Vercel.
+13. Playbook, Lifeline, and Atlas are currently self-hosted and should not be routed through Vercel workflows.
+14. Cross-repo work should produce thin orchestration artifacts in `_stack` and keep repo mutations delegated.
+15. Do not restructure sibling repos from the dispatcher layer.
 
 ## Dispatcher Decision Table
 

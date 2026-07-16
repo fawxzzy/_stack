@@ -1,0 +1,165 @@
+{
+  "schema_version": "atlas.stack.ci-workspace-fixture.v1",
+  "fixture_mode": "github_actions_versioned_fixture",
+  "hash_mode": "utf8-lf-normalized-sha256",
+  "generated_from": {
+    "atlas": "1d79d4ac3191dade11a2aa7c40352a5f210d35e2",
+    "playbook": "14fce44268084bcaaab6d189b6ef18eb7a992faf",
+    "lifeline": "54eeb56006099235723b60ce44de8a65e4c85889",
+    "fitness": "b98fa17b90e62fbe191bf3c20c88bf674bc76c13",
+    "discordos": "876b30e17733b6cb3c3c89a667b5d546be09b4c6"
+  },
+  "source_revisions": {
+    "atlas": "1d79d4ac3191dade11a2aa7c40352a5f210d35e2",
+    "playbook": "14fce44268084bcaaab6d189b6ef18eb7a992faf",
+    "lifeline": "54eeb56006099235723b60ce44de8a65e4c85889",
+    "fitness": "b98fa17b90e62fbe191bf3c20c88bf674bc76c13",
+    "discordos": "876b30e17733b6cb3c3c89a667b5d546be09b4c6"
+  },
+  "contracts": [
+    "Atlas branding verification",
+    "Atlas Contracts v2 validation",
+    "Atlas worker context and supervisor consumption",
+    "Playbook workflow-pack and consumer adoption",
+    "Lifeline privileged-execution adoption",
+    "Fitness integration adoption",
+    "DiscordOS 218-character path-budget projection"
+  ],
+  "files": [
+    {
+      "path": "atlas/branding/manifest.json",
+      "sha256": "b9ab5c8f69642cefb784dc43fc8e4ed1ec08cde62c84afafac9dbcf877ffc6f6",
+      "bytes": 276
+    },
+    {
+      "path": "atlas/branding/scripts/sync-brand-assets.mjs",
+      "sha256": "ac2e174a0f5fd8b8d56bda85c45bfe9d6cc9223c1d94f9b28da9a1d27b011267",
+      "bytes": 1060
+    },
+    {
+      "path": "atlas/docs/LIFELINE_TOPOLOGY_MANIFEST.json",
+      "sha256": "6bb336bf5a46172525c34975e13807289452232f20432764bf23b7d1d3f84c8c",
+      "bytes": 4116
+    },
+    {
+      "path": "atlas/ops/atlas/observations.py",
+      "sha256": "db1fcde0f6c2242db240e44553c881f28cbb255d3b8adc2408b2f8d0a6079e06",
+      "bytes": 1814
+    },
+    {
+      "path": "atlas/ops/_atlas.py",
+      "sha256": "b829fc014ac1cdd7bfdbd92fccaa4d7729a508fe884d1933eaf84723bb6bb75a",
+      "bytes": 6583
+    },
+    {
+      "path": "atlas/ops/cortex/build_worker_context.py",
+      "sha256": "e725d35d6c657b1e170a855f2131bd424a61ce11bee39ca71c05e4026511e1f7",
+      "bytes": 2361
+    },
+    {
+      "path": "atlas/ops/cortex/supervise_workers.py",
+      "sha256": "6c6913c801033285ddcbe287c075a73f08b75494845540e67827721979eafccc",
+      "bytes": 15674
+    },
+    {
+      "path": "atlas/packages/atlas-contracts/schemas/atlas.approval-record.v2.schema.json",
+      "sha256": "e882aae2ceb6ea65cc7a208f036e95ddc209c203f0b4b830372b8b2b35e954a2",
+      "bytes": 1230
+    },
+    {
+      "path": "atlas/packages/atlas-contracts/schemas/atlas.component-manifest.v2.schema.json",
+      "sha256": "91c54758b3b09ca5a5feb5586195bbd477db643df8ab5198f89e1db26ecb7545",
+      "bytes": 2814
+    },
+    {
+      "path": "atlas/packages/atlas-contracts/schemas/atlas.context-packet.v2.schema.json",
+      "sha256": "8c5dd344a4cbc4bb2864fee27f9d4a893ab3f7a637d58240c714cfd34bfcd7b1",
+      "bytes": 1341
+    },
+    {
+      "path": "atlas/packages/atlas-contracts/schemas/atlas.evidence-bundle.v2.schema.json",
+      "sha256": "1ace248a981b14e07e18cfdbdebda0b672957b430df710584447a25c8d9457ac",
+      "bytes": 1569
+    },
+    {
+      "path": "atlas/packages/atlas-contracts/schemas/atlas.execution-receipt.v2.schema.json",
+      "sha256": "94563ba6cdb63b54fed4d7e686cdf2f6e06777618a6a13010a857250929d40cd",
+      "bytes": 3416
+    },
+    {
+      "path": "atlas/packages/atlas-contracts/schemas/atlas.job-envelope.v2.schema.json",
+      "sha256": "ae42feeef0de1bbd8ceceb6df4476cda6bced1f5990f03587a12939aae50cbc0",
+      "bytes": 3504
+    },
+    {
+      "path": "atlas/packages/atlas-contracts/schemas/atlas.worker-lease.v2.schema.json",
+      "sha256": "435091c9ff5d5f57d119ce040fcff05e644c5e64967f4fa5f19d5274a0222c44",
+      "bytes": 3283
+    },
+    {
+      "path": "atlas/packages/atlas-contracts/scripts/lib/validate-json-schema.mjs",
+      "sha256": "f95fa9712dfa85a8ef9cef2f3bc6f961c6f6f3562892fef72f4c7131c447743f",
+      "bytes": 11196
+    },
+    {
+      "path": "atlas/packages/atlas-contracts/scripts/lib/validate-project-board-owner-export.mjs",
+      "sha256": "8a8adebbc58dd74348b63c965b498f6bf15e43b386d5ab5564270d6367457f87",
+      "bytes": 4344
+    },
+    {
+      "path": "atlas/packages/atlas-contracts/scripts/lib/validate-semantics.mjs",
+      "sha256": "4e667912e7bad41da198904575edee1c7370cd4c98db7afaf9b5b67ef16e5232",
+      "bytes": 337
+    },
+    {
+      "path": "atlas/packages/atlas-contracts/scripts/validate-artifact.mjs",
+      "sha256": "30130645cbb948e9203ec3fd98fccfd17f9f671bc9c1ffdf277215d845f2bfdf",
+      "bytes": 4386
+    },
+    {
+      "path": "atlas/repos/DiscordOS/README.md",
+      "sha256": "0c646b76dcaff90f0b103531fc9e1af1014f680ef6fca56934b5212c8d8a7547",
+      "bytes": 122
+    },
+    {
+      "path": "atlas/repos/fawxzzy-fitness/src/lib/ecosystem/fitness-integration-contract.ts",
+      "sha256": "f89593e99528ac85502f8e402f46b14b42a1c4f7a0425860a72d8286ac2cb418",
+      "bytes": 17937
+    },
+    {
+      "path": "atlas/repos/lifeline/docs/contracts/privileged-execution-contract.md",
+      "sha256": "f187ae9939785720e233b8e5ea217bd393e19b2f4effb38846f9659dc81d61df",
+      "bytes": 4156
+    },
+    {
+      "path": "atlas/repos/lifeline/examples/privileged-execution/capability-profile.json",
+      "sha256": "3cd2b0a3ebd98bbe6e5fd31052e1751b8815977ce2da942204b5ccd6502f9c74",
+      "bytes": 1065
+    },
+    {
+      "path": "atlas/repos/lifeline/examples/privileged-execution/capability-profile.scoped-write-dry-run.json",
+      "sha256": "96c8b48d45237207e30a3ff61eb595c130e7bdde26477c0f2ebdc98f0c58d287",
+      "bytes": 1067
+    },
+    {
+      "path": "atlas/repos/playbook/docs/CONSUMER_INTEGRATION_CONTRACT.md",
+      "sha256": "6b6b7b51dfbbb91fae790d826b9800987b24cbba7ed0d9b4e939bdf1ebf54562",
+      "bytes": 19987
+    },
+    {
+      "path": "atlas/repos/playbook/docs/contracts/WORKFLOW_PACK_REUSE_CONTRACT.md",
+      "sha256": "254604192773fb772e9bd8f946cb9b273a237d0804a96a7bc29b806199f8c22a",
+      "bytes": 5144
+    },
+    {
+      "path": "atlas/stack.lock.yaml",
+      "sha256": "c38b74f4b3c95b411b8e9330d54bf5522446bda88a4f79463eea132c4ffc6cf2",
+      "bytes": 140
+    },
+    {
+      "path": "atlas/stack.yaml",
+      "sha256": "b7268f615165dc30d53132b5fcc8e9f19bb65e44efb8a6a7bd6ce918413e8375",
+      "bytes": 515
+    }
+  ]
+}

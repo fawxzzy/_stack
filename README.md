@@ -11,7 +11,7 @@
 - The workspace-root dispatcher protocol lives at `docs/dispatcher-protocol.md`.
 - Child-task handoff templates live at `templates/child-task-handoff.md`.
 - Future automation task drops live at `queue`.
-- `_stack` project-board ownership is declared in `queue/owner-work-registry.json`; `state: ready-empty` intentionally exports zero cards and prevents Atlas proposals from becoming owner work by implication.
+- `_stack` project-board ownership is declared in `queue/owner-work-registry.json`; only explicitly owner-admitted records export, and Atlas proposals never become owner work by implication.
 - Fitness verify guidance lives at `docs/fitness-verify.md`.
 - Workflow-pack and execution owner-boundary adoption lives at `docs/STACK-ORCHESTRATION-ADOPTION.md`.
 - Shared Codex runner guidance lives at `docs/codex-orchestration.md`.
@@ -33,6 +33,9 @@
 - `pnpm run codex:playbook:task -- -PromptPath C:\path\to\prompt.md`
 - `pnpm run codex:stack:inbox`
 - `pnpm run codex:stack:inbox:once`
+- `pnpm run codex:stack:inbox:test`
+- `pnpm run codex:stack:inbox:task:install` installs the current-user task disabled for pre-enable proof.
+- `pnpm run codex:stack:inbox:task:enable` installs or reconciles the exact task enabled after proof.
 - `pnpm run codex:stack:inbox:bootstrap:once`
 - `pnpm run codex:stack:task -- -PromptPath C:\path\to\prompt.md`
 - `pnpm run codex:stack:task:bootstrap -- -PromptPath C:\path\to\prompt.md`
@@ -41,13 +44,14 @@
 - `pnpm run stack:queue-or-registry:live-direct-json-read-follow-on` rechecks the authoritative ATLAS execution-transition classifier and performs one bounded direct-json read for one admitted retained-state candidate path only.
 - `pnpm run stack:queue-or-registry:live-directory-read-follow-on` rechecks the authoritative ATLAS execution-transition classifier and performs one bounded shallow directory read for one admitted retained-state candidate path only.
 - `codex:stack:verify` now checks operator surfaces, worker artifacts, and the `_stack` owner-contract adoption map.
+- `.github/workflows/stack-verify.yml` runs that same authoritative command on a pinned Windows toolchain for every pull request and `main` push. CI reconstructs the required read-only Atlas and owner contract surfaces exclusively from versioned `_stack` fixtures; it does not clone sibling repositories or use persisted credentials. It neither registers nor triggers `AtlasStackInboxSweep`, and the installer rejects scheduler registration whenever `GITHUB_ACTIONS=true`.
 - Shared engine scripts live in `ops/codex`.
 - Playbook remains the first adapter example through `ops/codex/repos/playbook`.
 - Atlas is the first non-Playbook thin adapter through `ops/codex/repos/atlas`.
 - Lifeline is the next thin non-Vercel adapter through `ops/codex/repos/lifeline`.
 - DiscordOS is a first-class adapter through `ops/codex/repos/discordos`; `_stack` is its execution operator, while DiscordOS remains the single logical canonical board and Discord writer.
 - `_stack` is now also a first-class thin adapter through `ops/codex/repos/stack`.
-- `_stack` owns the runner; repo-local `.codex/` folders still own inbox, archive, logs, worktrees, and exports.
+- `_stack` owns the runner. Its canonical `.codex/inbox` remains the admitted source, while scheduled sweep lease, claim, terminal, launcher, archive, and quarantine state lives under Atlas `runtime/codex/stack`.
 - `_stack` worker runs stamp `stack_lock_digest` from the root `stack.lock.yaml` and write assignment, status, merge-request, and completion status artifacts alongside the run logs.
 - Every governed Codex job now resolves and receipts a runtime-policy envelope before execution using the same precedence chain: explicit command argument, prompt metadata, repo config, then shared defaults.
 - Each repo-local `.codex/logs/<run-id>/run.json` now records `runtimePolicy.requested`, `runtimePolicy.resolved`, `runtimePolicy.sources`, `runtimePolicy.codex_version`, `runtimePolicy.warnings`, and `runtimePolicy.blockers` so the effective execution truth is explicit without exposing secrets.
@@ -60,7 +64,8 @@
 - Lifeline stays repo-local and self-hosted; push remains manual-only and successful mutating tasks still auto-commit by default.
 - DiscordOS can only claim a live Discord or board write after production-environment readiness and exact bot-backed readback of the target; host access alone is not Discord, deployment, production, or live-data authority. Vercel production approval remains explicit, current-thread, and per named project.
 - `_stack` self-manages through the same runner path with repo-local `_stack\.codex\` artifacts, manual-only push, the same validated commit metadata contract used by the other adapters, and optional local auto-land to local `main` in `ff-only` mode.
-- Governed `_stack` jobs now default to the modern `:danger-full-access` permission profile from repo config, while the last accepted bootstrap path remains available through the explicit legacy `danger-full-access` sandbox scripts above.
+- `_stack` inbox execution is RunOnce-only. `AtlasStackInboxSweep` triggers one bounded sweep every five minutes, uses Task Scheduler `IgnoreNew` plus an atomic process-identity lease, then exits; there is no daemon or second queue.
+- Governed `_stack` jobs default to `gpt-5.6-sol`, `xhigh`, live web search, approval `never`, and the modern `:danger-full-access` permission profile. The last accepted bootstrap path remains available only through the explicit legacy compatibility scripts above.
 - Shared base-ref selection is local-first: prefer `origin/main` when it exists locally, otherwise fall back to local `main`, and record the resolved ref in each run manifest.
 - Shared auto-commit now uses a validated commit metadata contract via a temporary `.codex/commit-meta.json` artifact, with deterministic fallback messages when Codex output is missing or too generic.
 - Shared local landing is adapter-controlled through `localLandingPolicy`; `_stack` is the only repo currently opted into `ff-only`, while Atlas, Playbook, and Lifeline stay disabled by default.

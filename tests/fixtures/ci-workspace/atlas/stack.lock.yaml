@@ -1,0 +1,4 @@
+schema_version: "atlas.stack.lock.v1"
+stack_manifest_path: "stack.yaml"
+lock_digest: "sha256:stack-ci-versioned-fixture"
+component_count: 5

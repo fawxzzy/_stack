@@ -15,6 +15,7 @@ The `atlas:brand:*` commands resolve shared Atlas-root branding assets through t
 `_stack` owns:
 
 - shared PowerShell runner scripts
+- one integrity-checked current-user scheduled RunOnce trigger for `_stack`
 - one shared runtime-policy resolver and invocation planner
 - shared runtime defaults for model, reasoning, speed, permissions, approval, web-search, polling, exports, and git author metadata
 - the adapter schema and example repo adapters
@@ -22,7 +23,7 @@ The `atlas:brand:*` commands resolve shared Atlas-root branding assets through t
 
 Each repo still owns:
 
-- its own inbox, archive, logs, worktrees, and exports under repo-local paths, except for DiscordOS's externalized owner runtime
+- its own inbox, archive, logs, worktrees, and exports under repo-local paths, except for DiscordOS's externalized owner runtime and `_stack`'s scheduled sweep lifecycle state under Atlas runtime
 - its own verification bootstrap and default verify commands
 - its own allowed mutation surfaces and docs alignment rules
 - its own push and auto-commit policy declaration through the adapter and repo config
@@ -57,13 +58,18 @@ The canonical Atlas workspace writer is intentionally different: it operates dir
 
 ## Shared Runner Surfaces
 
-- `ops/codex/Start-CodexInboxRunner.ps1`: watches a repo-local inbox and dispatches one prompt per worktree
+- `ops/codex/Start-CodexInboxRunner.ps1`: dispatches repo inbox prompts; `_stack` is explicitly RunOnce-only
+- `ops/codex/StackInboxSweep.ps1`: owns `_stack` admission, atomic claim, sweep lease, crash recovery, replay rejection, and terminal retirement
+- `ops/codex/Install-StackInboxSweepTask.ps1`: installs the stable launcher snapshot and exact current-user task
+- `ops/codex/Invoke-StackInboxSweepLauncher.ps1`: verifies the installed snapshot manifest before one sweep
 - `ops/codex/Invoke-CodexRepoTask.ps1`: executes one prompt end to end
 - `ops/codex/CodexRunner.Common.ps1`: common parsing, git, runtime-policy, process, prompt, archive, and logging helpers
 - `ops/stack/StackWorkerArtifacts.ps1`: worker assignment/status/merge-request helpers that stamp the root stack lock digest
 - `ops/stack/Test-StackWorkerArtifacts.ps1`: verification for the worker artifact contract and touched-range parsing
 - `ops/codex/config.defaults.toml`: shared runtime defaults
 - `ops/codex/adapter.schema.json`: thin repo adapter contract
+
+The repo-owned `.github/workflows/stack-verify.yml` runs `pnpm run codex:stack:verify` on Windows for pull requests and `main` pushes with Node 22 and pnpm 10.23.0. Its actions are commit-pinned, the exact-head checkout does not persist credentials, permissions are read-only, and it performs no task registration, trigger, deployment, secret access, sibling-repository clone, or external mutation. `ops/ci/Initialize-StackCiFixtureWorkspace.ps1` explicitly reports fixture mode and assembles the live-read Atlas branding, contract-validator, worker-helper, and Playbook/Lifeline/Fitness/DiscordOS inputs from versioned snapshots committed to `_stack`; local verification continues using live canonical workspace inputs. Dot-sourcing the installer is non-executing; the verification suite snapshots any existing task before and after that import, and the installer independently rejects non-launcher-only registration when `GITHUB_ACTIONS=true` before any launcher, task, or runtime write.
 
 ## Runtime Policy Envelope
 
@@ -144,7 +150,7 @@ The JobEnvelope records full local capability separately from authority: push, d
 
 1. The operator starts the shared runner from `_stack` with a repo config.
 2. The repo config resolves the target repo root plus the adapter file.
-3. The watcher reads the repo-local inbox path from the adapter and waits for settled `.md` prompt files.
+3. The runner reads the repo-local inbox path from the adapter and selects settled `.md` prompt files.
 4. Each prompt gets a fresh repo-local worktree and `codex/<slug>` task branch from the adapter `execution.baseRef`, resolved locally by preferring `origin/main` and falling back to local `main` when the remote-tracking ref is unavailable.
 5. The runner resolves one runtime-policy envelope from explicit arguments, prompt metadata, repo config, and shared defaults before it invokes Codex.
 6. The runner rejects any policy that tries to activate both a modern permission profile and a legacy sandbox mode at the same precedence level.
@@ -159,6 +165,26 @@ The JobEnvelope records full local capability separately from authority: push, d
 15. The runner blocks commit if verification fails, proof gating fails, the spec-to-diff gate fails, or changed files exceed `allowedMutationSurfaces`.
 16. Successful mutating tasks auto-commit by default, skip push, export patch and optional bundle artifacts, and archive the prompt.
 17. Failed runs still archive the prompt and keep worktree/log state for inspection.
+
+## `_stack` Scheduled RunOnce Inbox
+
+`_stack` does not use its ambient watcher mode. One stable current-user task named `AtlasStackInboxSweep` triggers every five minutes. Its single action invokes an integrity-checked snapshot under Atlas `runtime/codex/stack/launcher/current`; the action never points at a linked worktree. The task uses a limited interactive current-user principal, `LeastPrivilege`, `IgnoreNew`, and deterministic reliability settings. Each trigger performs one sweep and exits.
+
+The application lease is separate from Task Scheduler overlap control. Acquisition is an atomic directory claim whose record includes task name, sweep ID, correlation ID, PID, process start time, acquired, renewed, and released timestamps, and any stale-owner diagnosis. A matching live PID and start time rejects overlap. Takeover is allowed only when owner death or PID reuse is conclusive; malformed or unavailable identity evidence fails closed. Released leases move to retained history, leaving no active lock.
+
+The prompt contract is:
+
+```text
+Inbox Contract: atlas.stack.inbox.v1
+Inbox Owner: stack
+Accepted At: <UTC ISO-8601 timestamp>
+Idempotency Key: <stable key>
+Job ID: <stable owner job id>
+```
+
+Accepted timestamps are fresh for 30 minutes with a five-minute future-skew bound. Only settled, exactly stack-owned prompts are claimable. Foreign or ambiguous ownership stays in place. Stack-owned malformed input, stale accepted-at values, duplicate content hashes, duplicate idempotency keys, already-terminal job IDs, and unsupported or mixed runtime policy are quarantined without execution. The exact legacy April prompt is a separately fingerprinted stale input and is quarantined only when filename, byte length, SHA-256, and last-modified evidence all match.
+
+Lifecycle is atomic and single-queue: `inbox -> processing claim -> terminal archive or quarantine`. A dead owner may resume a claim only before execution starts. A claim with terminal task output is retired from that output. A dead claim that started execution without terminal evidence is quarantined as ambiguous and never replayed. Every executed item must correlate the same Contracts v2 JobEnvelope, WorkerLease, and ExecutionReceipt before successful archive.
 
 ## Canonical Atlas Workspace Writer
 
@@ -327,7 +353,7 @@ These paths stay relative to the canonical DiscordOS root and portable across `_
 - mutation scope stays limited to `_stack` operator surfaces such as `ops/**`, `docs/**`, `.vscode/**`, templates, queue, receipts scaffolding, and repo metadata
 - `_stack` admits `exports/**` and `tests/**` only for `_stack`-owned contract evidence, repo-owned adoption exports, verification reports, schemas, and deterministic owner tests. This does not authorize product or application implementation, or cross-repo writes.
 - docs rules keep README, orchestration docs, dispatcher docs, workspace manifest, and handoff templates aligned when `_stack` runner behavior or workflow boundaries change
-- governed `_stack` jobs default to `permissions = "full-access"` with the modern `permission_profile = ":danger-full-access"` from repo config
+- governed `_stack` jobs default to `model = "gpt-5.6-sol"`, `reasoning = "xhigh"`, `web_search = "live"`, approval `never`, and `permissions = "full-access"` through the modern `permission_profile = ":danger-full-access"`
 - the last accepted bootstrap path remains available through explicit legacy `sandbox_mode = "danger-full-access"` entrypoints for compatibility with existing callers
 - push remains manual-only
 - local landing is enabled only for `_stack`, using `ff-only` to bring a successful task commit back onto local `main` when the repo-root worktree is safe to advance
@@ -521,16 +547,23 @@ Run one specific prompt directly:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Invoke-CodexRepoTask.ps1 -ConfigPath .\ops\codex\repos\playbook\config.toml -PromptPath C:\path\to\prompt.md
 ```
 
-Run the `_stack` watcher:
+Run one manual `_stack` sweep through the same bounded surface:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\stack\config.toml
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\stack\config.toml -RunOnce
 ```
 
 Run `_stack` inbox processing once:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\codex\Start-CodexInboxRunner.ps1 -ConfigPath .\ops\codex\repos\stack\config.toml -RunOnce
+```
+
+Install or reconcile the current-user task disabled, then enable only after proof:
+
+```powershell
+pnpm run codex:stack:inbox:task:install
+pnpm run codex:stack:inbox:task:enable
 ```
 
 Run the last accepted static-model bootstrap policy explicitly:

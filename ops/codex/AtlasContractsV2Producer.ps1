@@ -112,8 +112,7 @@ function Assert-AtlasContractsV2Validation {
 function Get-AtlasContractsV2ArtifactDigest {
     param([Parameter(Mandatory = $true)][string]$Path)
 
-    $hash = Get-FileHash -LiteralPath $Path -Algorithm SHA256
-    return "sha256:{0}" -f $hash.Hash.ToLowerInvariant()
+    return "sha256:{0}" -f (Get-DeterministicFileSha256 -Path $Path)
 }
 
 function Get-AtlasContractsV2Surface {
@@ -249,6 +248,13 @@ function New-AtlasContractsV2Producer {
             native_thread_id = $env:CODEX_THREAD_ID
             native_turn_id = $env:CODEX_TURN_ID
             local_capability = $runtime.permissions
+            inbox = [ordered]@{
+                sweep_id = if ([string]::IsNullOrWhiteSpace($env:ATLAS_INBOX_SWEEP_ID)) { $null } else { [string]$env:ATLAS_INBOX_SWEEP_ID }
+                correlation_id = if ([string]::IsNullOrWhiteSpace($env:ATLAS_INBOX_SWEEP_CORRELATION_ID)) { $null } else { [string]$env:ATLAS_INBOX_SWEEP_CORRELATION_ID }
+                idempotency_key = [string](Get-ObjectPropertyValue -Object $PromptRecord -Name "IdempotencyKey" -DefaultValue $env:ATLAS_INBOX_IDEMPOTENCY_KEY)
+                inbox_job_id = [string](Get-ObjectPropertyValue -Object $PromptRecord -Name "InboxJobId" -DefaultValue $env:ATLAS_INBOX_JOB_ID)
+                accepted_at = [string](Get-ObjectPropertyValue -Object $PromptRecord -Name "AcceptedAt" -DefaultValue $null)
+            }
             external_authority = [ordered]@{ push = "denied"; deploy = "denied"; production = "denied"; discord = "denied"; board = "denied"; data_mutation = "denied" }
         }
     }
@@ -522,6 +528,7 @@ function Write-AtlasContractsV2TerminalReceipt {
             run_id = $Producer.runId
             runner_status = $RunnerStatus
             validation_owner = "atlas-root"
+            inbox = $Producer.envelope.extensions.inbox
             runtime_requested = ConvertTo-AtlasContractsV2Runtime -RuntimePolicy $RuntimePolicy -Layer "requested"
             identity_correlations = [ordered]@{ component_id = $Producer.componentId; job_id = $Producer.jobId; run_id = $Producer.runId; execution_class = $Producer.executionClass; worker_id = $Producer.workerId; branch = $Producer.lease.workspace.branch; workspace_root = $Producer.lease.workspace.root; worktree = $Producer.lease.workspace.worktree; thread_id = $Producer.lease.owner.thread_id; turn_id = $Producer.lease.owner.turn_id }
             artifact_refs = [ordered]@{ context_packet = $Producer.paths.contextPacket; approval_record = $Producer.paths.approvalRecord; worker_lease = $Producer.paths.workerLease; evidence_bundle = $Producer.paths.evidenceBundle }

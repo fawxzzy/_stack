@@ -1,0 +1,24 @@
+name: ATLAS-CI-FIXTURE
+version: 2
+path_mode: relative
+repo_registry:
+  _stack:
+    path: repos/_stack
+    role: workflow-operator
+    status: fixture
+  playbook:
+    path: repos/playbook
+    role: contract-owner-fixture
+    status: fixture
+  lifeline:
+    path: repos/lifeline
+    role: contract-owner-fixture
+    status: fixture
+  discordos:
+    path: repos/DiscordOS
+    role: path-budget-fixture
+    status: fixture
+  fitness:
+    path: repos/fawxzzy-fitness
+    role: contract-owner-fixture
+    status: fixture

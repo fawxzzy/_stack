@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas://packages/contracts/atlas.worker-lease.v2.schema.json",
+  "title": "ATLAS worker lease contract v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "lease_id",
+    "job_id",
+    "component_id",
+    "status",
+    "acquired_at",
+    "expires_at",
+    "owner",
+    "workspace",
+    "resources",
+    "recovery"
+  ],
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "const": "atlas.worker-lease.v2"
+    },
+    "lease_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "job_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "component_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "released", "expired", "revoked", "recovery-required"]
+    },
+    "acquired_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "renewed_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "released_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "owner": {
+      "$ref": "#/$defs/owner"
+    },
+    "workspace": {
+      "$ref": "#/$defs/workspace"
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/resource"
+      }
+    },
+    "recovery": {
+      "$ref": "#/$defs/recovery"
+    },
+    "extensions": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["worker_id", "thread_id", "turn_id"],
+      "properties": {
+        "worker_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "thread_id": {
+          "type": ["string", "null"]
+        },
+        "turn_id": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "worktree", "branch"],
+      "properties": {
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "worktree": {
+          "type": ["string", "null"]
+        },
+        "branch": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "resource_id", "exclusive"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["worktree", "branch", "process", "port", "browser", "database", "external-writer", "custom"]
+        },
+        "resource_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exclusive": {
+          "type": "boolean"
+        },
+        "metadata": {
+          "type": "object"
+        }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "checkpoint"],
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": ["release", "resume", "recreate", "manual"]
+        },
+        "checkpoint": {
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}

@@ -14,6 +14,9 @@ param(
     [string]$SandboxMode = "",
     [string]$ApprovalPolicy = "",
     [string]$WebSearch = "",
+    [string]$StateRoot = "",
+    [int]$FreshnessMinutes = -1,
+    [string]$TaskName = "AtlasStackInboxSweep",
     [switch]$RunOnce
 )
 
@@ -21,6 +24,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 . (Join-Path -Path $PSScriptRoot -ChildPath "CodexRunner.Common.ps1")
+. (Join-Path -Path $PSScriptRoot -ChildPath "StackInboxSweep.ps1")
 
 $resolvedConfig = Import-StackCodexConfiguration -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath -RepoRoot $RepoRoot -AdapterPath $AdapterPath
 $config = $resolvedConfig.Config
@@ -53,6 +57,41 @@ $taskScript = Join-Path -Path $PSScriptRoot -ChildPath "Invoke-CodexRepoTask.ps1
 $powershellExe = Join-Path -Path $PSHOME -ChildPath "powershell.exe"
 if (-not (Test-Path -LiteralPath $powershellExe)) {
     $powershellExe = "powershell.exe"
+}
+
+if ([string]$adapterContract.repoId -eq "stack") {
+    if (-not $RunOnce.IsPresent) {
+        throw "stack_inbox_requires_run_once: _stack inbox execution is scheduler-triggered and bounded; ambient polling is unsupported."
+    }
+    if ([string]::IsNullOrWhiteSpace($StateRoot)) {
+        $atlasRoot = Split-Path -Parent (Split-Path -Parent $repoRoot)
+        $StateRoot = Join-Path $atlasRoot "runtime\codex\stack\inbox-sweep"
+    }
+    if ($FreshnessMinutes -le 0) {
+        $FreshnessMinutes = [int](Get-ConfigValue -Config $config -Path @("scheduled_inbox", "freshness_minutes") -DefaultValue 30)
+    }
+    $sweep = Invoke-StackInboxRunOnceSweep `
+        -InboxDirectory $InboxDir `
+        -StateRoot $StateRoot `
+        -TaskScriptPath $taskScript `
+        -PowerShellExecutable $powershellExe `
+        -TaskName $TaskName `
+        -SettleSeconds $SettleSeconds `
+        -FreshnessMinutes $FreshnessMinutes `
+        -ConfigPath $resolvedConfig.ConfigPath `
+        -RepoRoot $repoRoot `
+        -AdapterPath $resolvedAdapterPath `
+        -CodexCommand $CodexCommand `
+        -Model $Model `
+        -Reasoning $Reasoning `
+        -Speed $Speed `
+        -Permissions $Permissions `
+        -PermissionProfile $PermissionProfile `
+        -SandboxMode $SandboxMode `
+        -ApprovalPolicy $ApprovalPolicy `
+        -WebSearch $WebSearch
+    Write-RunnerMessage -Message ("RunOnce sweep {0} finished with status {1}; receipt={2}" -f $sweep.sweep_id, $sweep.status, $sweep.receipt_path)
+    exit ([int]$sweep.exit_code)
 }
 
 $sawFailure = $false

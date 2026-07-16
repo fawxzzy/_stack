@@ -158,6 +158,9 @@ $topologyManifestBridge = Initialize-WorktreeTopologyManifestBridge -RepoRoot (G
 
 $requiredFiles = @(
     "AGENTS.md",
+    ".github/workflows/stack-verify.yml",
+    "ops/ci/Initialize-StackCiFixtureWorkspace.ps1",
+    "tests/fixtures/ci-workspace/snapshot-manifest.json",
     "README.md",
     "config/release-targets.json",
     "docs/codex-orchestration.md",
@@ -168,6 +171,10 @@ $requiredFiles = @(
     "ops/Test-MazerDeployLink.ps1",
     "ops/Test-TroveDeployLink.ps1",
     "ops/codex/Start-CodexInboxRunner.ps1",
+    "ops/codex/StackInboxSweep.ps1",
+    "ops/codex/Invoke-StackInboxSweepLauncher.ps1",
+    "ops/codex/Install-StackInboxSweepTask.ps1",
+    "ops/codex/Test-StackInboxSweep.ps1",
     "ops/codex/Invoke-CodexRepoTask.ps1",
     "ops/codex/Invoke-CodexCanonicalWorkspaceTask.ps1",
     "ops/codex/AtlasContractsV2Producer.ps1",
@@ -213,6 +220,62 @@ if ($missingFiles.Count -gt 0) {
     throw ("Missing required _stack operator files: {0}" -f ($missingFiles -join ", "))
 }
 
+$repositoryRoot = (Resolve-Path -LiteralPath ".").Path
+$trackedStageLines = @((Invoke-GitChecked -WorkingDirectory $repositoryRoot -Arguments @("ls-files", "--stage")).StdOut -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+$trackedCodexWorktreeEntries = @($trackedStageLines | Where-Object { $_ -match '^\d{6}\s+\S+\s+\d+\t\.codex/worktrees/' })
+Assert-Condition -Condition ($trackedCodexWorktreeEntries.Count -eq 0) -Message "Repository hygiene forbids tracked runtime entries under .codex/worktrees/."
+
+$trackedGitlinkPaths = @($trackedStageLines | ForEach-Object {
+    if ($_ -match '^160000\s+\S+\s+\d+\t(.+)$') { $Matches[1] }
+})
+$registeredSubmodulePaths = @()
+$gitmodulesPath = Join-Path $repositoryRoot ".gitmodules"
+if (Test-Path -LiteralPath $gitmodulesPath -PathType Leaf) {
+    $submoduleConfig = Invoke-ProcessCapture -FilePath "git" -ArgumentList @("config", "--file", $gitmodulesPath, "--get-regexp", '^submodule\..*\.path$') -WorkingDirectory $repositoryRoot
+    if ($submoduleConfig.ExitCode -notin @(0, 1)) {
+        throw ("Unable to inspect registered submodule paths: {0}" -f $submoduleConfig.StdErr.Trim())
+    }
+    $registeredSubmodulePaths = @($submoduleConfig.StdOut -split "`r?`n" | ForEach-Object {
+        if ($_ -match '^\S+\s+(.+)$') { $Matches[1] }
+    })
+}
+$orphanGitlinkPaths = @($trackedGitlinkPaths | Where-Object { $_ -notin $registeredSubmodulePaths })
+Assert-Condition -Condition ($orphanGitlinkPaths.Count -eq 0) -Message ("Repository hygiene forbids orphan gitlinks without .gitmodules registration: {0}" -f ($orphanGitlinkPaths -join ", "))
+
+$stackVerifyWorkflow = Get-Content -LiteralPath ".github/workflows/stack-verify.yml" -Raw
+foreach ($requiredWorkflowSnippet in @(
+    "pull_request:",
+    "push:",
+    "- main",
+    "runs-on: windows-latest",
+    "node-version: 22",
+    "version: 10.23.0",
+    "run: pnpm run codex:stack:verify",
+    "contents: read",
+    "working-directory: atlas/repos/_stack",
+    'ref: ${{ github.event.pull_request.head.sha || github.sha }}',
+    "Initialize-StackCiFixtureWorkspace.ps1"
+)) {
+    Assert-Condition -Condition ($stackVerifyWorkflow.Contains($requiredWorkflowSnippet)) -Message ("Stack verification workflow is missing required contract text: {0}" -f $requiredWorkflowSnippet)
+}
+Assert-Condition -Condition ($stackVerifyWorkflow -notmatch '(?i)Register-ScheduledTask|Start-ScheduledTask|Install-StackInboxSweepTask|schtasks(?:\.exe)?') -Message "Stack verification workflow must remain fixture-only and must not register or trigger Task Scheduler."
+$pinnedWorkflowActions = [regex]::Matches($stackVerifyWorkflow, '(?m)^\s*uses:\s*[^@\s]+@([0-9a-f]{40})\s*(?:#.*)?$')
+Assert-Condition -Condition ($pinnedWorkflowActions.Count -eq 3) -Message "Every stack verification action must be pinned to an exact 40-character commit."
+Assert-Condition -Condition (([regex]::Matches($stackVerifyWorkflow, '(?m)^\s*persist-credentials:\s*false\s*$')).Count -eq 1) -Message "The exact-head checkout must disable persisted GitHub credentials."
+Assert-Condition -Condition ($stackVerifyWorkflow -notmatch '(?im)^\s*repository:\s*fawxzzy/(?:ATLAS|playbook|lifeline|DiscordOS|fawxzzy-fitness)\s*$') -Message "Hosted stack verification must not clone sibling repositories."
+$ciFixtureInitializer = Get-Content -LiteralPath "ops/ci/Initialize-StackCiFixtureWorkspace.ps1" -Raw
+Assert-Condition -Condition ($ciFixtureInitializer.Contains('if ($env:GITHUB_ACTIONS -ne "true")')) -Message "CI fixture workspace initializer must fail outside GitHub Actions."
+Assert-Condition -Condition ($ciFixtureInitializer -notmatch '(?i)Register-ScheduledTask|Start-ScheduledTask|Install-StackInboxSweepTask|schtasks(?:\.exe)?') -Message "CI fixture workspace initializer must not register or trigger Task Scheduler."
+Assert-Condition -Condition ($ciFixtureInitializer.Contains('sibling_repository_clones = 0') -and $ciFixtureInitializer.Contains('persisted_credentials = $false') -and $ciFixtureInitializer.Contains('scheduled_task_registration = $false')) -Message "CI fixture workspace initializer must explicitly receipt its no-clone, no-credentials, and no-task posture."
+$ciFixtureManifest = Get-Content -LiteralPath "tests/fixtures/ci-workspace/snapshot-manifest.json" -Raw | ConvertFrom-Json
+Assert-Condition -Condition ([string]$ciFixtureManifest.schema_version -eq "atlas.stack.ci-workspace-fixture.v1" -and [string]$ciFixtureManifest.hash_mode -eq "utf8-lf-normalized-sha256") -Message "CI workspace fixture manifest version or hash mode is invalid."
+Assert-Condition -Condition (@($ciFixtureManifest.files).Count -eq 27) -Message "CI workspace fixture manifest must bind every versioned fixture file."
+Assert-Condition -Condition (@($ciFixtureManifest.files.path | Sort-Object -Unique).Count -eq @($ciFixtureManifest.files).Count) -Message "CI workspace fixture manifest contains duplicate paths."
+Assert-Condition -Condition (@($ciFixtureManifest.files | Where-Object { [string]$_.sha256 -notmatch '^[0-9a-f]{64}$' -or [long]$_.bytes -le 0 }).Count -eq 0) -Message "CI workspace fixture manifest contains an invalid hash or byte count."
+foreach ($sourceRevision in @($ciFixtureManifest.source_revisions.PSObject.Properties.Value)) {
+    Assert-Condition -Condition ([string]$sourceRevision -match '^[0-9a-f]{40}$') -Message "CI workspace fixture source revision is not exact."
+}
+
 $package = Get-Content -LiteralPath "package.json" -Raw | ConvertFrom-Json
 $packageScripts = @($package.scripts.PSObject.Properties.Name)
 $requiredScripts = @(
@@ -225,6 +288,9 @@ $requiredScripts = @(
     "codex:playbook-doctrine:task",
     "codex:stack:inbox",
     "codex:stack:inbox:once",
+    "codex:stack:inbox:test",
+    "codex:stack:inbox:task:install",
+    "codex:stack:inbox:task:enable",
     "codex:stack:inbox:bootstrap:once",
     "codex:stack:task",
     "codex:stack:task:bootstrap",
@@ -608,6 +674,9 @@ if ([string]$stackConfig.runtime_policy.permission_profile -ne ":danger-full-acc
 if ($stackConfig.runtime_policy.ContainsKey("sandbox_mode")) {
     throw "_stack runtime policy defaults must not mix a modern permission profile with a legacy sandbox mode."
 }
+if ([string]$stackConfig.runtime_policy.model -ne "gpt-5.6-sol" -or [string]$stackConfig.runtime_policy.reasoning -ne "xhigh" -or [string]$stackConfig.runtime_policy.approval -ne "never" -or [string]$stackConfig.runtime_policy.web_search -ne "live") {
+    throw "_stack scheduled inbox runtime policy must default to Sol/xhigh/live/no-approvals."
+}
 
 $physicalStackRoot = (Resolve-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "..\..")).Path
 $gitCommonDirectory = (Invoke-GitChecked -WorkingDirectory $physicalStackRoot -Arguments @("rev-parse", "--git-common-dir")).StdOut.Trim()
@@ -719,9 +788,15 @@ foreach ($context in $discordosArtifactResolutionContexts) {
 }
 
 $longestDiscordosTrackedRelativePathLength = [int]((Invoke-GitChecked -WorkingDirectory $canonicalDiscordosRoot -Arguments @("ls-files")).StdOut -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
-$projectedDiscordosPathLength = (Join-Path -Path $expectedDiscordosWorktreeRoot -ChildPath ("x" * 16)).Length + 1 + $longestDiscordosTrackedRelativePathLength
+$pathBudgetWorktreeRoot = if ($env:GITHUB_ACTIONS -eq "true") {
+    Join-Path -Path ([System.IO.Path]::GetPathRoot($physicalStackRoot)) -ChildPath "ATLAS\runtime\w\d"
+} else {
+    $expectedDiscordosWorktreeRoot
+}
+$projectedDiscordosPathLength = (Join-Path -Path $pathBudgetWorktreeRoot -ChildPath ("x" * 16)).Length + 1 + $longestDiscordosTrackedRelativePathLength
 Assert-Condition -Condition ($longestDiscordosTrackedRelativePathLength -eq 218) -Message "DiscordOS path-budget proof must measure the current 218-character longest tracked relative path."
 Assert-Condition -Condition ($projectedDiscordosPathLength -lt 260) -Message ("DiscordOS short worktree root and 16-character directory budget must keep the longest checkout path below 260 characters; projected {0}." -f $projectedDiscordosPathLength)
+if ($env:GITHUB_ACTIONS -eq "true") { Write-Host "stack-ci-fixture-mode: DiscordOS path budget projected against canonical ATLAS/runtime/w/d root" }
 
 $expectedDiscordosVerificationCommands = @(
     "npm run verify",
@@ -1982,14 +2057,9 @@ finally {
 }
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "..\..")).Path
-$logicalStackRoot = [System.IO.Path]::GetFullPath($repoRoot)
-$worktreesRoot = [System.IO.Path]::GetDirectoryName($logicalStackRoot)
-if (-not [string]::IsNullOrWhiteSpace($worktreesRoot) -and ([System.IO.Path]::GetFileName($worktreesRoot) -ieq "worktrees")) {
-    $codexRoot = [System.IO.Path]::GetDirectoryName($worktreesRoot)
-    if (-not [string]::IsNullOrWhiteSpace($codexRoot) -and ([System.IO.Path]::GetFileName($codexRoot) -ieq ".codex")) {
-        $logicalStackRoot = [System.IO.Path]::GetDirectoryName($codexRoot)
-    }
-}
+$gitCommonDirectory = (Invoke-GitChecked -WorkingDirectory $repoRoot -Arguments @("rev-parse", "--git-common-dir")).StdOut.Trim()
+if (-not [System.IO.Path]::IsPathRooted($gitCommonDirectory)) { $gitCommonDirectory = Join-Path $repoRoot $gitCommonDirectory }
+$logicalStackRoot = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($gitCommonDirectory))
 $workspaceRoot = (Resolve-Path -LiteralPath (Join-Path -Path $logicalStackRoot -ChildPath "..\..")).Path
 $integrationRepoRoot = Join-Path -Path $workspaceRoot -ChildPath ("repos\stack-runtime-policy-fixture-{0}" -f ([guid]::NewGuid().ToString("N")))
 $integrationPromptPath = $null

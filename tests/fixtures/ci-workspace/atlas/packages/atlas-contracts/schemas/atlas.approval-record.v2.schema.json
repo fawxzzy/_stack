@@ -1,0 +1,6 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"atlas://packages/contracts/atlas.approval-record.v2.schema.json","title":"ATLAS approval record contract v2","type":"object","additionalProperties":false,
+  "required":["contract_version","approval_id","job_id","recorded_at","actor","action","decision","expires_at","constraints"],
+  "properties":{"contract_version":{"type":"string","const":"atlas.approval-record.v2"},"approval_id":{"type":"string","minLength":1},"job_id":{"type":"string","minLength":1},"recorded_at":{"type":"string","format":"date-time"},"actor":{"type":"string","minLength":1},"action":{"$ref":"#/$defs/action"},"decision":{"type":"string","enum":["approved","rejected","revoked","expired"]},"expires_at":{"type":["string","null"],"format":"date-time"},"constraints":{"type":"array","items":{"type":"string","minLength":1}},"extensions":{"type":"object"}},
+  "$defs":{"action":{"type":"object","additionalProperties":false,"required":["kind","target","scope"],"properties":{"kind":{"type":"string","enum":["external-mutation","production-deploy","destructive-action","sensitive-operation","exception"]},"target":{"type":"string","minLength":1},"scope":{"type":"string","minLength":1}}}}
+}

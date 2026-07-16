@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas://packages/contracts/atlas.execution-receipt.v2.schema.json",
+  "title": "ATLAS execution receipt contract v2",
+  "description": "Terminal execution outcome with effective runtime, changes, verification, evidence, blockers, and native correlation identities.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "receipt_id", "job_id", "recorded_at", "status", "component_id", "project_id", "runtime_effective", "changed_paths", "commits", "verification", "evidence_refs", "blockers", "follow_up", "correlations", "authority_actions"],
+  "properties": {
+    "contract_version": {"type": "string", "const": "atlas.execution-receipt.v2"},
+    "receipt_id": {"type": "string", "minLength": 1},
+    "job_id": {"type": "string", "minLength": 1},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "status": {"type": "string", "enum": ["succeeded", "failed", "blocked", "cancelled", "awaiting-review", "partial"]},
+    "component_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "project_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "runtime_effective": {"$ref": "#/$defs/runtime"},
+    "changed_paths": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "commits": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "verification": {"type": "array", "items": {"$ref": "#/$defs/verification"}},
+    "evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "blockers": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "follow_up": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "correlations": {"$ref": "#/$defs/correlations"},
+    "authority_actions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "summary": {"type": ["string", "null"], "minLength": 1},
+    "extensions": {"type": "object"}
+  },
+  "$defs": {
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "reasoning", "speed", "permissions", "approval_policy"],
+      "properties": {
+        "model": {"type": "string", "minLength": 1},
+        "reasoning": {"type": "string", "minLength": 1},
+        "speed": {"type": "string", "minLength": 1},
+        "permissions": {"type": "string", "minLength": 1},
+        "approval_policy": {"type": "string", "minLength": 1}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "status", "evidence_refs"],
+      "properties": {
+        "command": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "enum": ["passed", "failed", "skipped", "blocked"]},
+        "evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "correlations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["card_id", "thread_id", "turn_id", "branch", "worktree"],
+      "properties": {
+        "card_id": {"type": ["string", "null"], "minLength": 1},
+        "thread_id": {"type": ["string", "null"], "minLength": 1},
+        "turn_id": {"type": ["string", "null"], "minLength": 1},
+        "branch": {"type": ["string", "null"], "minLength": 1},
+        "worktree": {"type": ["string", "null"], "minLength": 1}
+      }
+    }
+  }
+}

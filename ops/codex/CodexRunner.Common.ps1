@@ -1,5 +1,19 @@
 Set-StrictMode -Version Latest
 
+function Get-DeterministicFileSha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+    }
+    finally {
+        $sha256.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Write-RunnerMessage {
     param(
         [string]$Message,
@@ -184,6 +198,26 @@ function Resolve-RepoPath {
     }
 
     return [System.IO.Path]::GetFullPath((Join-Path -Path $Root -ChildPath $expanded))
+}
+
+function Resolve-ScheduledInboxRuntimePath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [string]$ArgumentValue = "",
+        [string]$EnvironmentValue = "",
+        [string]$SweepId = ""
+    )
+
+    if ([string]::IsNullOrWhiteSpace($SweepId)) { return $ArgumentValue }
+    if ([string]::IsNullOrWhiteSpace($EnvironmentValue)) { throw ("scheduled_inbox_runtime_binding_missing: {0}" -f $Name) }
+    $environmentPath = [System.IO.Path]::GetFullPath($EnvironmentValue)
+    if (-not [string]::IsNullOrWhiteSpace($ArgumentValue)) {
+        $argumentPath = [System.IO.Path]::GetFullPath($ArgumentValue)
+        if (-not $argumentPath.Equals($environmentPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw ("scheduled_inbox_runtime_binding_mismatch: {0}" -f $Name)
+        }
+    }
+    return $environmentPath
 }
 
 function Import-StackCodexConfiguration {
@@ -1058,6 +1092,11 @@ function Parse-PromptFile {
             "runtimeapprovalpolicy" { $metadata.RuntimeApproval = $value }
             "runtimewebsearch" { $metadata.RuntimeWebSearch = $value }
             "runtimewebsearchmode" { $metadata.RuntimeWebSearch = $value }
+            "inboxcontract" { $metadata.InboxContract = $value }
+            "inboxowner" { $metadata.InboxOwner = $value }
+            "acceptedat" { $metadata.AcceptedAt = $value }
+            "idempotencykey" { $metadata.IdempotencyKey = $value }
+            "jobid" { $metadata.InboxJobId = $value }
             default { }
         }
 
@@ -1114,6 +1153,11 @@ function Parse-PromptFile {
     $allowNoChangesRaw = if ($metadata.ContainsKey("AllowNoChanges")) { $metadata["AllowNoChanges"] } else { $null }
     $allowNoChanges = ConvertTo-StrictPromptBoolean -Value $allowNoChangesRaw -DefaultValue $false -Name "Allow No Changes"
     $noChangeProofPath = if ($metadata.ContainsKey("NoChangeProofPath")) { $metadata["NoChangeProofPath"] } else { $null }
+    $inboxContract = if ($metadata.ContainsKey("InboxContract")) { $metadata["InboxContract"] } else { $null }
+    $inboxOwner = if ($metadata.ContainsKey("InboxOwner")) { $metadata["InboxOwner"] } else { $null }
+    $acceptedAt = if ($metadata.ContainsKey("AcceptedAt")) { $metadata["AcceptedAt"] } else { $null }
+    $idempotencyKey = if ($metadata.ContainsKey("IdempotencyKey")) { $metadata["IdempotencyKey"] } else { $null }
+    $inboxJobId = if ($metadata.ContainsKey("InboxJobId")) { $metadata["InboxJobId"] } else { $null }
 
     return [pscustomobject]@{
         Title = $title
@@ -1140,6 +1184,11 @@ function Parse-PromptFile {
         RuntimeSandboxMode = $runtimeSandboxMode
         RuntimeApproval = $runtimeApproval
         RuntimeWebSearch = $runtimeWebSearch
+        InboxContract = $inboxContract
+        InboxOwner = $inboxOwner
+        AcceptedAt = $acceptedAt
+        IdempotencyKey = $idempotencyKey
+        InboxJobId = $inboxJobId
         AcceptanceCriteria = @($acceptanceCriteria)
         ExpectedChangedPaths = @($expectedChangedPaths)
         ExpectedUnchangedPaths = @($expectedUnchangedPaths)

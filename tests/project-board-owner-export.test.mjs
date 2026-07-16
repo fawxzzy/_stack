@@ -11,10 +11,12 @@ const registryPath = path.join(root, "queue/owner-work-registry.json");
 const registryBytes = fs.readFileSync(registryPath);
 const registry = JSON.parse(registryBytes.toString("utf8"));
 
-test("publishes an explicit ready-empty owner export", () => {
+test("publishes the single admitted scheduled inbox reliability card", () => {
   const output = buildProjectBoardOwnerExport(registry, registryBytes);
-  assert.equal(output.cards.length, 0);
-  assert.equal(output.extensions.owner_queue_state, "ready-empty");
+  assert.equal(output.cards.length, 1);
+  assert.equal(output.cards[0].record.card_id, "STK-SCHEDULED-INBOX-SWEEP");
+  assert.equal(output.cards[0].record.lifecycle, "in-progress");
+  assert.equal(output.extensions.owner_queue_state, "active");
   assert.equal(output.extensions.atlas_candidates_admitted, false);
   assert.equal(output.extensions.discord_mutation_authorized, false);
 });
@@ -44,6 +46,7 @@ test("maps a future owner-admitted record without changing current truth", () =>
 test("enforces ready-empty semantics and unknown priority", () => {
   const inconsistent = structuredClone(registry);
   inconsistent.state = "active";
+  inconsistent.workItems = [];
   assert.throws(() => buildProjectBoardOwnerExport(inconsistent, Buffer.from(JSON.stringify(inconsistent))), /must declare ready-empty/);
 
   const prioritized = structuredClone(registry);

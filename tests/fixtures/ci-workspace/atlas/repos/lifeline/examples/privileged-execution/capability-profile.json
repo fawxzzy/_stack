@@ -1,0 +1,38 @@
+{
+  "contract_version": "atlas.capability.profile.v1",
+  "capability_profile_id": "cap-atlas-session-readonly-v1",
+  "description": "Root ATLAS read-only session capability profile.",
+  "filesystem_scopes": {
+    "read": ["."],
+    "write": [],
+    "create": [],
+    "deny": ["secrets/**", "repos/Verta-Core/**"]
+  },
+  "network_scopes": {
+    "mode": "none",
+    "allowed_domains": [],
+    "blocked_domains": []
+  },
+  "process_execution_permissions": {
+    "allow_spawn": true,
+    "allow_shell": false,
+    "allow_python": false,
+    "allowed_commands": ["node"],
+    "denied_commands": ["powershell", "cmd", "git"]
+  },
+  "package_manager_permissions": {
+    "allow_install": false,
+    "allow_update": false,
+    "allowed_managers": [],
+    "blocked_managers": ["npm", "pnpm", "yarn"]
+  },
+  "elevation_requirement": "per_action_approval",
+  "resource_budgets": {
+    "wall_clock_seconds": 120,
+    "cpu_seconds": 30,
+    "memory_mb": 256,
+    "disk_mb": 50
+  },
+  "allowed_data_classes": ["public", "internal", "machine_state"],
+  "audit_class": "standard"
+}
