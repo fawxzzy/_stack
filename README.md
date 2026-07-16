@@ -44,6 +44,7 @@
 - `pnpm run stack:queue-or-registry:live-direct-json-read-follow-on` rechecks the authoritative ATLAS execution-transition classifier and performs one bounded direct-json read for one admitted retained-state candidate path only.
 - `pnpm run stack:queue-or-registry:live-directory-read-follow-on` rechecks the authoritative ATLAS execution-transition classifier and performs one bounded shallow directory read for one admitted retained-state candidate path only.
 - `codex:stack:verify` now checks operator surfaces, worker artifacts, and the `_stack` owner-contract adoption map.
+- `.github/workflows/stack-verify.yml` runs that same authoritative command on a pinned Windows toolchain for every pull request and `main` push. CI reconstructs the required read-only Atlas and owner contract surfaces exclusively from versioned `_stack` fixtures; it does not clone sibling repositories or use persisted credentials. It neither registers nor triggers `AtlasStackInboxSweep`, and the installer rejects scheduler registration whenever `GITHUB_ACTIONS=true`.
 - Shared engine scripts live in `ops/codex`.
 - Playbook remains the first adapter example through `ops/codex/repos/playbook`.
 - Atlas is the first non-Playbook thin adapter through `ops/codex/repos/atlas`.

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "brand": {
+    "id": "stack-ci-versioned-fixture"
+  },
+  "consumers": [
+    {
+      "id": "stack-launcher-icon",
+      "source": "branding/source/stack-release-launcher.ico",
+      "target": "repos/_stack/ops/assets/release-launcher.ico"
+    }
+  ]
+}

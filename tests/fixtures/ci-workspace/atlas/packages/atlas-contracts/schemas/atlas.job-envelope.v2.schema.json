@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas://packages/contracts/atlas.job-envelope.v2.schema.json",
+  "title": "ATLAS job envelope contract v2",
+  "description": "Bounded objective, runtime, authority, scope, verification, and correlation contract for governed execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "job_id", "component_id", "project_id", "created_at", "objective", "scope", "runtime", "authority", "verification", "correlations", "expected_receipt_version"],
+  "properties": {
+    "contract_version": {"type": "string", "const": "atlas.job-envelope.v2"},
+    "job_id": {"type": "string", "minLength": 1},
+    "component_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "project_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "objective": {"type": "string", "minLength": 1},
+    "scope": {"$ref": "#/$defs/scope"},
+    "runtime": {"$ref": "#/$defs/runtime"},
+    "authority": {"$ref": "#/$defs/authority"},
+    "verification": {"$ref": "#/$defs/verification"},
+    "correlations": {"$ref": "#/$defs/correlations"},
+    "expected_receipt_version": {"type": "string", "const": "atlas.execution-receipt.v2"},
+    "extensions": {"type": "object"}
+  },
+  "$defs": {
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner_repository", "allowed_paths", "forbidden_paths"],
+      "properties": {
+        "owner_repository": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "allowed_paths": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "forbidden_paths": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "reasoning", "speed", "permissions", "approval_policy"],
+      "properties": {
+        "model": {"type": "string", "minLength": 1},
+        "reasoning": {"type": "string", "enum": ["low", "medium", "high", "xhigh", "max", "ultra"]},
+        "speed": {"type": "string", "enum": ["standard", "fast", "auto"]},
+        "permissions": {"type": "string", "enum": ["full-access", "workspace-write", "read-only", "custom"]},
+        "approval_policy": {"type": "string", "enum": ["never", "on-request", "on-failure", "untrusted"]}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["external_mutations", "production_deploy", "destructive_actions"],
+      "properties": {
+        "external_mutations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "production_deploy": {"type": "boolean"},
+        "destructive_actions": {"type": "boolean"}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commands", "evidence_required"],
+      "properties": {
+        "commands": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "evidence_required": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "correlations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["card_id", "parent_job_id"],
+      "properties": {
+        "card_id": {"type": ["string", "null"], "minLength": 1},
+        "parent_job_id": {"type": ["string", "null"], "minLength": 1}
+      }
+    }
+  }
+}

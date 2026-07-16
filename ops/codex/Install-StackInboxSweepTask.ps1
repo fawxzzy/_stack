@@ -210,6 +210,10 @@ function Assert-StackInboxSweepTaskReadback {
 function Invoke-StackInboxSweepTaskInstall {
     param([string]$RequestedAtlasRoot, [string]$RequestedSourceRepoRoot, [bool]$TaskEnabled, [bool]$LauncherOnly, [bool]$RequireCommittedSource = $false)
 
+    if ($env:GITHUB_ACTIONS -eq "true" -and -not $LauncherOnly) {
+        throw "stack_inbox_task_registration_forbidden_in_ci"
+    }
+
     $repoRoot = if ([string]::IsNullOrWhiteSpace($RequestedSourceRepoRoot)) { Split-Path -Parent (Split-Path -Parent $PSScriptRoot) } else { [System.IO.Path]::GetFullPath($RequestedSourceRepoRoot) }
     $resolvedAtlasRoot = Resolve-StackInboxAtlasRoot -Requested $RequestedAtlasRoot -RepoRoot $repoRoot
     $launcher = Install-StackInboxLauncherSnapshot -RepoRoot $repoRoot -ResolvedAtlasRoot $resolvedAtlasRoot -RequireCommittedSource $RequireCommittedSource

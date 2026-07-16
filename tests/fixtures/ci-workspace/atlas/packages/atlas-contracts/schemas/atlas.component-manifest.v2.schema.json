@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas://packages/contracts/atlas.component-manifest.v2.schema.json",
+  "title": "ATLAS component manifest contract v2",
+  "description": "Identity, ownership, capability, dependency, and protocol declaration for an Atlas-governed component.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "component_id", "display_name", "kind", "owner", "repository", "capabilities", "dependencies", "protocols"],
+  "properties": {
+    "contract_version": {"type": "string", "const": "atlas.component-manifest.v2"},
+    "component_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "display_name": {"type": "string", "minLength": 1},
+    "kind": {"type": "string", "enum": ["root", "operator", "intelligence", "workflow", "coordination", "application", "library", "service", "reference"]},
+    "owner": {"$ref": "#/$defs/owner"},
+    "repository": {"$ref": "#/$defs/repository"},
+    "capabilities": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "dependencies": {"type": "array", "items": {"$ref": "#/$defs/dependency"}},
+    "protocols": {"$ref": "#/$defs/protocols"},
+    "extensions": {"type": "object"}
+  },
+  "$defs": {
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "authority"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "authority": {"type": "string", "enum": ["atlas-root", "owner-repository", "external-plane", "operator"]}
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo_id", "root_path", "default_branch"],
+      "properties": {
+        "repo_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "root_path": {"type": "string", "minLength": 1},
+        "default_branch": {"type": "string", "minLength": 1},
+        "remote": {"type": ["string", "null"], "minLength": 1}
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component_id", "kind", "required"],
+      "properties": {
+        "component_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "kind": {"type": "string", "enum": ["runtime", "workflow", "data", "contracts", "coordination"]},
+        "required": {"type": "boolean"}
+      }
+    },
+    "protocols": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["atlas_contracts", "agent_instructions"],
+      "properties": {
+        "atlas_contracts": {"type": "string", "minLength": 1},
+        "playbook_profile": {"type": ["string", "null"], "minLength": 1},
+        "agent_instructions": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

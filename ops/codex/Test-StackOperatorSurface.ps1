@@ -158,6 +158,9 @@ $topologyManifestBridge = Initialize-WorktreeTopologyManifestBridge -RepoRoot (G
 
 $requiredFiles = @(
     "AGENTS.md",
+    ".github/workflows/stack-verify.yml",
+    "ops/ci/Initialize-StackCiFixtureWorkspace.ps1",
+    "tests/fixtures/ci-workspace/snapshot-manifest.json",
     "README.md",
     "config/release-targets.json",
     "docs/codex-orchestration.md",
@@ -215,6 +218,40 @@ $missingFiles = @(
 )
 if ($missingFiles.Count -gt 0) {
     throw ("Missing required _stack operator files: {0}" -f ($missingFiles -join ", "))
+}
+
+$stackVerifyWorkflow = Get-Content -LiteralPath ".github/workflows/stack-verify.yml" -Raw
+foreach ($requiredWorkflowSnippet in @(
+    "pull_request:",
+    "push:",
+    "- main",
+    "runs-on: windows-latest",
+    "node-version: 22",
+    "version: 10.23.0",
+    "run: pnpm run codex:stack:verify",
+    "contents: read",
+    "working-directory: atlas/repos/_stack",
+    'ref: ${{ github.event.pull_request.head.sha || github.sha }}',
+    "Initialize-StackCiFixtureWorkspace.ps1"
+)) {
+    Assert-Condition -Condition ($stackVerifyWorkflow.Contains($requiredWorkflowSnippet)) -Message ("Stack verification workflow is missing required contract text: {0}" -f $requiredWorkflowSnippet)
+}
+Assert-Condition -Condition ($stackVerifyWorkflow -notmatch '(?i)Register-ScheduledTask|Start-ScheduledTask|Install-StackInboxSweepTask|schtasks(?:\.exe)?') -Message "Stack verification workflow must remain fixture-only and must not register or trigger Task Scheduler."
+$pinnedWorkflowActions = [regex]::Matches($stackVerifyWorkflow, '(?m)^\s*uses:\s*[^@\s]+@([0-9a-f]{40})\s*(?:#.*)?$')
+Assert-Condition -Condition ($pinnedWorkflowActions.Count -eq 3) -Message "Every stack verification action must be pinned to an exact 40-character commit."
+Assert-Condition -Condition (([regex]::Matches($stackVerifyWorkflow, '(?m)^\s*persist-credentials:\s*false\s*$')).Count -eq 1) -Message "The exact-head checkout must disable persisted GitHub credentials."
+Assert-Condition -Condition ($stackVerifyWorkflow -notmatch '(?im)^\s*repository:\s*fawxzzy/(?:ATLAS|playbook|lifeline|DiscordOS|fawxzzy-fitness)\s*$') -Message "Hosted stack verification must not clone sibling repositories."
+$ciFixtureInitializer = Get-Content -LiteralPath "ops/ci/Initialize-StackCiFixtureWorkspace.ps1" -Raw
+Assert-Condition -Condition ($ciFixtureInitializer.Contains('if ($env:GITHUB_ACTIONS -ne "true")')) -Message "CI fixture workspace initializer must fail outside GitHub Actions."
+Assert-Condition -Condition ($ciFixtureInitializer -notmatch '(?i)Register-ScheduledTask|Start-ScheduledTask|Install-StackInboxSweepTask|schtasks(?:\.exe)?') -Message "CI fixture workspace initializer must not register or trigger Task Scheduler."
+Assert-Condition -Condition ($ciFixtureInitializer.Contains('sibling_repository_clones = 0') -and $ciFixtureInitializer.Contains('persisted_credentials = $false') -and $ciFixtureInitializer.Contains('scheduled_task_registration = $false')) -Message "CI fixture workspace initializer must explicitly receipt its no-clone, no-credentials, and no-task posture."
+$ciFixtureManifest = Get-Content -LiteralPath "tests/fixtures/ci-workspace/snapshot-manifest.json" -Raw | ConvertFrom-Json
+Assert-Condition -Condition ([string]$ciFixtureManifest.schema_version -eq "atlas.stack.ci-workspace-fixture.v1" -and [string]$ciFixtureManifest.hash_mode -eq "utf8-lf-normalized-sha256") -Message "CI workspace fixture manifest version or hash mode is invalid."
+Assert-Condition -Condition (@($ciFixtureManifest.files).Count -eq 27) -Message "CI workspace fixture manifest must bind every versioned fixture file."
+Assert-Condition -Condition (@($ciFixtureManifest.files.path | Sort-Object -Unique).Count -eq @($ciFixtureManifest.files).Count) -Message "CI workspace fixture manifest contains duplicate paths."
+Assert-Condition -Condition (@($ciFixtureManifest.files | Where-Object { [string]$_.sha256 -notmatch '^[0-9a-f]{64}$' -or [long]$_.bytes -le 0 }).Count -eq 0) -Message "CI workspace fixture manifest contains an invalid hash or byte count."
+foreach ($sourceRevision in @($ciFixtureManifest.source_revisions.PSObject.Properties.Value)) {
+    Assert-Condition -Condition ([string]$sourceRevision -match '^[0-9a-f]{40}$') -Message "CI workspace fixture source revision is not exact."
 }
 
 $package = Get-Content -LiteralPath "package.json" -Raw | ConvertFrom-Json
@@ -729,9 +766,15 @@ foreach ($context in $discordosArtifactResolutionContexts) {
 }
 
 $longestDiscordosTrackedRelativePathLength = [int]((Invoke-GitChecked -WorkingDirectory $canonicalDiscordosRoot -Arguments @("ls-files")).StdOut -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
-$projectedDiscordosPathLength = (Join-Path -Path $expectedDiscordosWorktreeRoot -ChildPath ("x" * 16)).Length + 1 + $longestDiscordosTrackedRelativePathLength
+$pathBudgetWorktreeRoot = if ($env:GITHUB_ACTIONS -eq "true") {
+    Join-Path -Path ([System.IO.Path]::GetPathRoot($physicalStackRoot)) -ChildPath "ATLAS\runtime\w\d"
+} else {
+    $expectedDiscordosWorktreeRoot
+}
+$projectedDiscordosPathLength = (Join-Path -Path $pathBudgetWorktreeRoot -ChildPath ("x" * 16)).Length + 1 + $longestDiscordosTrackedRelativePathLength
 Assert-Condition -Condition ($longestDiscordosTrackedRelativePathLength -eq 218) -Message "DiscordOS path-budget proof must measure the current 218-character longest tracked relative path."
 Assert-Condition -Condition ($projectedDiscordosPathLength -lt 260) -Message ("DiscordOS short worktree root and 16-character directory budget must keep the longest checkout path below 260 characters; projected {0}." -f $projectedDiscordosPathLength)
+if ($env:GITHUB_ACTIONS -eq "true") { Write-Host "stack-ci-fixture-mode: DiscordOS path budget projected against canonical ATLAS/runtime/w/d root" }
 
 $expectedDiscordosVerificationCommands = @(
     "npm run verify",

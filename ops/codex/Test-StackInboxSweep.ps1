@@ -3,7 +3,14 @@ $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "CodexRunner.Common.ps1")
 . (Join-Path $PSScriptRoot "StackInboxSweep.ps1")
+$taskBeforeInstallDotSource = Get-ScheduledTask -TaskName "AtlasStackInboxSweep" -TaskPath "\" -ErrorAction SilentlyContinue
+$taskXmlBeforeInstallDotSource = if ($null -ne $taskBeforeInstallDotSource) { Export-ScheduledTask -TaskName "AtlasStackInboxSweep" -TaskPath "\" } else { $null }
 . (Join-Path $PSScriptRoot "Install-StackInboxSweepTask.ps1")
+$taskAfterInstallDotSource = Get-ScheduledTask -TaskName "AtlasStackInboxSweep" -TaskPath "\" -ErrorAction SilentlyContinue
+$taskXmlAfterInstallDotSource = if ($null -ne $taskAfterInstallDotSource) { Export-ScheduledTask -TaskName "AtlasStackInboxSweep" -TaskPath "\" } else { $null }
+if (($null -eq $taskBeforeInstallDotSource) -ne ($null -eq $taskAfterInstallDotSource) -or $taskXmlBeforeInstallDotSource -ne $taskXmlAfterInstallDotSource) {
+    throw "Dot-sourcing the task installer registered or modified AtlasStackInboxSweep."
+}
 
 function Assert-Sweep {
     param([bool]$Condition, [Parameter(Mandatory = $true)][string]$Message)
@@ -242,6 +249,26 @@ try {
     $snapshotManifest = Get-Content -LiteralPath $snapshot.launcher.manifest_path -Raw | ConvertFrom-Json
     Assert-Sweep ([string]$snapshotManifest.source_revision -eq (& git -C $sourceRepoRoot rev-parse HEAD).Trim() -and @($snapshotManifest.files).Count -eq 10) "Launcher manifest did not bind every installed file to the source revision."
     Assert-Sweep (@($snapshotManifest.files | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.source_path) -or $null -eq $_.source_matches_revision }).Count -eq 0) "Launcher manifest omitted per-file committed-head evidence."
+
+    $ciRegistrationRoot = New-TestRoot -Name "ci-registration-guard"
+    [void]$roots.Add($ciRegistrationRoot)
+    $priorGithubActions = $env:GITHUB_ACTIONS
+    try {
+        $env:GITHUB_ACTIONS = "true"
+        try {
+            $null = Invoke-StackInboxSweepTaskInstall -RequestedAtlasRoot $ciRegistrationRoot -RequestedSourceRepoRoot $sourceRepoRoot -TaskEnabled $false -LauncherOnly $false
+            throw "CI task registration was accepted."
+        }
+        catch {
+            if ($_.Exception.Message -notmatch "stack_inbox_task_registration_forbidden_in_ci") { throw }
+        }
+    }
+    finally {
+        if ($null -eq $priorGithubActions) { Remove-Item Env:\GITHUB_ACTIONS -ErrorAction SilentlyContinue }
+        else { $env:GITHUB_ACTIONS = $priorGithubActions }
+    }
+    Assert-Sweep (-not (Test-Path -LiteralPath (Join-Path $ciRegistrationRoot "runtime"))) "CI registration guard wrote launcher or scheduler state before rejecting."
+
     Add-Content -LiteralPath (Join-Path $snapshot.launcher.launcher_path "ops\codex\StackInboxSweep.ps1") -Value "# tamper"
     $oldErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"

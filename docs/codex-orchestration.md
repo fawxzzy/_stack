@@ -69,6 +69,8 @@ The canonical Atlas workspace writer is intentionally different: it operates dir
 - `ops/codex/config.defaults.toml`: shared runtime defaults
 - `ops/codex/adapter.schema.json`: thin repo adapter contract
 
+The repo-owned `.github/workflows/stack-verify.yml` runs `pnpm run codex:stack:verify` on Windows for pull requests and `main` pushes with Node 22 and pnpm 10.23.0. Its actions are commit-pinned, the exact-head checkout does not persist credentials, permissions are read-only, and it performs no task registration, trigger, deployment, secret access, sibling-repository clone, or external mutation. `ops/ci/Initialize-StackCiFixtureWorkspace.ps1` explicitly reports fixture mode and assembles the live-read Atlas branding, contract-validator, worker-helper, and Playbook/Lifeline/Fitness/DiscordOS inputs from versioned snapshots committed to `_stack`; local verification continues using live canonical workspace inputs. Dot-sourcing the installer is non-executing; the verification suite snapshots any existing task before and after that import, and the installer independently rejects non-launcher-only registration when `GITHUB_ACTIONS=true` before any launcher, task, or runtime write.
+
 ## Runtime Policy Envelope
 
 Rule: `Explicit Runtime Policy`
