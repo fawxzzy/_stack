@@ -195,6 +195,31 @@ try {
     $cachedWebTerminal = @($admissionResult.terminal_records | Where-Object { [string]$_.idempotency_key -eq "cached-web.one" })
     Assert-Sweep ($cachedWebTerminal.Count -eq 1 -and [string]$cachedWebTerminal[0].reason_code -eq "malformed_or_unsupported_metadata" -and @($cachedWebTerminal[0].details.errors) -contains "unsupported_runtime_web_search" -and -not [bool]$cachedWebTerminal[0].execution_started) "Cached web-search policy was not rejected before claim and execution."
 
+    $identityRoot = New-TestRoot -Name "claim-identity"
+    [void]$roots.Add($identityRoot)
+    $identityInbox = Join-Path $identityRoot "inbox"
+    $identityState = Join-Path $identityRoot "state"
+    New-Item -ItemType Directory -Path $identityInbox | Out-Null
+    Initialize-StackInboxStateDirectories -StateRoot $identityState
+    $identityPrompt = Join-Path $identityInbox "identity-change.md"
+    Write-TestPrompt -Path $identityPrompt -IdempotencyKey "identity.changed" -JobId "identity-changed-job" -Body "# Admitted bytes"
+    $admittedIdentityBytes = [System.IO.File]::ReadAllBytes($identityPrompt)
+    $admittedIdentityLastWrite = (Get-Item -LiteralPath $identityPrompt).LastWriteTimeUtc
+    $identityAdmission = Test-StackInboxAdmission -Path $identityPrompt
+    [System.IO.File]::AppendAllText($identityPrompt, "`r`n# Mutated before claim`r`n", (New-Object System.Text.UTF8Encoding($false)))
+    (Get-Item -LiteralPath $identityPrompt).LastWriteTimeUtc = [DateTime]::UtcNow.AddSeconds(-5)
+    $beforeIdentityClaim = [int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw)
+    $identityClaim = New-StackInboxClaim -PromptPath $identityPrompt -StateRoot $identityState -TaskName "AtlasStackInboxSweep" -SweepId "identity-change" -CorrelationId "identity-change-correlation" -Admission $identityAdmission -Owner (Get-StackInboxCurrentProcessIdentity)
+    Assert-Sweep (-not [bool]$identityClaim.claim_identity_valid -and [string]$identityClaim.claim_validation_reason_code -eq "admission_evidence_changed_after_claim") "Claim identity mutation was not detected immediately after the move."
+    $identityTerminal = Quarantine-StackInboxClaimWithoutExecution -Claim $identityClaim -StateRoot $identityState -ReasonCode ([string]$identityClaim.claim_validation_reason_code)
+    Assert-Sweep ([string]$identityTerminal.reason_code -eq "admission_evidence_changed_after_claim" -and -not [bool]$identityTerminal.execution_started -and $null -ne $identityTerminal.admitted_evidence -and $null -ne $identityTerminal.observed_claim_evidence) "Changed claim bytes were not quarantined with admitted and observed evidence."
+    Assert-Sweep ([string]$identityTerminal.content_sha256 -eq [string]$identityTerminal.observed_claim_evidence.sha256 -and [string]$identityTerminal.admitted_evidence.sha256 -ne [string]$identityTerminal.observed_claim_evidence.sha256 -and $null -eq $identityTerminal.idempotency_key -and $null -eq $identityTerminal.inbox_job_id -and -not [bool]$identityTerminal.replay_identity_recorded) "Changed claim quarantine recorded the admitted identity as executed replay history."
+    Assert-Sweep ([int](Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw) -eq $beforeIdentityClaim) "Changed claim bytes reached child execution."
+    [System.IO.File]::WriteAllBytes($identityPrompt, $admittedIdentityBytes)
+    (Get-Item -LiteralPath $identityPrompt).LastWriteTimeUtc = $admittedIdentityLastWrite
+    $originalIdentityAdmission = Test-StackInboxAdmission -Path $identityPrompt
+    Assert-Sweep ($null -eq (Find-StackInboxReplayRecord -StateRoot $identityState -Admission $originalIdentityAdmission)) "Changed claim quarantine poisoned replay history for the never-executed admitted bytes."
+
     $crashRoot = New-TestRoot -Name "crash-recovery"
     [void]$roots.Add($crashRoot)
     $crashInbox = Join-Path $crashRoot "inbox"

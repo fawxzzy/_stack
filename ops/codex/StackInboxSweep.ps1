@@ -390,7 +390,7 @@ function Find-StackInboxReplayRecord {
     if (Test-Path -LiteralPath $processingRoot -PathType Container) {
         foreach ($claimPath in @(Get-ChildItem -LiteralPath $processingRoot -Filter claim.json -File -Recurse)) {
             $claim = Read-StackInboxJson -Path $claimPath.FullName
-            if ($null -eq $claim -or [string]$claim.claim_id -eq $ExcludeClaimId) { continue }
+            if ($null -eq $claim -or [string]$claim.claim_id -eq $ExcludeClaimId -or [string]$claim.state -eq "terminal") { continue }
             if ([string]$claim.content_sha256 -eq [string]$Admission.evidence.sha256) { return [pscustomobject]@{ reason_code = "content_hash_already_claimed"; record = $claim } }
             if ([string]$claim.idempotency_key -eq [string]$Admission.metadata.idempotency_key) { return [pscustomobject]@{ reason_code = "idempotency_key_already_claimed"; record = $claim } }
             if ([string]$claim.inbox_job_id -eq [string]$Admission.metadata.inbox_job_id) { return [pscustomobject]@{ reason_code = "job_already_claimed"; record = $claim } }
@@ -484,6 +484,10 @@ function New-StackInboxClaim {
         source_last_modified_utc = [string]$Admission.evidence.last_modified_utc
         bytes = [long]$Admission.evidence.bytes
         content_sha256 = [string]$Admission.evidence.sha256
+        admitted_evidence = $Admission.evidence
+        observed_claim_evidence = $null
+        claim_identity_validated_at = $null
+        claim_validation_reason_code = $null
         accepted_at = [string]$Admission.metadata.accepted_at
         idempotency_key = [string]$Admission.metadata.idempotency_key
         inbox_job_id = [string]$Admission.metadata.inbox_job_id
@@ -496,10 +500,26 @@ function New-StackInboxClaim {
     }
     Write-StackInboxJsonAtomic -Path $claimPath -Value $record
     Move-Item -LiteralPath $PromptPath -Destination $claimedPromptPath -ErrorAction Stop
-    $record.state = "claimed"
-    $record.claimed_at = ConvertTo-StackInboxUtcString -Value (Get-StackInboxUtcNow)
+    try { $observedClaimEvidence = Get-StackInboxFileEvidence -Path $claimedPromptPath }
+    catch { $observedClaimEvidence = $null }
+    $record.observed_claim_evidence = $observedClaimEvidence
+    $record.claim_identity_validated_at = ConvertTo-StackInboxUtcString -Value (Get-StackInboxUtcNow)
+    $claimIdentityValid = (
+        $null -ne $observedClaimEvidence -and
+        [long]$observedClaimEvidence.bytes -eq [long]$Admission.evidence.bytes -and
+        [string]$observedClaimEvidence.sha256 -eq [string]$Admission.evidence.sha256 -and
+        [string]$observedClaimEvidence.last_modified_utc -eq [string]$Admission.evidence.last_modified_utc
+    )
+    if ($claimIdentityValid) {
+        $record.state = "claimed"
+        $record.claimed_at = ConvertTo-StackInboxUtcString -Value (Get-StackInboxUtcNow)
+    }
+    else {
+        $record.state = "claim_invalid"
+        $record.claim_validation_reason_code = "admission_evidence_changed_after_claim"
+    }
     Write-StackInboxJsonAtomic -Path $claimPath -Value $record
-    return [pscustomobject]@{ directory = $claimDirectory; claim_path = $claimPath; prompt_path = $claimedPromptPath; record = $record }
+    return [pscustomobject]@{ directory = $claimDirectory; claim_path = $claimPath; prompt_path = $claimedPromptPath; record = $record; claim_identity_valid = $claimIdentityValid; claim_validation_reason_code = $record.claim_validation_reason_code }
 }
 
 function Test-StackInboxContractsCorrelation {
@@ -602,6 +622,8 @@ function Quarantine-StackInboxClaimWithoutExecution {
 
     $terminalId = "terminal-{0}" -f ([guid]::NewGuid().ToString("N"))
     $terminalPath = Join-Path (Join-Path $StateRoot "terminal") "$terminalId.json"
+    $identityChangedAfterClaim = $ReasonCode -eq "admission_evidence_changed_after_claim"
+    $observedClaimEvidence = Get-StackInboxObjectValue -Object $Claim.record -Name "observed_claim_evidence" -DefaultValue $null
     $record = [ordered]@{
         contract_version = $script:StackInboxTerminalContractVersion
         terminal_id = $terminalId
@@ -610,10 +632,13 @@ function Quarantine-StackInboxClaimWithoutExecution {
         sweep_correlation_id = [string]$Claim.record.sweep_correlation_id
         disposition = "quarantined"
         reason_code = $ReasonCode
-        content_sha256 = [string]$Claim.record.content_sha256
-        idempotency_key = [string]$Claim.record.idempotency_key
-        inbox_job_id = [string]$Claim.record.inbox_job_id
+        content_sha256 = if ($identityChangedAfterClaim -and $null -ne $observedClaimEvidence) { [string]$observedClaimEvidence.sha256 } else { [string]$Claim.record.content_sha256 }
+        idempotency_key = if ($identityChangedAfterClaim) { $null } else { [string]$Claim.record.idempotency_key }
+        inbox_job_id = if ($identityChangedAfterClaim) { $null } else { [string]$Claim.record.inbox_job_id }
         accepted_at = [string]$Claim.record.accepted_at
+        admitted_evidence = Get-StackInboxObjectValue -Object $Claim.record -Name "admitted_evidence" -DefaultValue $null
+        observed_claim_evidence = $observedClaimEvidence
+        replay_identity_recorded = -not $identityChangedAfterClaim
         execution_started = -not [string]::IsNullOrWhiteSpace([string]$Claim.record.execution_started_at)
         execution_started_at = $Claim.record.execution_started_at
         terminal_at = ConvertTo-StackInboxUtcString -Value (Get-StackInboxUtcNow)
@@ -656,6 +681,9 @@ function Get-StackInboxRecoverableClaims {
         $ownerState = Test-StackInboxProcessIdentity -Owner $record.owner
         if ([bool]$ownerState.live) { continue }
         if (-not [bool]$ownerState.conclusive) { continue }
+        if ([string]$record.state -eq "claim_invalid" -and [string]$record.claim_validation_reason_code -eq "admission_evidence_changed_after_claim") {
+            [void]$terminalized.Add((Quarantine-StackInboxClaimWithoutExecution -Claim $claim -StateRoot $StateRoot -ReasonCode "admission_evidence_changed_after_claim")); continue
+        }
         if (Test-Path -LiteralPath ([string]$record.result_path) -PathType Leaf) {
             $taskResult = Read-StackInboxJson -Path ([string]$record.result_path)
             if ($null -ne $taskResult) { [void]$terminalized.Add((Complete-StackInboxClaim -Claim $claim -StateRoot $StateRoot -TaskResult $taskResult -TaskExitCode ([int](Get-StackInboxObjectValue -Object $taskResult -Name "exit_code" -DefaultValue 1)))); continue }
@@ -880,8 +908,14 @@ function Invoke-StackInboxRunOnceSweep {
                 continue
             }
             $claim = New-StackInboxClaim -PromptPath $prompt.FullName -StateRoot $StateRoot -TaskName $TaskName -SweepId $SweepId -CorrelationId $correlationId -Admission $admission -Owner $owner
-            [void]$claims.Add($claim)
             $counts.claimed += 1
+            if (-not [bool]$claim.claim_identity_valid) {
+                $terminal = Quarantine-StackInboxClaimWithoutExecution -Claim $claim -StateRoot $StateRoot -ReasonCode ([string]$claim.claim_validation_reason_code)
+                [void]$terminalRecords.Add($terminal)
+                $counts.quarantined += 1
+                continue
+            }
+            [void]$claims.Add($claim)
         }
 
         foreach ($claim in @($claims.ToArray())) {
