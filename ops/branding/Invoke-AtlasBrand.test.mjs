@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -100,10 +100,13 @@ test("git worktree add fixture resolves canonical and linked _stack wrappers to 
   const canonicalScript = resolveAtlasBrandScript("build", fixture.canonicalWrapperPath);
   const linkedScript = resolveAtlasBrandScript("build", linkedWrapperPath);
   const expectedScript = path.join(fixture.atlasRoot, "branding", "scripts", "build-brand-assets.mjs");
-  const expectedScriptIdentity = realpathSync(expectedScript);
+  const expectedScriptStats = statSync(expectedScript, { bigint: true });
 
-  assert.equal(realpathSync(canonicalScript), expectedScriptIdentity);
-  assert.equal(realpathSync(linkedScript), expectedScriptIdentity);
+  for (const resolvedScript of [canonicalScript, linkedScript]) {
+    const resolvedScriptStats = statSync(resolvedScript, { bigint: true });
+    assert.equal(resolvedScriptStats.dev, expectedScriptStats.dev);
+    assert.equal(resolvedScriptStats.ino, expectedScriptStats.ino);
+  }
 
   await rm(expectedScript);
   assert.throws(
