@@ -220,6 +220,28 @@ if ($missingFiles.Count -gt 0) {
     throw ("Missing required _stack operator files: {0}" -f ($missingFiles -join ", "))
 }
 
+$repositoryRoot = (Resolve-Path -LiteralPath ".").Path
+$trackedStageLines = @((Invoke-GitChecked -WorkingDirectory $repositoryRoot -Arguments @("ls-files", "--stage")).StdOut -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+$trackedCodexWorktreeEntries = @($trackedStageLines | Where-Object { $_ -match '^\d{6}\s+\S+\s+\d+\t\.codex/worktrees/' })
+Assert-Condition -Condition ($trackedCodexWorktreeEntries.Count -eq 0) -Message "Repository hygiene forbids tracked runtime entries under .codex/worktrees/."
+
+$trackedGitlinkPaths = @($trackedStageLines | ForEach-Object {
+    if ($_ -match '^160000\s+\S+\s+\d+\t(.+)$') { $Matches[1] }
+})
+$registeredSubmodulePaths = @()
+$gitmodulesPath = Join-Path $repositoryRoot ".gitmodules"
+if (Test-Path -LiteralPath $gitmodulesPath -PathType Leaf) {
+    $submoduleConfig = Invoke-ProcessCapture -FilePath "git" -ArgumentList @("config", "--file", $gitmodulesPath, "--get-regexp", '^submodule\..*\.path$') -WorkingDirectory $repositoryRoot
+    if ($submoduleConfig.ExitCode -notin @(0, 1)) {
+        throw ("Unable to inspect registered submodule paths: {0}" -f $submoduleConfig.StdErr.Trim())
+    }
+    $registeredSubmodulePaths = @($submoduleConfig.StdOut -split "`r?`n" | ForEach-Object {
+        if ($_ -match '^\S+\s+(.+)$') { $Matches[1] }
+    })
+}
+$orphanGitlinkPaths = @($trackedGitlinkPaths | Where-Object { $_ -notin $registeredSubmodulePaths })
+Assert-Condition -Condition ($orphanGitlinkPaths.Count -eq 0) -Message ("Repository hygiene forbids orphan gitlinks without .gitmodules registration: {0}" -f ($orphanGitlinkPaths -join ", "))
+
 $stackVerifyWorkflow = Get-Content -LiteralPath ".github/workflows/stack-verify.yml" -Raw
 foreach ($requiredWorkflowSnippet in @(
     "pull_request:",
