@@ -46,9 +46,14 @@ param(
     [Parameter(Mandatory = $true)][string]$PromptPath,
     [Parameter(Mandatory = $true)][string]$ResultPath,
     [switch]$SkipPromptArchive,
+    [string]$ConfigPath = "",
+    [string]$RepoRoot = "",
+    [string]$AdapterPath = "",
     [Parameter(ValueFromRemainingArguments = $true)][object[]]$Remaining
 )
 $ErrorActionPreference = "Stop"
+$providedRuntimePaths = @(@($ConfigPath, $RepoRoot, $AdapterPath) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+if ($providedRuntimePaths.Count -notin @(0, 3)) { throw "Runtime path arguments must retain their values." }
 $runId = "fake-" + [guid]::NewGuid().ToString("N")
 $artifactRoot = Join-Path (Split-Path -Parent $ResultPath) "fake-contracts"
 New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
@@ -78,9 +83,9 @@ exit 0
 }
 
 function Invoke-TestSweep {
-    param([string]$Inbox, [string]$State, [string]$TaskScript, [int]$SettleSeconds = 0, [int]$FreshnessMinutes = 30)
+    param([string]$Inbox, [string]$State, [string]$TaskScript, [int]$SettleSeconds = 0, [int]$FreshnessMinutes = 30, [string]$ConfigPath = "", [string]$RepoRoot = "", [string]$AdapterPath = "")
     $powershellExe = Join-Path $PSHOME "powershell.exe"
-    return Invoke-StackInboxRunOnceSweep -InboxDirectory $Inbox -StateRoot $State -TaskScriptPath $TaskScript -PowerShellExecutable $powershellExe -SettleSeconds $SettleSeconds -FreshnessMinutes $FreshnessMinutes
+    return Invoke-StackInboxRunOnceSweep -InboxDirectory $Inbox -StateRoot $State -TaskScriptPath $TaskScript -PowerShellExecutable $powershellExe -SettleSeconds $SettleSeconds -FreshnessMinutes $FreshnessMinutes -ConfigPath $ConfigPath -RepoRoot $RepoRoot -AdapterPath $AdapterPath
 }
 
 $roots = New-Object System.Collections.Generic.List[string]
@@ -94,7 +99,7 @@ try {
     $env:STACK_INBOX_FAKE_COUNTER = Join-Path $lifecycleRoot "fake-counter.txt"
     $prompt = Join-Path $inbox "synthetic.md"
     Write-TestPrompt -Path $prompt -IdempotencyKey "synthetic.once" -JobId "synthetic-job" -Body "# Synthetic safe no-change fixture"
-    $first = Invoke-TestSweep -Inbox $inbox -State $state -TaskScript $fakeTask
+    $first = Invoke-TestSweep -Inbox $inbox -State $state -TaskScript $fakeTask -ConfigPath (Join-Path $lifecycleRoot "config.toml") -RepoRoot (Join-Path $lifecycleRoot "repo") -AdapterPath (Join-Path $lifecycleRoot "adapter.json")
     Assert-Sweep (@($first).Count -eq 1) "Noisy child output contaminated the structured sweep result stream."
     Assert-Sweep ($first.exit_code -eq 0 -and $first.counts.claimed -eq 1 -and $first.counts.executed -eq 1 -and $first.counts.archived -eq 1) "RunOnce did not perform exactly one claim, execution, and archive."
     Assert-Sweep (-not (Test-Path -LiteralPath $prompt)) "Atomic claim did not remove the admitted source from inbox."

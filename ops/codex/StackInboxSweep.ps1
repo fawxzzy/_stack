@@ -730,7 +730,10 @@ function Invoke-StackInboxClaimTask {
         @("Model", $Model), @("Reasoning", $Reasoning), @("Speed", $Speed), @("Permissions", $Permissions),
         @("PermissionProfile", $PermissionProfile), @("SandboxMode", $SandboxMode), @("ApprovalPolicy", $ApprovalPolicy), @("WebSearch", $WebSearch)
     )) {
-        if (-not [string]::IsNullOrWhiteSpace([string]$pair[1])) { $arguments += @("-{0}" -f $pair[0], [string]$pair[1]) }
+        if (-not [string]::IsNullOrWhiteSpace([string]$pair[1])) {
+            $arguments += ("-{0}" -f $pair[0])
+            $arguments += [string]$pair[1]
+        }
     }
     $oldSweepId = $env:ATLAS_INBOX_SWEEP_ID
     $oldCorrelationId = $env:ATLAS_INBOX_SWEEP_CORRELATION_ID
