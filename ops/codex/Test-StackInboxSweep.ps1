@@ -1,6 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "CodexRunner.Common.ps1")
 . (Join-Path $PSScriptRoot "StackInboxSweep.ps1")
 . (Join-Path $PSScriptRoot "Install-StackInboxSweepTask.ps1")
 
@@ -55,6 +56,7 @@ $ErrorActionPreference = "Stop"
 $providedRuntimePaths = @(@($ConfigPath, $RepoRoot, $AdapterPath) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
 if ($providedRuntimePaths.Count -notin @(0, 3)) { throw "Runtime path arguments must retain their values." }
 if ($providedRuntimePaths.Count -eq 3 -and ([IO.Path]::GetFileName($ConfigPath) -ne "config.toml" -or [IO.Path]::GetFileName($RepoRoot) -ne "repo" -or [IO.Path]::GetFileName($AdapterPath) -ne "adapter.json")) { throw "Runtime path argument names and values were not paired exactly." }
+if ($providedRuntimePaths.Count -eq 3 -and ($ConfigPath -ne $env:ATLAS_INBOX_CONFIG_PATH -or $RepoRoot -ne $env:ATLAS_INBOX_REPO_ROOT -or $AdapterPath -ne $env:ATLAS_INBOX_ADAPTER_PATH)) { throw "Scheduled runtime path environment bindings did not match the child arguments." }
 $runId = "fake-" + [guid]::NewGuid().ToString("N")
 $artifactRoot = Join-Path (Split-Path -Parent $ResultPath) "fake-contracts"
 New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
@@ -112,6 +114,12 @@ try {
     Assert-Sweep (($firstTerminal.task_output | ConvertTo-Json -Depth 8).Length -lt 4096) "Child output metadata included an unbounded transcript payload."
     Assert-Sweep ([bool]$firstTerminal.correlation_validation.ok) "JobEnvelope, WorkerLease, and ExecutionReceipt were not correlated."
     Assert-Sweep ([string]$firstTerminal.atlas_contracts_v2.receipt_status -eq "succeeded" -and [string]$firstTerminal.atlas_contracts_v2.lease_status -eq "released") "Contracts v2 terminal state was not accepted."
+
+    $bindingRoot = Join-Path $lifecycleRoot "binding"
+    $bindingResolved = Resolve-ScheduledInboxRuntimePath -Name "repo_root" -ArgumentValue "" -EnvironmentValue $bindingRoot -SweepId "binding-sweep"
+    Assert-Sweep ($bindingResolved -eq [IO.Path]::GetFullPath($bindingRoot)) "Scheduled runtime path did not resolve from the correlated environment binding."
+    try { $null = Resolve-ScheduledInboxRuntimePath -Name "repo_root" -ArgumentValue (Join-Path $lifecycleRoot "other") -EnvironmentValue $bindingRoot -SweepId "binding-sweep"; throw "Mismatched scheduled runtime binding was accepted." }
+    catch { if ($_.Exception.Message -notmatch "scheduled_inbox_runtime_binding_mismatch") { throw } }
 
     Copy-Item -LiteralPath $firstTerminal.prompt_path -Destination $prompt
     (Get-Item -LiteralPath $prompt).LastWriteTimeUtc = [DateTime]::UtcNow.AddSeconds(-5)

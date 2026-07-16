@@ -136,6 +136,9 @@ $workerGitState = $null
 
 try {
     $PromptPath = (Resolve-Path -LiteralPath $PromptPath).Path
+    $ConfigPath = Resolve-ScheduledInboxRuntimePath -Name "config_path" -ArgumentValue $ConfigPath -EnvironmentValue ([string]$env:ATLAS_INBOX_CONFIG_PATH) -SweepId ([string]$env:ATLAS_INBOX_SWEEP_ID)
+    $RepoRoot = Resolve-ScheduledInboxRuntimePath -Name "repo_root" -ArgumentValue $RepoRoot -EnvironmentValue ([string]$env:ATLAS_INBOX_REPO_ROOT) -SweepId ([string]$env:ATLAS_INBOX_SWEEP_ID)
+    $AdapterPath = Resolve-ScheduledInboxRuntimePath -Name "adapter_path" -ArgumentValue $AdapterPath -EnvironmentValue ([string]$env:ATLAS_INBOX_ADAPTER_PATH) -SweepId ([string]$env:ATLAS_INBOX_SWEEP_ID)
     $resolvedConfig = Import-StackCodexConfiguration -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath -RepoRoot $RepoRoot -AdapterPath $AdapterPath
     $config = $resolvedConfig.Config
     $repoRoot = $resolvedConfig.RepoRoot

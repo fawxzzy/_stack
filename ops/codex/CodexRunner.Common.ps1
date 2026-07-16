@@ -186,6 +186,26 @@ function Resolve-RepoPath {
     return [System.IO.Path]::GetFullPath((Join-Path -Path $Root -ChildPath $expanded))
 }
 
+function Resolve-ScheduledInboxRuntimePath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [string]$ArgumentValue = "",
+        [string]$EnvironmentValue = "",
+        [string]$SweepId = ""
+    )
+
+    if ([string]::IsNullOrWhiteSpace($SweepId)) { return $ArgumentValue }
+    if ([string]::IsNullOrWhiteSpace($EnvironmentValue)) { throw ("scheduled_inbox_runtime_binding_missing: {0}" -f $Name) }
+    $environmentPath = [System.IO.Path]::GetFullPath($EnvironmentValue)
+    if (-not [string]::IsNullOrWhiteSpace($ArgumentValue)) {
+        $argumentPath = [System.IO.Path]::GetFullPath($ArgumentValue)
+        if (-not $argumentPath.Equals($environmentPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw ("scheduled_inbox_runtime_binding_mismatch: {0}" -f $Name)
+        }
+    }
+    return $environmentPath
+}
+
 function Import-StackCodexConfiguration {
     param(
         [string]$ScriptRoot,

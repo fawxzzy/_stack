@@ -748,11 +748,17 @@ function Invoke-StackInboxClaimTask {
     $oldCorrelationId = $env:ATLAS_INBOX_SWEEP_CORRELATION_ID
     $oldIdempotencyKey = $env:ATLAS_INBOX_IDEMPOTENCY_KEY
     $oldInboxJobId = $env:ATLAS_INBOX_JOB_ID
+    $oldConfigPath = $env:ATLAS_INBOX_CONFIG_PATH
+    $oldRepoRoot = $env:ATLAS_INBOX_REPO_ROOT
+    $oldAdapterPath = $env:ATLAS_INBOX_ADAPTER_PATH
     try {
         $env:ATLAS_INBOX_SWEEP_ID = [string]$Claim.record.sweep_id
         $env:ATLAS_INBOX_SWEEP_CORRELATION_ID = [string]$Claim.record.sweep_correlation_id
         $env:ATLAS_INBOX_IDEMPOTENCY_KEY = [string]$Claim.record.idempotency_key
         $env:ATLAS_INBOX_JOB_ID = [string]$Claim.record.inbox_job_id
+        $env:ATLAS_INBOX_CONFIG_PATH = $ConfigPath
+        $env:ATLAS_INBOX_REPO_ROOT = $RepoRoot
+        $env:ATLAS_INBOX_ADAPTER_PATH = $AdapterPath
         $stdoutPath = Join-Path $Claim.directory "task.stdout.log"
         $stderrPath = Join-Path $Claim.directory "task.stderr.log"
         $previousErrorActionPreference = $ErrorActionPreference
@@ -770,6 +776,9 @@ function Invoke-StackInboxClaimTask {
         $env:ATLAS_INBOX_SWEEP_CORRELATION_ID = $oldCorrelationId
         $env:ATLAS_INBOX_IDEMPOTENCY_KEY = $oldIdempotencyKey
         $env:ATLAS_INBOX_JOB_ID = $oldInboxJobId
+        $env:ATLAS_INBOX_CONFIG_PATH = $oldConfigPath
+        $env:ATLAS_INBOX_REPO_ROOT = $oldRepoRoot
+        $env:ATLAS_INBOX_ADAPTER_PATH = $oldAdapterPath
     }
     $taskOutput = [ordered]@{
         stdout = Get-StackInboxLogMetadata -Path $stdoutPath
