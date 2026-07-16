@@ -111,7 +111,34 @@ try {
     Write-TestPrompt -Path $prompt -IdempotencyKey "synthetic.once" -JobId "synthetic-job" -Body "# Synthetic safe no-change fixture"
     $first = Invoke-TestSweep -Inbox $inbox -State $state -TaskScript $fakeTask -ConfigPath (Join-Path $lifecycleRoot "config.toml") -RepoRoot (Join-Path $lifecycleRoot "repo") -AdapterPath (Join-Path $lifecycleRoot "adapter.json")
     Assert-Sweep (@($first).Count -eq 1) "Noisy child output contaminated the structured sweep result stream."
-    Assert-Sweep ($first.exit_code -eq 0 -and $first.counts.claimed -eq 1 -and $first.counts.executed -eq 1 -and $first.counts.archived -eq 1) "RunOnce did not perform exactly one claim, execution, and archive."
+    $firstFailureDiagnostics = [ordered]@{
+        exit_code = $first.exit_code
+        status = $first.status
+        reason_code = $first.reason_code
+        counts = $first.counts
+        terminal_records = @($first.terminal_records | ForEach-Object {
+            $correlationValidation = Get-StackInboxObjectValue -Object $_ -Name "correlation_validation" -DefaultValue $null
+            [ordered]@{
+                disposition = Get-StackInboxObjectValue -Object $_ -Name "disposition" -DefaultValue $null
+                reason_code = Get-StackInboxObjectValue -Object $_ -Name "reason_code" -DefaultValue $null
+                task_exit_code = Get-StackInboxObjectValue -Object $_ -Name "task_exit_code" -DefaultValue $null
+                runner_status = Get-StackInboxObjectValue -Object $_ -Name "runner_status" -DefaultValue $null
+                correlation_reason_code = if ($null -eq $correlationValidation) { $null } else { Get-StackInboxObjectValue -Object $correlationValidation -Name "reason_code" -DefaultValue $null }
+                task_output = Get-StackInboxObjectValue -Object $_ -Name "task_output" -DefaultValue $null
+            }
+        })
+        claims = @(Get-ChildItem -LiteralPath (Join-Path $state "processing") -Filter claim.json -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            $claimRecord = Read-StackInboxJson -Path $_.FullName
+            [ordered]@{
+                state = Get-StackInboxObjectValue -Object $claimRecord -Name "state" -DefaultValue $null
+                execution_started_at = Get-StackInboxObjectValue -Object $claimRecord -Name "execution_started_at" -DefaultValue $null
+                result_exists = Test-Path -LiteralPath ([string](Get-StackInboxObjectValue -Object $claimRecord -Name "result_path" -DefaultValue "")) -PathType Leaf
+                prompt_exists = Test-Path -LiteralPath ([string](Get-StackInboxObjectValue -Object $claimRecord -Name "prompt_path" -DefaultValue "")) -PathType Leaf
+                task_output = Get-StackInboxObjectValue -Object $claimRecord -Name "task_output" -DefaultValue $null
+            }
+        })
+    }
+    Assert-Sweep ($first.exit_code -eq 0 -and $first.counts.claimed -eq 1 -and $first.counts.executed -eq 1 -and $first.counts.archived -eq 1) ("RunOnce did not perform exactly one claim, execution, and archive. diagnostics={0}" -f ($firstFailureDiagnostics | ConvertTo-Json -Depth 8 -Compress))
     Assert-Sweep (-not (Test-Path -LiteralPath $prompt)) "Atomic claim did not remove the admitted source from inbox."
     Assert-Sweep ((Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw) -eq "1") "Synthetic task executed an unexpected number of times."
     $firstTerminal = @($first.terminal_records)[0]
