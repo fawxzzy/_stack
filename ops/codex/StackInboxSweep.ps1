@@ -77,6 +77,29 @@ function Get-StackInboxFileEvidence {
     }
 }
 
+function Get-StackInboxLogMetadata {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return [pscustomobject]@{ path = $Path; bytes = 0L; line_count = 0L; sha256 = $null; exists = $false }
+    }
+    [long]$lineCount = 0
+    $reader = [System.IO.File]::OpenText($Path)
+    try {
+        while ($null -ne $reader.ReadLine()) { $lineCount += 1 }
+    }
+    finally {
+        $reader.Dispose()
+    }
+    return [pscustomobject]@{
+        path = $Path
+        bytes = [long](Get-Item -LiteralPath $Path).Length
+        line_count = $lineCount
+        sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+        exists = $true
+    }
+}
+
 function Test-StackInboxFileSettled {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -554,6 +577,7 @@ function Complete-StackInboxClaim {
         runner_status = $runnerStatus
         result_path = [string]$Claim.record.result_path
         prompt_path = $null
+        task_output = Get-StackInboxObjectValue -Object $Claim.record -Name "task_output" -DefaultValue $null
         atlas_contracts_v2 = if ([bool]$correlation.ok) { $correlation.identities } else { $null }
         correlation_validation = [ordered]@{ ok = [bool]$correlation.ok; reason_code = [string]$correlation.reason_code }
     }
@@ -594,6 +618,7 @@ function Quarantine-StackInboxClaimWithoutExecution {
         execution_started_at = $Claim.record.execution_started_at
         terminal_at = ConvertTo-StackInboxUtcString -Value (Get-StackInboxUtcNow)
         prompt_path = $null
+        task_output = Get-StackInboxObjectValue -Object $Claim.record -Name "task_output" -DefaultValue $null
         atlas_contracts_v2 = $null
     }
     Write-StackInboxJsonAtomic -Path $terminalPath -Value $record
@@ -716,8 +741,17 @@ function Invoke-StackInboxClaimTask {
         $env:ATLAS_INBOX_SWEEP_CORRELATION_ID = [string]$Claim.record.sweep_correlation_id
         $env:ATLAS_INBOX_IDEMPOTENCY_KEY = [string]$Claim.record.idempotency_key
         $env:ATLAS_INBOX_JOB_ID = [string]$Claim.record.inbox_job_id
-        & $PowerShellExecutable @arguments
-        $exitCode = $LASTEXITCODE
+        $stdoutPath = Join-Path $Claim.directory "task.stdout.log"
+        $stderrPath = Join-Path $Claim.directory "task.stderr.log"
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            & $PowerShellExecutable @arguments 1> $stdoutPath 2> $stderrPath
+            $exitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
     }
     finally {
         $env:ATLAS_INBOX_SWEEP_ID = $oldSweepId
@@ -725,9 +759,16 @@ function Invoke-StackInboxClaimTask {
         $env:ATLAS_INBOX_IDEMPOTENCY_KEY = $oldIdempotencyKey
         $env:ATLAS_INBOX_JOB_ID = $oldInboxJobId
     }
+    $taskOutput = [ordered]@{
+        stdout = Get-StackInboxLogMetadata -Path $stdoutPath
+        stderr = Get-StackInboxLogMetadata -Path $stderrPath
+    }
+    if ($Claim.record -is [System.Collections.IDictionary]) { $Claim.record["task_output"] = $taskOutput }
+    else { $Claim.record | Add-Member -MemberType NoteProperty -Name task_output -Value $taskOutput -Force }
+    Write-StackInboxJsonAtomic -Path $Claim.claim_path -Value $Claim.record
     $result = Read-StackInboxJson -Path ([string]$Claim.record.result_path)
-    if ($null -eq $result) { return [pscustomobject]@{ exit_code = $exitCode; result = $null; reason_code = "task_result_missing" } }
-    return [pscustomobject]@{ exit_code = $exitCode; result = $result; reason_code = "task_result_available" }
+    if ($null -eq $result) { return [pscustomobject]@{ exit_code = $exitCode; result = $null; reason_code = "task_result_missing"; task_output = $taskOutput } }
+    return [pscustomobject]@{ exit_code = $exitCode; result = $result; reason_code = "task_result_available"; task_output = $taskOutput }
 }
 
 function Invoke-StackInboxRunOnceSweep {

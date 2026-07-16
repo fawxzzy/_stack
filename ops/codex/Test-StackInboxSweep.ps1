@@ -68,6 +68,9 @@ if (Test-Path -LiteralPath $env:STACK_INBOX_FAKE_COUNTER) { $counter = [int](Get
 [IO.File]::WriteAllText($env:STACK_INBOX_FAKE_COUNTER, [string]($counter + 1))
 $result = [ordered]@{ contract_version = "atlas.stack.repo-task-result.v1"; run_id = $runId; status = "success_no_changes"; exit_code = 0; sweep_id = $env:ATLAS_INBOX_SWEEP_ID; sweep_correlation_id = $env:ATLAS_INBOX_SWEEP_CORRELATION_ID; atlas_contracts_v2 = [ordered]@{ job_envelope = $jobPath; worker_lease = $leasePath; execution_receipt = $receiptPath }; runtime_policy = [ordered]@{ resolved = [ordered]@{ model = "gpt-5.6-sol"; reasoning = "xhigh"; permissions = [ordered]@{ mode = "full-access"; profile = ":danger-full-access" }; sandbox_mode = $null; approval = "never"; web_search = "live" } } }
 [IO.File]::WriteAllText($ResultPath, ($result | ConvertTo-Json -Depth 12))
+$noiseLine = "N" * 2048
+for ($index = 0; $index -lt 512; $index += 1) { Write-Output ("stdout-{0:D4}-{1}" -f $index, $noiseLine) }
+for ($index = 0; $index -lt 32; $index += 1) { [Console]::Error.WriteLine(("stderr-{0:D4}" -f $index)) }
 exit 0
 '@
     [System.IO.File]::WriteAllText($path, $content, (New-Object System.Text.UTF8Encoding($false)))
@@ -92,10 +95,15 @@ try {
     $prompt = Join-Path $inbox "synthetic.md"
     Write-TestPrompt -Path $prompt -IdempotencyKey "synthetic.once" -JobId "synthetic-job" -Body "# Synthetic safe no-change fixture"
     $first = Invoke-TestSweep -Inbox $inbox -State $state -TaskScript $fakeTask
+    Assert-Sweep (@($first).Count -eq 1) "Noisy child output contaminated the structured sweep result stream."
     Assert-Sweep ($first.exit_code -eq 0 -and $first.counts.claimed -eq 1 -and $first.counts.executed -eq 1 -and $first.counts.archived -eq 1) "RunOnce did not perform exactly one claim, execution, and archive."
     Assert-Sweep (-not (Test-Path -LiteralPath $prompt)) "Atomic claim did not remove the admitted source from inbox."
     Assert-Sweep ((Get-Content -LiteralPath $env:STACK_INBOX_FAKE_COUNTER -Raw) -eq "1") "Synthetic task executed an unexpected number of times."
     $firstTerminal = @($first.terminal_records)[0]
+    Assert-Sweep ([bool]$firstTerminal.task_output.stdout.exists -and [long]$firstTerminal.task_output.stdout.bytes -gt 1048576 -and [long]$firstTerminal.task_output.stdout.line_count -eq 512) "Noisy stdout was not streamed to a durable claim-owned log with compact metadata."
+    Assert-Sweep ([bool]$firstTerminal.task_output.stderr.exists -and [long]$firstTerminal.task_output.stderr.bytes -gt 0 -and [long]$firstTerminal.task_output.stderr.line_count -ge 32) "Noisy stderr was not streamed to a durable claim-owned log with compact metadata."
+    Assert-Sweep ([string]$firstTerminal.task_output.stdout.sha256 -match '^[0-9a-f]{64}$' -and [string]$firstTerminal.task_output.stderr.sha256 -match '^[0-9a-f]{64}$') "Child output logs did not receive deterministic content hashes."
+    Assert-Sweep (($firstTerminal.task_output | ConvertTo-Json -Depth 8).Length -lt 4096) "Child output metadata included an unbounded transcript payload."
     Assert-Sweep ([bool]$firstTerminal.correlation_validation.ok) "JobEnvelope, WorkerLease, and ExecutionReceipt were not correlated."
     Assert-Sweep ([string]$firstTerminal.atlas_contracts_v2.receipt_status -eq "succeeded" -and [string]$firstTerminal.atlas_contracts_v2.lease_status -eq "released") "Contracts v2 terminal state was not accepted."
 
