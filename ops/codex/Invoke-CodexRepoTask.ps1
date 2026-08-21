@@ -576,6 +576,8 @@ try {
         -AllowedPaths @(ConvertTo-StringArray -Value $adapterContract.allowedMutationSurfaces) `
         -ForbiddenPaths @($forbiddenGlobs) `
         -VerificationCommands @($effectiveVerifyCommands) `
+        -ProjectId ([string]$adapterContract.repoId) `
+        -OwnerRepository ([string]$adapterContract.repoId) `
         -ParentJobId $(if (-not [string]::IsNullOrWhiteSpace($env:ATLAS_INBOX_SWEEP_CORRELATION_ID)) { [string]$env:ATLAS_INBOX_SWEEP_CORRELATION_ID } else { $governedSessionId })
     $effectivePrompt = $effectivePrompt + "`r`n`r`n" + (Get-AtlasContractsV2WorkerInstructions -Producer $atlasContractsV2)
     Write-TextFile -Path (Join-Path -Path $logDirectory -ChildPath "effective.prompt.md") -Content $effectivePrompt
@@ -842,6 +844,27 @@ try {
             }
             throw ("Spec-to-diff verification gate failed: {0}" -f $specToDiffFailureReason)
         }
+    }
+
+    try {
+        if ($status -eq "success_no_changes") {
+            $null = Complete-AtlasEngineeringMemoryCloseout `
+                -Producer $atlasContractsV2 `
+                -WorkspacePath $worktreePath `
+                -VerificationRecords @($verifyRecords) `
+                -NoChange `
+                -NoChangeProofRef $noChangeProofValidationPath
+        }
+        else {
+            $null = Complete-AtlasEngineeringMemoryCloseout `
+                -Producer $atlasContractsV2 `
+                -WorkspacePath $worktreePath `
+                -VerificationRecords @($verifyRecords)
+        }
+    }
+    catch {
+        $status = "engineering_memory_closeout_failed"
+        throw
     }
 
     if ($status -ne "success_no_changes") { $resolvedCommit = Resolve-CommitMetadata -PromptRecord $promptRecord -ArtifactRecord $commitMetadataArtifactRecord -CommitPolicy $commitMetadataPolicy -ChangedPaths $changedPaths -RepoId ([string]$adapterContract.repoId) }

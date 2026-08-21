@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas://packages/contracts/atlas.engineering-memory-profile.v1.schema.json",
+  "title": "ATLAS engineering memory profile v1",
+  "description": "Additive engineering-memory intake, precedent, verification, and archive profile carried by atlas.job-envelope.v2 extensions.engineering_memory.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "task_id",
+    "source_text",
+    "normalized_title",
+    "task_type",
+    "phase",
+    "project",
+    "repo",
+    "route_states",
+    "components",
+    "acceptance_criteria",
+    "precedent_check",
+    "verification",
+    "scope_lock",
+    "fast_lane",
+    "archive",
+    "blockers"
+  ],
+  "properties": {
+    "contract_version": {"type": "string", "const": "atlas.engineering-memory-profile.v1"},
+    "task_id": {"type": "string", "minLength": 1},
+    "source_text": {"type": "string", "minLength": 1},
+    "normalized_title": {"type": "string", "minLength": 1},
+    "task_type": {
+      "type": "string",
+      "enum": ["ui_parity", "visual_change", "pwa_layout", "bug", "feature", "refactor", "documentation", "governance", "research", "other"]
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["captured", "normalized", "precedent_checked", "planned", "in_progress", "implemented", "verified", "archived", "blocked", "reopened"]
+    },
+    "project": {"type": "string", "minLength": 1},
+    "repo": {"type": "string", "minLength": 1},
+    "route_states": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/route_state"}
+    },
+    "components": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "precedent_check": {"$ref": "#/$defs/precedent_check"},
+    "verification": {"$ref": "#/$defs/verification"},
+    "scope_lock": {"$ref": "#/$defs/scope_lock"},
+    "fast_lane": {"$ref": "#/$defs/fast_lane"},
+    "archive": {"$ref": "#/$defs/archive"},
+    "blockers": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "$defs": {
+    "route_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route", "state", "surface"],
+      "properties": {
+        "route": {"type": "string", "minLength": 1},
+        "state": {"type": "string", "minLength": 1},
+        "surface": {"type": "string", "minLength": 1}
+      }
+    },
+    "precedent_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "query_terms", "searched_sources", "matches", "decision", "rationale", "checked_at"],
+      "properties": {
+        "status": {"type": "string", "enum": ["pending", "checked-matches", "checked-none", "blocked"]},
+        "query_terms": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "searched_sources": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/searched_source"}
+        },
+        "matches": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/precedent_match"}
+        },
+        "decision": {"type": "string", "enum": ["pending", "reuse", "adapt", "reject", "first-durable-pattern"]},
+        "rationale": {"type": "string", "minLength": 1},
+        "checked_at": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+    "searched_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref", "result", "evidence_refs"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["current_repo", "sibling_repo", "atlas_docs", "playbook", "task_archive", "design_system", "test_fixture", "visual_fixture", "other"]
+        },
+        "ref": {"type": "string", "minLength": 1},
+        "result": {"type": "string", "enum": ["match", "no_match", "unavailable"]},
+        "evidence_refs": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "precedent_match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "classification", "rationale"],
+      "properties": {
+        "ref": {"type": "string", "minLength": 1},
+        "classification": {"type": "string", "enum": ["direct", "adaptable", "rejected"]},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requirements", "evidence", "unverified", "visual"],
+      "properties": {
+        "requirements": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "evidence": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/verification_evidence"}
+        },
+        "unverified": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "visual": {"$ref": "#/$defs/visual_contract"}
+      }
+    },
+    "verification_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref", "result", "surfaces"],
+      "properties": {
+        "kind": {"type": "string", "enum": ["test", "screenshot", "dom", "local_run", "visual_diff", "manual", "document"]},
+        "ref": {"type": "string", "minLength": 1},
+        "result": {"type": "string", "enum": ["passed", "failed", "blocked"]},
+        "surfaces": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "visual_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "source_surface", "target_surfaces", "shared_properties", "implementation_strategy"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "source_surface": {"type": ["string", "null"], "minLength": 1},
+        "target_surfaces": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "shared_properties": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "implementation_strategy": {
+          "type": "string",
+          "enum": ["not-applicable", "shared-component", "shared-style-contract", "documented-variant", "pending"]
+        }
+      }
+    },
+    "scope_lock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["acceptance_frozen", "discovery_policy", "parent_task_id", "child_task_ids"],
+      "properties": {
+        "acceptance_frozen": {"type": "boolean"},
+        "discovery_policy": {"type": "string", "const": "linked-child-task"},
+        "parent_task_id": {"type": ["string", "null"], "minLength": 1},
+        "child_task_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "fast_lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lane", "eligible", "verification_route_known", "disqualifiers", "rationale"],
+      "properties": {
+        "lane": {"type": "string", "enum": ["fast", "normal"]},
+        "eligible": {"type": "boolean"},
+        "verification_route_known": {"type": "boolean"},
+        "disqualifiers": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "ref", "final_status"],
+      "properties": {
+        "status": {"type": "string", "enum": ["pending", "created"]},
+        "ref": {"type": ["string", "null"], "minLength": 1},
+        "final_status": {"type": ["string", "null"], "enum": ["complete", "partial", "blocked", null]}
+      }
+    }
+  }
+}

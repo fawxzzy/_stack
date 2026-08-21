@@ -23,7 +23,8 @@
     "Playbook workflow-pack and consumer adoption",
     "Lifeline privileged-execution adoption",
     "Fitness integration adoption",
-    "DiscordOS 218-character path-budget projection"
+    "DiscordOS 218-character path-budget projection",
+    "Atlas engineering memory producer preflight and terminal closeout"
   ],
   "files": [
     {
@@ -40,6 +41,21 @@
       "path": "atlas/docs/LIFELINE_TOPOLOGY_MANIFEST.json",
       "sha256": "6bb336bf5a46172525c34975e13807289452232f20432764bf23b7d1d3f84c8c",
       "bytes": 4116
+    },
+    {
+      "path": "atlas/ops/atlas/complete_engineering_memory_job.mjs",
+      "sha256": "41f0c69ab00944e27bb135c0103e6d07cd13627974ede48451aad3bb64db2786",
+      "bytes": 10562
+    },
+    {
+      "path": "atlas/ops/atlas/engineering_memory_gate.mjs",
+      "sha256": "8f678d743c16423e4fb24b2f61d41b5dbf7477f5ac4200728ee1ec0d2986dae8",
+      "bytes": 17631
+    },
+    {
+      "path": "atlas/ops/atlas/prepare_engineering_memory_job.mjs",
+      "sha256": "a7d56ccce068d0ae521b3683c57bd9cd6b971a1a78691f884ac7686183bed5bf",
+      "bytes": 19807
     },
     {
       "path": "atlas/ops/atlas/observations.py",
@@ -67,6 +83,11 @@
       "bytes": 1230
     },
     {
+      "path": "atlas/packages/atlas-contracts/schemas/atlas.card-record.v2.schema.json",
+      "sha256": "2223777a5f7c4c049495577d61219752dda29ad1645d1b19318ff6065329f543",
+      "bytes": 1530
+    },
+    {
       "path": "atlas/packages/atlas-contracts/schemas/atlas.component-manifest.v2.schema.json",
       "sha256": "91c54758b3b09ca5a5feb5586195bbd477db643df8ab5198f89e1db26ecb7545",
       "bytes": 2814
@@ -75,6 +96,21 @@
       "path": "atlas/packages/atlas-contracts/schemas/atlas.context-packet.v2.schema.json",
       "sha256": "8c5dd344a4cbc4bb2864fee27f9d4a893ab3f7a637d58240c714cfd34bfcd7b1",
       "bytes": 1341
+    },
+    {
+      "path": "atlas/packages/atlas-contracts/schemas/atlas.engineering-memory-closeout.v1.schema.json",
+      "sha256": "74e81ca3f85783ef44dd1c1baf7ff70f186907a2a0cbbb2cb138cd8394b47f6f",
+      "bytes": 2272
+    },
+    {
+      "path": "atlas/packages/atlas-contracts/schemas/atlas.engineering-memory-profile.v1.schema.json",
+      "sha256": "dc7ab81617435c1e66b519530e27bd2550d7c8ace4e5a823d11c3fee6c0ff655",
+      "bytes": 7995
+    },
+    {
+      "path": "atlas/packages/atlas-contracts/schemas/atlas.engineering-memory-runner-verification.v1.schema.json",
+      "sha256": "0a548f7f25d335f8b3a7d08ec05cf6e4138f78beaaab47526b72fcba593bc0ff",
+      "bytes": 1271
     },
     {
       "path": "atlas/packages/atlas-contracts/schemas/atlas.evidence-bundle.v2.schema.json",
@@ -98,8 +134,8 @@
     },
     {
       "path": "atlas/packages/atlas-contracts/scripts/lib/validate-json-schema.mjs",
-      "sha256": "f95fa9712dfa85a8ef9cef2f3bc6f961c6f6f3562892fef72f4c7131c447743f",
-      "bytes": 11196
+      "sha256": "4b27adb0632abd0f3111c7d214a0721b68b013d4469ff0d267e3d3a6beca70f5",
+      "bytes": 12363
     },
     {
       "path": "atlas/packages/atlas-contracts/scripts/lib/validate-project-board-owner-export.mjs",

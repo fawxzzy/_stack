@@ -1456,6 +1456,17 @@ try {
 
     if (@($taskChangedPaths).Count -eq 0) {
         $status = "success"
+        try {
+            $null = Complete-AtlasEngineeringMemoryCloseout `
+                -Producer $atlasContractsV2 `
+                -WorkspacePath $repoRoot `
+                -VerificationRecords @($verifyRecords) `
+                -NoChange
+        }
+        catch {
+            $status = "engineering_memory_closeout_failed"
+            throw
+        }
         Write-CanonicalManifest
         return
     }
@@ -1478,6 +1489,17 @@ try {
             $specToDiffFailureReason = if ($specToDiffRecord.blockingReasons.Count -gt 0) { [string]$specToDiffRecord.blockingReasons[0] } else { "Spec-to-diff validation failed." }
             throw ("Spec-to-diff verification gate failed: {0}" -f $specToDiffFailureReason)
         }
+    }
+
+    try {
+        $null = Complete-AtlasEngineeringMemoryCloseout `
+            -Producer $atlasContractsV2 `
+            -WorkspacePath $repoRoot `
+            -VerificationRecords @($verifyRecords)
+    }
+    catch {
+        $status = "engineering_memory_closeout_failed"
+        throw
     }
 
     $resolvedCommit = Resolve-CommitMetadata -PromptRecord $promptRecord -ArtifactRecord $commitMetadataArtifactRecord -CommitPolicy $commitMetadataPolicy -ChangedPaths $taskChangedPaths -RepoId ([string]$executionContract.repoId)

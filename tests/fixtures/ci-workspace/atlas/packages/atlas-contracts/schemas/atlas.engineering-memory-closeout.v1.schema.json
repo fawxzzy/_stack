@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas://packages/contracts/atlas.engineering-memory-closeout.v1.schema.json",
+  "title": "ATLAS engineering memory closeout v1",
+  "description": "Bounded worker closeout input reconciled by the runner into the existing JobEnvelope and CardRecord before terminal success.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "job_id",
+    "card_id",
+    "completed_at",
+    "final_status",
+    "archive_kind",
+    "archive_ref",
+    "verification",
+    "blockers"
+  ],
+  "properties": {
+    "contract_version": {"type": "string", "const": "atlas.engineering-memory-closeout.v1"},
+    "job_id": {"type": "string", "minLength": 1},
+    "card_id": {"type": "string", "minLength": 1},
+    "completed_at": {"type": "string", "format": "date-time"},
+    "final_status": {"type": "string", "enum": ["complete", "partial", "blocked"]},
+    "archive_kind": {"type": "string", "enum": ["repository-docs", "no-change-runtime"]},
+    "archive_ref": {"type": "string", "minLength": 1},
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence", "unverified"],
+      "properties": {
+        "evidence": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/verification_evidence"}
+        },
+        "unverified": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "child_task_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "$defs": {
+    "verification_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref", "result", "surfaces"],
+      "properties": {
+        "kind": {"type": "string", "enum": ["test", "screenshot", "dom", "local_run", "visual_diff", "manual", "document"]},
+        "ref": {"type": "string", "minLength": 1},
+        "result": {"type": "string", "enum": ["passed", "failed", "blocked"]},
+        "surfaces": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

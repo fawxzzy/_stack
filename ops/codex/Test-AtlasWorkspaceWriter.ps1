@@ -234,7 +234,14 @@ if (!manifest.atlasContractsV2 || manifest.atlasContractsV2.status?.preflight !=
   process.stderr.write("Canonical writer did not receipt Atlas Contracts v2 preflight before execution.\n");
   process.exit(41);
 }
-for (const artifactName of ["componentManifest", "jobEnvelope", "contextPacket", "approvalRecord", "workerLease"]) {
+for (const artifactName of ["componentManifest", "jobEnvelope", "cardRecord", "engineeringMemoryMutationGate", "engineeringMemoryCloseout", "contextPacket", "approvalRecord", "workerLease"]) {
+  if (artifactName === "engineeringMemoryCloseout") {
+    if (!manifest.atlasContractsV2.artifactPaths?.[artifactName]) {
+      process.stderr.write(`Canonical writer did not reserve ${artifactName} before execution.\n`);
+      process.exit(42);
+    }
+    continue;
+  }
   if (!manifest.atlasContractsV2.artifactPaths?.[artifactName] || manifest.atlasContractsV2.validation?.[artifactName]?.ok !== true) {
     process.stderr.write(`Canonical writer did not validate ${artifactName} before execution.\n`);
     process.exit(42);
@@ -245,8 +252,12 @@ if (activeWorkerLease.status !== "active" || activeWorkerLease.workspace.worktre
   process.stderr.write("Canonical writer active WorkerLease invented a worktree or missed its canonical root.\n");
   process.exit(43);
 }
-if (!prompt.includes(manifest.atlasContractsV2.artifactPaths.workerLease)) {
-  process.stderr.write("Canonical writer did not inject the exact WorkerLease path into worker instructions.\n");
+if (!prompt.includes(manifest.atlasContractsV2.artifactPaths.cardRecord) ||
+    !prompt.includes(manifest.atlasContractsV2.artifactPaths.engineeringMemorySearch) ||
+    !prompt.includes(manifest.atlasContractsV2.artifactPaths.engineeringMemoryMutationGate) ||
+    !prompt.includes(manifest.atlasContractsV2.artifactPaths.engineeringMemoryCloseout) ||
+    !prompt.includes(manifest.atlasContractsV2.artifactPaths.workerLease)) {
+  process.stderr.write("Canonical writer did not inject the exact engineering-memory and WorkerLease paths into worker instructions.\n");
   process.exit(44);
 }
 
@@ -390,6 +401,21 @@ if (prompt.includes("Scenario: retarget-registered-worktree-gitfile")) {
   writeArtifacts();
 }
 
+const closeoutJob = JSON.parse(fs.readFileSync(manifest.atlasContractsV2.artifactPaths.jobEnvelope, "utf8"));
+const closeoutCard = JSON.parse(fs.readFileSync(manifest.atlasContractsV2.artifactPaths.cardRecord, "utf8"));
+fs.writeFileSync(manifest.atlasContractsV2.artifactPaths.engineeringMemoryCloseout, `${JSON.stringify({
+  contract_version: "atlas.engineering-memory-closeout.v1",
+  job_id: closeoutJob.job_id,
+  card_id: closeoutCard.card_id,
+  completed_at: new Date().toISOString(),
+  final_status: "complete",
+  archive_kind: "repository-docs",
+  archive_ref: "docs/task.md",
+  verification: { evidence: [], unverified: [] },
+  blockers: [],
+  child_task_ids: []
+}, null, 2)}\n`, "utf8");
+
 fs.writeFileSync(path.join(latestLogDirectory, "fake-codex.execution.json"), `${JSON.stringify({
   wrapperPath,
   summaryPath,
@@ -523,6 +549,46 @@ const schema = args[args.indexOf("--schema") + 1] ?? null;
 const artifact = args[args.indexOf("--artifact") + 1] ?? null;
 if (!schema || !artifact) { console.log(JSON.stringify({ ok: false, code: "MISSING_INPUT", schema: null, artifact, errors: ["fixture input missing"] })); process.exit(4); }
 console.log(JSON.stringify({ ok: true, code: "VALID", schema: { id: schema, file: "fixture" }, artifact, errors: [] }));
+'@)
+
+    $engineeringMemoryDirectory = Join-Path -Path $repoRoot -ChildPath "ops\atlas"
+    New-Item -ItemType Directory -Path $engineeringMemoryDirectory -Force | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path -Path $engineeringMemoryDirectory -ChildPath "prepare_engineering_memory_job.mjs"), @'
+import fs from "node:fs";
+import path from "node:path";
+const value = (name) => process.argv[process.argv.indexOf(name) + 1];
+const jobPath = value("--job-envelope");
+const cardPath = value("--card-record");
+const searchPath = value("--search-record");
+const job = JSON.parse(fs.readFileSync(jobPath, "utf8"));
+const cardId = `fixture-card-${job.job_id}`;
+job.correlations.card_id = cardId;
+job.extensions.engineering_memory = { contract_version: "atlas.engineering-memory-profile.v1", task_id: job.job_id };
+fs.writeFileSync(jobPath, `${JSON.stringify(job, null, 2)}\n`);
+fs.mkdirSync(path.dirname(cardPath), { recursive: true });
+fs.writeFileSync(cardPath, `${JSON.stringify({ contract_version: "atlas.card-record.v2", card_id: cardId })}\n`);
+fs.writeFileSync(searchPath, `${JSON.stringify({ schema: "atlas.engineering-memory-precedent-search.v1", job_id: job.job_id, card_id: cardId })}\n`);
+console.log(JSON.stringify({ status: "prepared", job_id: job.job_id, card_id: cardId }));
+'@)
+    [System.IO.File]::WriteAllText((Join-Path -Path $engineeringMemoryDirectory -ChildPath "engineering_memory_gate.mjs"), @'
+console.log(JSON.stringify({ schema: "atlas.engineering-memory-gate-receipt.v1", status: "passed", gate: "mutation", receipt_id: "fixture-engineering-memory-gate" }));
+'@)
+    [System.IO.File]::WriteAllText((Join-Path -Path $engineeringMemoryDirectory -ChildPath "complete_engineering_memory_job.mjs"), @'
+import fs from "node:fs";
+const value = (name) => process.argv[process.argv.indexOf(name) + 1];
+const jobPath = value("--job-envelope");
+const cardPath = value("--card-record");
+const verifyReceiptPath = value("--verify-receipt");
+const archiveReceiptPath = value("--archive-receipt");
+const job = JSON.parse(fs.readFileSync(jobPath, "utf8"));
+const card = JSON.parse(fs.readFileSync(cardPath, "utf8"));
+job.extensions.engineering_memory.phase = "archived";
+card.lifecycle = "archived";
+fs.writeFileSync(jobPath, `${JSON.stringify(job, null, 2)}\n`);
+fs.writeFileSync(cardPath, `${JSON.stringify(card, null, 2)}\n`);
+fs.writeFileSync(verifyReceiptPath, `${JSON.stringify({ schema: "atlas.engineering-memory-gate-receipt.v1", status: "passed", gate: "verify" })}\n`);
+fs.writeFileSync(archiveReceiptPath, `${JSON.stringify({ schema: "atlas.engineering-memory-gate-receipt.v1", status: "passed", gate: "archive" })}\n`);
+console.log(JSON.stringify({ status: "completed", final_phase: "archived", final_lifecycle: "archived" }));
 '@)
 
     [System.IO.File]::WriteAllText((Join-Path -Path $repoRoot -ChildPath "README.md"), "Fixture root.`r`n")
@@ -942,13 +1008,18 @@ Expected Changed Paths:
     Assert-Condition -Condition ([string]$successRun.Manifest.executionClass -eq "canonical_workspace") -Message "Canonical writer success fixture did not receipt the canonical_workspace execution class."
     Assert-Condition -Condition ([string]$successRun.Manifest.atlasContractsV2.status.preflight -eq "validated") -Message "Canonical writer must validate Atlas Contracts v2 facts before fake Codex execution."
     Assert-Condition -Condition ([bool]$successRun.Manifest.atlasContractsV2.validation.executionReceipt.ok) -Message "Canonical writer must validate the terminal Atlas Contracts v2 receipt."
-    foreach ($artifactName in @("componentManifest", "jobEnvelope", "contextPacket", "approvalRecord", "workerLease", "evidenceBundle", "executionReceipt")) {
+    foreach ($artifactName in @("componentManifest", "jobEnvelope", "cardRecord", "engineeringMemorySource", "engineeringMemorySearch", "engineeringMemoryMutationGate", "engineeringMemoryCloseout", "engineeringMemoryRunnerVerification", "engineeringMemoryVerifyGate", "engineeringMemoryArchiveGate", "contextPacket", "approvalRecord", "workerLease", "evidenceBundle", "executionReceipt")) {
         Assert-Condition -Condition (-not [string]::IsNullOrWhiteSpace([string]$successRun.Manifest.atlasContractsV2.artifactPaths.$artifactName) -and (Test-Path -LiteralPath ([string]$successRun.Manifest.atlasContractsV2.artifactPaths.$artifactName))) -Message ("Canonical writer must expose the Atlas Contracts v2 {0} artifact." -f $artifactName)
     }
-    foreach ($artifactName in @("componentManifest", "jobEnvelope", "contextPacket", "approvalRecord", "workerLease", "workerLeaseTerminal", "evidenceBundle")) {
+    foreach ($artifactName in @("componentManifest", "jobEnvelope", "cardRecord", "engineeringMemoryMutationGate", "engineeringMemoryCloseout", "engineeringMemoryRunnerVerification", "jobEnvelopeTerminal", "cardRecordTerminal", "contextPacket", "approvalRecord", "workerLease", "workerLeaseTerminal", "evidenceBundle")) {
         Assert-Condition -Condition ([bool]$successRun.Manifest.atlasContractsV2.validation.$artifactName.ok) -Message ("Canonical writer must validate the Atlas Contracts v2 {0}." -f $artifactName)
     }
     $canonicalExecutionReceipt = Get-Content -LiteralPath ([string]$successRun.Manifest.atlasContractsV2.artifactPaths.executionReceipt) -Raw | ConvertFrom-Json
+    $canonicalJobEnvelope = Get-Content -LiteralPath ([string]$successRun.Manifest.atlasContractsV2.artifactPaths.jobEnvelope) -Raw | ConvertFrom-Json
+    $canonicalCardRecord = Get-Content -LiteralPath ([string]$successRun.Manifest.atlasContractsV2.artifactPaths.cardRecord) -Raw | ConvertFrom-Json
+    $canonicalEngineeringMemoryGate = Get-Content -LiteralPath ([string]$successRun.Manifest.atlasContractsV2.artifactPaths.engineeringMemoryMutationGate) -Raw | ConvertFrom-Json
+    $canonicalEngineeringMemoryVerifyGate = Get-Content -LiteralPath ([string]$successRun.Manifest.atlasContractsV2.artifactPaths.engineeringMemoryVerifyGate) -Raw | ConvertFrom-Json
+    $canonicalEngineeringMemoryArchiveGate = Get-Content -LiteralPath ([string]$successRun.Manifest.atlasContractsV2.artifactPaths.engineeringMemoryArchiveGate) -Raw | ConvertFrom-Json
     $canonicalContextPacket = Get-Content -LiteralPath ([string]$successRun.Manifest.atlasContractsV2.artifactPaths.contextPacket) -Raw | ConvertFrom-Json
     $canonicalApprovalRecord = Get-Content -LiteralPath ([string]$successRun.Manifest.atlasContractsV2.artifactPaths.approvalRecord) -Raw | ConvertFrom-Json
     $canonicalEvidenceBundle = Get-Content -LiteralPath ([string]$successRun.Manifest.atlasContractsV2.artifactPaths.evidenceBundle) -Raw | ConvertFrom-Json
@@ -958,6 +1029,8 @@ Expected Changed Paths:
     Assert-Condition -Condition ([string]$canonicalWorkerLease.status -eq "released" -and -not [string]::IsNullOrWhiteSpace([string]$canonicalWorkerLease.released_at) -and [string]$canonicalExecutionReceipt.extensions.worker_lease_binding.lease_id -eq [string]$canonicalWorkerLease.lease_id -and [string]$canonicalExecutionReceipt.extensions.worker_lease_binding.status -eq "released") -Message "Canonical writer must release and bind its WorkerLease after lock release."
     Assert-Condition -Condition (@($canonicalWorkerLease.resources | Where-Object { [string](Get-ObjectPropertyValue -Object $_.metadata -Name "resource_type" -DefaultValue "") -eq "canonical-single-writer" }).Count -eq 1 -and @($canonicalWorkerLease.resources | Where-Object { $_.kind -eq "worktree" }).Count -eq 0) -Message "Canonical writer WorkerLease must carry its single-writer resource without a worktree claim."
     Assert-Condition -Condition ([string]$canonicalContextPacket.job_id -eq [string]$canonicalExecutionReceipt.job_id -and [string]$canonicalApprovalRecord.job_id -eq [string]$canonicalExecutionReceipt.job_id -and [string]$canonicalEvidenceBundle.job_id -eq [string]$canonicalExecutionReceipt.job_id) -Message "Canonical writer artifacts must retain a shared job correlation."
+    Assert-Condition -Condition ([string]$canonicalJobEnvelope.correlations.card_id -eq [string]$canonicalCardRecord.card_id -and [string]$canonicalEngineeringMemoryGate.status -eq "passed" -and [string]$canonicalEngineeringMemoryGate.gate -eq "mutation") -Message "Canonical writer must bind one card identity and pass the engineering-memory mutation gate before execution."
+    Assert-Condition -Condition ([string]$canonicalJobEnvelope.extensions.engineering_memory.phase -eq "archived" -and [string]$canonicalCardRecord.lifecycle -eq "archived" -and [string]$canonicalEngineeringMemoryVerifyGate.status -eq "passed" -and [string]$canonicalEngineeringMemoryArchiveGate.status -eq "passed") -Message "Canonical writer must reconcile and pass both terminal Engineering Memory gates before success."
     Assert-Condition -Condition ([string]$canonicalApprovalRecord.decision -eq "rejected") -Message "Canonical writer must retain denied external authority even with full local capability."
     Assert-Condition -Condition ([string]$successRun.Manifest.atlasContractsV2.validation.componentManifest.cliPath -match "packages[\\/]atlas-contracts[\\/]scripts[\\/]validate-artifact\.mjs$") -Message "Canonical writer must invoke its resolved Atlas validator CLI."
     Assert-Condition -Condition ([string]$successRun.Manifest.codexCommand.source -eq "explicit-arg") -Message "Canonical writer success fixture did not preserve the explicit fake-native executable source."

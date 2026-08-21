@@ -269,7 +269,7 @@ Assert-Condition -Condition ($ciFixtureInitializer -notmatch '(?i)Register-Sched
 Assert-Condition -Condition ($ciFixtureInitializer.Contains('sibling_repository_clones = 0') -and $ciFixtureInitializer.Contains('persisted_credentials = $false') -and $ciFixtureInitializer.Contains('scheduled_task_registration = $false')) -Message "CI fixture workspace initializer must explicitly receipt its no-clone, no-credentials, and no-task posture."
 $ciFixtureManifest = Get-Content -LiteralPath "tests/fixtures/ci-workspace/snapshot-manifest.json" -Raw | ConvertFrom-Json
 Assert-Condition -Condition ([string]$ciFixtureManifest.schema_version -eq "atlas.stack.ci-workspace-fixture.v1" -and [string]$ciFixtureManifest.hash_mode -eq "utf8-lf-normalized-sha256") -Message "CI workspace fixture manifest version or hash mode is invalid."
-Assert-Condition -Condition (@($ciFixtureManifest.files).Count -eq 27) -Message "CI workspace fixture manifest must bind every versioned fixture file."
+Assert-Condition -Condition (@($ciFixtureManifest.files).Count -eq 34) -Message "CI workspace fixture manifest must bind every versioned fixture file."
 Assert-Condition -Condition (@($ciFixtureManifest.files.path | Sort-Object -Unique).Count -eq @($ciFixtureManifest.files).Count) -Message "CI workspace fixture manifest contains duplicate paths."
 Assert-Condition -Condition (@($ciFixtureManifest.files | Where-Object { [string]$_.sha256 -notmatch '^[0-9a-f]{64}$' -or [long]$_.bytes -le 0 }).Count -eq 0) -Message "CI workspace fixture manifest contains an invalid hash or byte count."
 foreach ($sourceRevision in @($ciFixtureManifest.source_revisions.PSObject.Properties.Value)) {
@@ -2211,7 +2211,14 @@ if (!atlasContractsV2 || atlasContractsV2.status?.preflight !== "validated") {
   process.stderr.write("Atlas Contracts v2 preflight was not receipted before fake Codex execution.\n");
   process.exit(43);
 }
-for (const artifactName of ["componentManifest", "jobEnvelope", "contextPacket", "approvalRecord", "workerLease"]) {
+for (const artifactName of ["componentManifest", "jobEnvelope", "cardRecord", "engineeringMemoryMutationGate", "engineeringMemoryCloseout", "contextPacket", "approvalRecord", "workerLease"]) {
+  if (artifactName === "engineeringMemoryCloseout") {
+    if (!atlasContractsV2.artifactPaths?.[artifactName]) {
+      process.stderr.write(`Atlas Contracts v2 ${artifactName} path was not reserved before fake Codex execution.\n`);
+      process.exit(44);
+    }
+    continue;
+  }
   if (!atlasContractsV2.artifactPaths?.[artifactName] || atlasContractsV2.validation?.[artifactName]?.ok !== true) {
     process.stderr.write(`Atlas Contracts v2 ${artifactName} was not validated before fake Codex execution.\n`);
     process.exit(44);
@@ -2253,6 +2260,10 @@ if (workerGitFixture) {
 if (!prompt.includes("Atlas Contracts v2 preflight contract:") ||
     !prompt.includes(atlasContractsV2.artifactPaths.componentManifest) ||
     !prompt.includes(atlasContractsV2.artifactPaths.jobEnvelope) ||
+    !prompt.includes(atlasContractsV2.artifactPaths.cardRecord) ||
+    !prompt.includes(atlasContractsV2.artifactPaths.engineeringMemorySearch) ||
+    !prompt.includes(atlasContractsV2.artifactPaths.engineeringMemoryMutationGate) ||
+    !prompt.includes(atlasContractsV2.artifactPaths.engineeringMemoryCloseout) ||
     !prompt.includes(atlasContractsV2.artifactPaths.contextPacket) ||
     !prompt.includes(atlasContractsV2.artifactPaths.approvalRecord) ||
     !prompt.includes(atlasContractsV2.artifactPaths.workerLease)) {
@@ -2344,6 +2355,24 @@ fs.writeFileSync(
   }, null, 2)}\n`,
   "utf8"
 );
+const closeoutJob = JSON.parse(fs.readFileSync(atlasContractsV2.artifactPaths.jobEnvelope, "utf8"));
+const closeoutCard = JSON.parse(fs.readFileSync(atlasContractsV2.artifactPaths.cardRecord, "utf8"));
+fs.writeFileSync(
+  atlasContractsV2.artifactPaths.engineeringMemoryCloseout,
+  `${JSON.stringify({
+    contract_version: "atlas.engineering-memory-closeout.v1",
+    job_id: closeoutJob.job_id,
+    card_id: closeoutCard.card_id,
+    completed_at: new Date().toISOString(),
+    final_status: "complete",
+    archive_kind: "repository-docs",
+    archive_ref: "docs/fixture.md",
+    verification: { evidence: [], unverified: [] },
+    blockers: [],
+    child_task_ids: []
+  }, null, 2)}\n`,
+  "utf8"
+);
 fs.writeFileSync(summaryPath, promptRenderingFixture ? "Fake Codex completed the prompt rendering fixture.\n" : "Fake Codex completed the runtime-policy fixture.\n", "utf8");
 
 process.stdout.write('{"status":"ok"}\n');
@@ -2413,7 +2442,7 @@ Blocked / Skipped Reporting Rules:
     if ($null -eq $integrationManifest.atlasContractsV2 -or [string]$integrationManifest.atlasContractsV2.status.preflight -ne "validated" -or [string]$integrationManifest.atlasContractsV2.status.terminal -ne "success") {
         throw "Integration fixture did not preserve the Atlas Contracts v2 preflight and terminal state."
     }
-    foreach ($artifactName in @("componentManifest", "jobEnvelope", "contextPacket", "approvalRecord", "workerLease", "evidenceBundle", "executionReceipt")) {
+    foreach ($artifactName in @("componentManifest", "jobEnvelope", "cardRecord", "engineeringMemorySource", "engineeringMemorySearch", "engineeringMemoryMutationGate", "engineeringMemoryCloseout", "engineeringMemoryRunnerVerification", "engineeringMemoryVerifyGate", "engineeringMemoryArchiveGate", "contextPacket", "approvalRecord", "workerLease", "evidenceBundle", "executionReceipt")) {
         $artifactPath = [string]$integrationManifest.atlasContractsV2.artifactPaths.$artifactName
         if ([string]::IsNullOrWhiteSpace($artifactPath) -or -not (Test-Path -LiteralPath $artifactPath)) {
             throw ("Integration fixture did not retain the Atlas Contracts v2 {0} artifact." -f $artifactName)
@@ -2423,13 +2452,30 @@ Blocked / Skipped Reporting Rules:
         throw "Integration fixture did not validate the Atlas Contracts v2 terminal receipt."
     }
     $integrationExecutionReceipt = Get-Content -LiteralPath ([string]$integrationManifest.atlasContractsV2.artifactPaths.executionReceipt) -Raw | ConvertFrom-Json
+    $integrationJobEnvelope = Get-Content -LiteralPath ([string]$integrationManifest.atlasContractsV2.artifactPaths.jobEnvelope) -Raw | ConvertFrom-Json
+    $integrationCardRecord = Get-Content -LiteralPath ([string]$integrationManifest.atlasContractsV2.artifactPaths.cardRecord) -Raw | ConvertFrom-Json
+    $integrationEngineeringMemoryGate = Get-Content -LiteralPath ([string]$integrationManifest.atlasContractsV2.artifactPaths.engineeringMemoryMutationGate) -Raw | ConvertFrom-Json
+    $integrationEngineeringMemoryVerifyGate = Get-Content -LiteralPath ([string]$integrationManifest.atlasContractsV2.artifactPaths.engineeringMemoryVerifyGate) -Raw | ConvertFrom-Json
+    $integrationEngineeringMemoryArchiveGate = Get-Content -LiteralPath ([string]$integrationManifest.atlasContractsV2.artifactPaths.engineeringMemoryArchiveGate) -Raw | ConvertFrom-Json
     if ([string]$integrationExecutionReceipt.extensions.run_id -ne [string]$integrationManifest.runId) {
         throw "Integration fixture terminal receipt did not preserve the native run id."
     }
-    foreach ($artifactName in @("contextPacket", "approvalRecord", "workerLease", "workerLeaseTerminal", "evidenceBundle")) {
+    if ([string]$integrationJobEnvelope.extensions.engineering_memory.contract_version -ne "atlas.engineering-memory-profile.v1" -or [string]$integrationJobEnvelope.correlations.card_id -ne [string]$integrationCardRecord.card_id) {
+        throw "Integration fixture did not carry one normalized engineering-memory task and canonical card identity into execution."
+    }
+    if ([string]$integrationEngineeringMemoryGate.status -ne "passed" -or [string]$integrationEngineeringMemoryGate.gate -ne "mutation") {
+        throw "Integration fixture reached Codex without a passed engineering-memory mutation gate."
+    }
+    if ([string]$integrationEngineeringMemoryVerifyGate.status -ne "passed" -or [string]$integrationEngineeringMemoryArchiveGate.status -ne "passed" -or [string]$integrationJobEnvelope.extensions.engineering_memory.phase -ne "archived" -or [string]$integrationCardRecord.lifecycle -ne "archived") {
+        throw "Integration fixture did not pass runner-owned Engineering Memory verify/archive reconciliation."
+    }
+    foreach ($artifactName in @("cardRecord", "engineeringMemoryMutationGate", "engineeringMemoryCloseout", "engineeringMemoryRunnerVerification", "jobEnvelopeTerminal", "cardRecordTerminal", "contextPacket", "approvalRecord", "workerLease", "workerLeaseTerminal", "evidenceBundle")) {
         if (-not [bool]$integrationManifest.atlasContractsV2.validation.$artifactName.ok) {
             throw ("Integration fixture did not validate the Atlas Contracts v2 {0}." -f $artifactName)
         }
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$integrationManifest.archivePath) -or -not (Test-Path -LiteralPath ([string]$integrationManifest.archivePath))) {
+        throw "Integration fixture did not process the accepted prompt into its successor archive state."
     }
     $integrationApprovalRecord = Get-Content -LiteralPath ([string]$integrationManifest.atlasContractsV2.artifactPaths.approvalRecord) -Raw | ConvertFrom-Json
     $integrationWorkerLease = Get-Content -LiteralPath ([string]$integrationManifest.atlasContractsV2.artifactPaths.workerLease) -Raw | ConvertFrom-Json

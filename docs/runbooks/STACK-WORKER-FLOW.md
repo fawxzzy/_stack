@@ -15,6 +15,7 @@ The closed loop is:
 5. supervisor conflict detection
 6. pause / merge / resume artifacts
 7. runtime-policy receipt
+8. Engineering Memory terminal reconciliation
 
 ## Artifact Set
 
@@ -24,6 +25,10 @@ The closed loop is:
 - `worker.status.completed.json`
 - `worker.status.execution.<receipt_id>.json` when a worker action is executed through Lifeline
 - `worker.merge-request.json` when pause/merge is required
+- `atlas.engineering-memory.closeout.v1.json`
+- `atlas.engineering-memory.runner-verification.v1.json`
+- `atlas.engineering-memory.verify-gate.json`
+- `atlas.engineering-memory.archive-gate.json`
 
 The runner writes these artifacts into the repo-local Codex log directory for the job run.
 
@@ -55,11 +60,13 @@ Failure Mode: `Hidden Runtime Drift`
 
 This failure mode occurs when the requested model, speed, or permission posture differs from what Codex actually executes. Governed jobs now block or receipt the fallback instead of silently drifting.
 
-## Atlas Contracts v2 producer gate
+## Atlas Contracts v2 producer gates
 
 Before Codex can run, `_stack` writes and validates `atlas.component-manifest.v2.json`, `atlas.job-envelope.v2.json`, `atlas.context-packet.v2.json`, `atlas.approval-record.v2.json`, and one active `atlas.worker-lease.v2.json` in the run log using the Atlas-owned `packages/atlas-contracts/scripts/validate-artifact.mjs` CLI. A missing Atlas package or CLI, invalid Cluster 2 preflight artifact, or invalid WorkerLease is a fail-closed preflight failure, not a fallback-validation case. Repo execution leases its exact isolated worktree and task branch. Canonical workspace execution leases the canonical root, current branch, and writer lock while keeping `workspace.worktree` null. Neither class invents unrelated resource claims or external authority.
 
-At terminal closeout `_stack` updates and revalidates that same WorkerLease before it writes `atlas.evidence-bundle.v2.json` and `atlas.execution-receipt.v2.json`. Accepted completion becomes `released` with `released_at`; unproven cleanup or lock release becomes `recovery-required`, and an invalid terminal lease fails the receipt path. `run.json.atlasContractsV2` is the only run-manifest addition for these facts; it carries all seven artifact paths, active and terminal validation evidence, identities, lease status/digest, and state without replacing existing worker artifacts. The ExecutionReceipt binds the exact lease artifact, ID, terminal status, digest, and validation paths while preserving the six accepted families and v1 compatibility. External authority remains denied by default even where the runtime has full local access.
+After ordinary verification and spec-to-diff proof, the worker closeout and runner-owned verification are schema-validated and passed to the Atlas-root terminal reconciler. A mutating run must reference a completion record inside its bound workspace `docs/`; visual requirements must have passed evidence for every declared surface. A verified no-change run may use only its runner-generated `.codex/logs/` closeout bound to no-change proof. Passed verify/archive receipts and an archived JobEnvelope/CardRecord are required before commit or terminal success.
+
+Only after that closeout does `_stack` update and revalidate the same WorkerLease before it writes `atlas.evidence-bundle.v2.json` and `atlas.execution-receipt.v2.json`. Accepted completion becomes `released` with `released_at`; unproven cleanup or lock release becomes `recovery-required`, and an invalid terminal lease fails the receipt path. `run.json.atlasContractsV2` carries the full engineering-memory artifact chain, active and terminal validation evidence, identities, lease status/digest, and state without replacing existing worker artifacts. The ExecutionReceipt binds the exact lease artifact, ID, terminal status, digest, and validation paths while preserving the accepted families and v1 compatibility. External authority remains denied by default even where the runtime has full local access.
 
 ## Assignment
 

@@ -1,3 +1,7 @@
+param(
+    [string]$AtlasRootOverride = $env:ATLAS_CONTRACTS_V2_TEST_ATLAS_ROOT
+)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -9,13 +13,18 @@ function Assert-Condition {
     if (-not $Condition) { throw $Message }
 }
 
-$repoRoot = (Resolve-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "..\..")).Path
-$gitCommonDirectory = (& git -C $repoRoot rev-parse --git-common-dir).Trim()
-if ($LASTEXITCODE -ne 0) { throw "Unable to resolve the _stack Git common directory for Atlas Contracts v2 tests." }
-if (-not [System.IO.Path]::IsPathRooted($gitCommonDirectory)) { $gitCommonDirectory = Join-Path $repoRoot $gitCommonDirectory }
-$logicalStackRoot = Split-Path -Parent ([System.IO.Path]::GetFullPath($gitCommonDirectory))
-$atlasRoot = (Resolve-Path -LiteralPath (Join-Path -Path $logicalStackRoot -ChildPath "..\..")).Path
-$temporaryRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("atlas-contracts-v2-producer-{0}" -f [guid]::NewGuid().ToString("N"))
+if (-not [string]::IsNullOrWhiteSpace($AtlasRootOverride)) {
+    $atlasRoot = (Resolve-Path -LiteralPath $AtlasRootOverride).Path
+}
+else {
+    $repoRoot = (Resolve-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "..\..")).Path
+    $gitCommonDirectory = (& git -C $repoRoot rev-parse --git-common-dir).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "Unable to resolve the _stack Git common directory for Atlas Contracts v2 tests." }
+    if (-not [System.IO.Path]::IsPathRooted($gitCommonDirectory)) { $gitCommonDirectory = Join-Path $repoRoot $gitCommonDirectory }
+    $logicalStackRoot = Split-Path -Parent ([System.IO.Path]::GetFullPath($gitCommonDirectory))
+    $atlasRoot = (Resolve-Path -LiteralPath (Join-Path -Path $logicalStackRoot -ChildPath "..\..")).Path
+}
+$temporaryRoot = Join-Path -Path $atlasRoot -ChildPath ("tmp\tests\atlas-contracts-v2-producer-{0}" -f [guid]::NewGuid().ToString("N"))
 $previousThreadId = $env:CODEX_THREAD_ID
 $previousTurnId = $env:CODEX_TURN_ID
 $previousInboxSweepId = $env:ATLAS_INBOX_SWEEP_ID
@@ -35,7 +44,8 @@ try {
     Assert-Condition -Condition (-not $producerSource.Contains("Validate-AtlasContractsV2Artifact.mjs")) -Message "Owner-side generic validator launcher must not be present."
     Assert-Condition -Condition (-not $producerSource.Contains("validate-json-schema.mjs")) -Message "Producer must not import or copy the Atlas validator engine."
     Assert-Condition -Condition (-not (Test-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "Validate-AtlasContractsV2Artifact.mjs"))) -Message "Discarded owner-side validator file must not exist."
-    Assert-Condition -Condition ($script:AtlasContractsV2ArtifactNames.contextPacket -eq "atlas.context-packet.v2.json" -and $script:AtlasContractsV2ArtifactNames.approvalRecord -eq "atlas.approval-record.v2.json" -and $script:AtlasContractsV2ArtifactNames.evidenceBundle -eq "atlas.evidence-bundle.v2.json" -and $script:AtlasContractsV2ArtifactNames.workerLease -eq "atlas.worker-lease.v2.json") -Message "Producer must preserve the six accepted artifact families and add the exact WorkerLease filename."
+    Assert-Condition -Condition ($script:AtlasContractsV2ArtifactNames.contextPacket -eq "atlas.context-packet.v2.json" -and $script:AtlasContractsV2ArtifactNames.approvalRecord -eq "atlas.approval-record.v2.json" -and $script:AtlasContractsV2ArtifactNames.evidenceBundle -eq "atlas.evidence-bundle.v2.json" -and $script:AtlasContractsV2ArtifactNames.workerLease -eq "atlas.worker-lease.v2.json") -Message "Producer must preserve the accepted artifact families and exact WorkerLease filename."
+    Assert-Condition -Condition ($script:AtlasContractsV2ArtifactNames.cardRecord -eq "atlas.card-record.v2.json" -and $script:AtlasContractsV2ArtifactNames.engineeringMemoryMutationGate -eq "atlas.engineering-memory.mutation-gate.json" -and $script:AtlasContractsV2ArtifactNames.engineeringMemoryCloseout -eq "atlas.engineering-memory.closeout.v1.json" -and $script:AtlasContractsV2ArtifactNames.engineeringMemoryVerifyGate -eq "atlas.engineering-memory.verify-gate.json" -and $script:AtlasContractsV2ArtifactNames.engineeringMemoryArchiveGate -eq "atlas.engineering-memory.archive-gate.json") -Message "Producer must expose the canonical card and all engineering-memory gate artifacts."
 
     New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
     $runtimePolicy = [pscustomobject]@{
@@ -54,7 +64,13 @@ try {
             approval = "never"
         }
     }
-    $prompt = [pscustomobject]@{ Title = "Atlas producer fixture" }
+    $prompt = [pscustomobject]@{
+        Title = "Make gameplay settings match the main menu"
+        Body = "The gameplay settings icon still does not match the main menu settings icon."
+        RawContent = "The gameplay settings icon still does not match the main menu settings icon."
+        QueryTerms = @("settings", "gameplay", "main menu")
+        AcceptanceCriteria = @([pscustomobject]@{ id = "ac-01"; text = "Gameplay and main-menu settings controls share one visual contract." })
+    }
 
     # This is the pre-execution absence gate: the fake Codex callback is only
     # eligible after producer construction has succeeded.
@@ -73,7 +89,9 @@ try {
     foreach ($rejectedSchema in @("atlas.context-packet.v2", "atlas.approval-record.v2", "atlas.worker-lease.v2")) {
         $rejectingAtlasRoot = Join-Path -Path $temporaryRoot -ChildPath ("rejecting-{0}" -f ($rejectedSchema -replace "[^a-z0-9]", "-"))
         $rejectingValidatorDirectory = Join-Path -Path $rejectingAtlasRoot -ChildPath "packages\atlas-contracts\scripts"
+        $rejectingOpsDirectory = Join-Path -Path $rejectingAtlasRoot -ChildPath "ops\atlas"
         New-Item -ItemType Directory -Path $rejectingValidatorDirectory -Force | Out-Null
+        New-Item -ItemType Directory -Path $rejectingOpsDirectory -Force | Out-Null
         $rejectingValidatorPath = Join-Path -Path $rejectingValidatorDirectory -ChildPath "validate-artifact.mjs"
         [System.IO.File]::WriteAllText($rejectingValidatorPath, @"
 const schema = process.argv[process.argv.indexOf('--schema') + 1];
@@ -81,6 +99,17 @@ const rejected = schema === '$rejectedSchema';
 console.log(JSON.stringify(rejected ? { ok: false, code: 'INVALID_ARTIFACT' } : { ok: true }));
 process.exit(rejected ? 1 : 0);
 "@)
+        [System.IO.File]::WriteAllText((Join-Path $rejectingOpsDirectory "prepare_engineering_memory_job.mjs"), @"
+import fs from 'node:fs';
+const value = (name) => process.argv[process.argv.indexOf(name) + 1];
+fs.mkdirSync(requireDirectory(value('--card-record')), { recursive: true });
+fs.writeFileSync(value('--card-record'), '{}');
+fs.writeFileSync(value('--search-record'), '{}');
+console.log(JSON.stringify({ status: 'prepared' }));
+function requireDirectory(file) { return file.slice(0, Math.max(file.lastIndexOf('\\'), file.lastIndexOf('/'))); }
+"@)
+        [System.IO.File]::WriteAllText((Join-Path $rejectingOpsDirectory "engineering_memory_gate.mjs"), "console.log(JSON.stringify({ status: 'passed' }));")
+        [System.IO.File]::WriteAllText((Join-Path $rejectingOpsDirectory "complete_engineering_memory_job.mjs"), "console.log(JSON.stringify({ status: 'completed' }));")
         $clusterTwoPreflightRejected = $false
         try {
             [void](New-AtlasContractsV2Producer -AtlasRoot $rejectingAtlasRoot -LogDirectory (Join-Path -Path $rejectingAtlasRoot -ChildPath "logs") -RunId "reject-$($rejectedSchema -replace '[^a-z0-9]', '-')" -PromptRecord $prompt -RuntimePolicy $runtimePolicy -ExecutionClass "fixture")
@@ -108,22 +137,33 @@ process.exit(rejected ? 1 : 0);
         -ForbiddenPaths @("runtime/**") `
         -VerificationCommands @("git diff --check")
     Assert-Condition -Condition $producer.preflightValidated -Message "All required preflight artifacts must validate before execution."
-    foreach ($artifactName in @("componentManifest", "jobEnvelope", "contextPacket", "approvalRecord", "workerLease")) {
+    foreach ($artifactName in @("componentManifest", "jobEnvelope", "cardRecord", "engineeringMemorySource", "engineeringMemorySearch", "engineeringMemoryMutationGate", "contextPacket", "approvalRecord", "workerLease")) {
         $path = [string]$producer.paths.$artifactName
         Assert-Condition -Condition (Test-Path -LiteralPath $path) -Message "Producer did not write required preflight artifact path: $path"
     }
-    foreach ($validation in @($producer.validation.componentManifest, $producer.validation.jobEnvelope, $producer.validation.contextPacket, $producer.validation.approvalRecord, $producer.validation.workerLease)) {
+    foreach ($validation in @($producer.validation.componentManifest, $producer.validation.jobEnvelope, $producer.validation.cardRecord, $producer.validation.contextPacket, $producer.validation.approvalRecord, $producer.validation.workerLease)) {
         Assert-Condition -Condition $validation.ok -Message "Atlas validator did not accept preflight artifact."
         Assert-Condition -Condition ($validation.cliPath -eq (Join-Path $atlasRoot "packages\atlas-contracts\scripts\validate-artifact.mjs")) -Message "Producer did not invoke the canonical Atlas validator path."
     }
     $workerInstructions = Get-AtlasContractsV2WorkerInstructions -Producer $producer
     Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.componentManifest) -Message "Worker context must expose the exact ComponentManifest path."
     Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.jobEnvelope) -Message "Worker context must expose the exact JobEnvelope path."
+    Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.cardRecord) -Message "Worker context must expose the exact CardRecord path."
+    Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.engineeringMemorySearch) -Message "Worker context must expose exact precedent-search evidence."
+    Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.engineeringMemoryMutationGate) -Message "Worker context must expose the passed mutation-gate receipt."
+    Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.engineeringMemoryCloseout) -Message "Worker context must expose the exact terminal closeout record path."
     Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.contextPacket) -Message "Worker context must expose the exact ContextPacket path."
     Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.approvalRecord) -Message "Worker context must expose the exact ApprovalRecord path."
     Assert-Condition -Condition $workerInstructions.Contains([string]$producer.paths.workerLease) -Message "Worker context must expose the exact active WorkerLease path."
     Assert-Condition -Condition $workerInstructions.Contains("parent runner log") -Message "Worker context must explain the worktree visibility boundary."
     $envelope = Get-Content -LiteralPath $producer.paths.jobEnvelope -Raw | ConvertFrom-Json
+    $cardRecord = Get-Content -LiteralPath $producer.paths.cardRecord -Raw | ConvertFrom-Json
+    $engineeringMemoryGate = Get-Content -LiteralPath $producer.paths.engineeringMemoryMutationGate -Raw | ConvertFrom-Json
+    Assert-Condition -Condition ($null -eq $envelope.PSObject.Properties["workspace"]) -Message "Producer must not depend on an unshipped JobEnvelope workspace field."
+    Assert-Condition -Condition ([string]$envelope.extensions.engineering_memory.contract_version -eq "atlas.engineering-memory-profile.v1") -Message "JobEnvelope must carry the normalized engineering-memory profile."
+    Assert-Condition -Condition ([string]$envelope.correlations.card_id -eq [string]$cardRecord.card_id -and [string]$cardRecord.lifecycle -eq "ready") -Message "JobEnvelope and canonical CardRecord must share one ready task identity."
+    Assert-Condition -Condition ([string]$engineeringMemoryGate.status -eq "passed" -and [string]$engineeringMemoryGate.gate -eq "mutation") -Message "Producer must pass the root-owned mutation gate before worker launch."
+    Assert-Condition -Condition ([bool]$producer.validation.engineeringMemoryMutationGate.ok) -Message "Producer surface must retain the successful mutation-gate invocation."
     foreach ($authorityName in @("push", "deploy", "production", "discord", "board", "data_mutation")) {
         Assert-Condition -Condition ([string]$envelope.extensions.external_authority.$authorityName -eq "denied") -Message "External authority '$authorityName' must default to denied even with full local access."
     }
@@ -134,6 +174,7 @@ process.exit(rejected ? 1 : 0);
     Assert-Condition -Condition ([string]$approvalRecord.job_id -eq [string]$producer.jobId) -Message "ApprovalRecord must correlate to the governed job."
     Assert-Condition -Condition ([string]$approvalRecord.decision -eq "rejected" -and [string]$approvalRecord.action.kind -eq "external-mutation") -Message "ApprovalRecord must honestly reject ungranted external mutation authority."
     $activeLease = Get-Content -LiteralPath $producer.paths.workerLease -Raw | ConvertFrom-Json
+    Assert-Condition -Condition ($null -eq $activeLease.PSObject.Properties["writer_scope"]) -Message "Producer must not depend on an unshipped WorkerLease writer_scope field."
     Assert-Condition -Condition ([string]$activeLease.status -eq "active" -and $null -eq $activeLease.released_at) -Message "Preflight WorkerLease must be active and unreleased."
     Assert-Condition -Condition ([string]$activeLease.job_id -eq [string]$producer.jobId -and [string]$activeLease.component_id -eq [string]$producer.componentId -and [string]$activeLease.owner.worker_id -eq "worker-fixture") -Message "WorkerLease must retain job, component, and worker identity."
     Assert-Condition -Condition ([string]$activeLease.owner.thread_id -eq "thread-producer-fixture" -and [string]$activeLease.owner.turn_id -eq "turn-producer-fixture") -Message "WorkerLease must retain available native thread and turn IDs."
@@ -152,7 +193,29 @@ process.exit(rejected ? 1 : 0);
     Assert-Condition -Condition ($unknownMajor.reasonCode -eq "atlas_contracts_v2_validator_unsupported_contract_version") -Message "Unknown contract major must preserve the stable _stack reason code."
     Assert-Condition -Condition ([string]$unknownMajor.result.code -eq "UNSUPPORTED_CONTRACT_VERSION") -Message "Unknown contract major must retain the Atlas CLI JSON result."
 
+    $fixtureWorktree = Join-Path $temporaryRoot "fixture-worktree"
+    $fixtureArchive = Join-Path $fixtureWorktree "docs\archive\fixture-engineering-memory-closeout.md"
+    New-Item -ItemType Directory -Path (Split-Path -Parent $fixtureArchive) -Force | Out-Null
+    [System.IO.File]::WriteAllText($fixtureArchive, "# Fixture Engineering Memory Closeout`r`n`r`nFinal status: complete`r`n")
+    $requiredVisualSurfaces = @([string]$envelope.extensions.engineering_memory.verification.visual.source_surface) + @($envelope.extensions.engineering_memory.verification.visual.target_surfaces | ForEach-Object { [string]$_ })
+    $closeout = [ordered]@{
+        contract_version = "atlas.engineering-memory-closeout.v1"
+        job_id = $producer.jobId
+        card_id = $envelope.correlations.card_id
+        completed_at = (Get-Date).ToUniversalTime().ToString("o")
+        final_status = "complete"
+        archive_kind = "repository-docs"
+        archive_ref = "docs/archive/fixture-engineering-memory-closeout.md"
+        verification = [ordered]@{ evidence = @([ordered]@{ kind = "screenshot"; ref = "fixture-visual-proof.json"; result = "passed"; surfaces = @($requiredVisualSurfaces) }); unverified = @() }
+        blockers = @()
+        child_task_ids = @()
+    }
+    Write-TextFile -Path $producer.paths.engineeringMemoryCloseout -Content (($closeout | ConvertTo-Json -Depth 16) + "`r`n")
     $verificationRecord = [pscustomobject]@{ command = "git diff --check"; exitCode = 0; stdoutPath = "fixture-verify.stdout.log"; stderrPath = "fixture-verify.stderr.log" }
+    $closeoutResult = Complete-AtlasEngineeringMemoryCloseout -Producer $producer -WorkspacePath $fixtureWorktree -VerificationRecords @($verificationRecord)
+    Assert-Condition -Condition ([string]$closeoutResult.status -eq "completed" -and [string]$producer.validation.engineeringMemoryVerifyGate.status -eq "passed" -and [string]$producer.validation.engineeringMemoryArchiveGate.status -eq "passed") -Message "Terminal closeout must pass verify and archive gates before a successful receipt."
+    $closedCard = Get-Content -LiteralPath $producer.paths.cardRecord -Raw | ConvertFrom-Json
+    Assert-Condition -Condition ([string]$producer.envelope.extensions.engineering_memory.phase -eq "archived" -and [string]$closedCard.lifecycle -eq "archived") -Message "Runner-owned closeout must reconcile the JobEnvelope and CardRecord to archived state."
     $successReceipt = Write-AtlasContractsV2TerminalReceipt -Producer $producer -RunnerStatus "success" -RuntimePolicy $runtimePolicy -VerificationCommands @("git diff --check") -VerificationRecords @($verificationRecord) -Branch "codex/fixture" -Worktree (Join-Path $temporaryRoot "fixture-worktree") -EvidenceRefs @("fixture.log") -LeaseReleaseProven $true -LeaseRecoveryCheckpoint (Join-Path $temporaryRoot "run.json")
     Assert-Condition -Condition $successReceipt.ok -Message "Successful terminal receipt must validate through Atlas CLI."
     $successfulExecutionReceipt = Get-Content -LiteralPath $producer.paths.executionReceipt -Raw | ConvertFrom-Json
@@ -163,7 +226,7 @@ process.exit(rejected ? 1 : 0);
     $successEvidenceBundle = Get-Content -LiteralPath $producer.paths.evidenceBundle -Raw | ConvertFrom-Json
     Assert-Condition -Condition ([string]$successEvidenceBundle.evidence[0].status -eq "passed" -and [string]$successEvidenceBundle.classifications[0] -eq "verified") -Message "Successful terminal EvidenceBundle must derive verified evidence from actual verification records."
     $recoveryDirectory = Join-Path $temporaryRoot "recovery"
-    $recoveryProducer = New-AtlasContractsV2Producer -AtlasRoot $atlasRoot -LogDirectory $recoveryDirectory -RunId "recovery-fixture" -PromptRecord $prompt -RuntimePolicy $runtimePolicy -ExecutionClass "codex:repo:task" -Branch "codex/recovery" -WorkspaceRoot $temporaryRoot -Worktree (Join-Path $temporaryRoot "recovery-worktree") -WorkerId "worker-recovery" -RecoveryCheckpoint (Join-Path $recoveryDirectory "worker.status.running.json")
+    $recoveryProducer = New-AtlasContractsV2Producer -AtlasRoot $atlasRoot -LogDirectory $recoveryDirectory -RunId "recovery-fixture" -PromptRecord $prompt -RuntimePolicy $runtimePolicy -ExecutionClass "codex:repo:task" -Branch "codex/recovery" -WorkspaceRoot $temporaryRoot -Worktree (Join-Path $temporaryRoot "recovery-worktree") -WorkerId "worker-recovery" -RecoveryCheckpoint (Join-Path $recoveryDirectory "worker.status.running.json") -AllowedPaths @("ops/**")
     $failedReceipt = Write-AtlasContractsV2TerminalReceipt -Producer $recoveryProducer -RunnerStatus "codex_failed" -RuntimePolicy $runtimePolicy -VerificationCommands @("git diff --check") -Branch "codex/recovery" -Worktree (Join-Path $temporaryRoot "recovery-worktree") -Reason "fixture failure" -EvidenceRefs @("fixture.log") -LeaseReleaseProven $false -LeaseRecoveryCheckpoint (Join-Path $recoveryDirectory "run.json")
     Assert-Condition -Condition $failedReceipt.ok -Message "Non-success terminal receipt must validate through Atlas CLI."
     Assert-Condition -Condition (Test-Path -LiteralPath $recoveryProducer.paths.executionReceipt) -Message "Producer did not write the required terminal ExecutionReceipt artifact."
@@ -184,7 +247,7 @@ process.exit(rejected ? 1 : 0);
     Assert-Condition -Condition ([string]$receipt.extensions.commit_state.status -eq "not-created" -and [string]$receipt.extensions.prohibited_action_confirmation.push -eq "not-exercised") -Message "Terminal receipt must record commit state and prohibited-action confirmation."
 
     $invalidTerminalDirectory = Join-Path $temporaryRoot "invalid-terminal"
-    $invalidTerminalProducer = New-AtlasContractsV2Producer -AtlasRoot $atlasRoot -LogDirectory $invalidTerminalDirectory -RunId "invalid-terminal" -PromptRecord $prompt -RuntimePolicy $runtimePolicy -ExecutionClass "codex:repo:task" -Branch "codex/invalid-terminal" -WorkspaceRoot $temporaryRoot -Worktree (Join-Path $temporaryRoot "invalid-terminal-worktree") -WorkerId "worker-invalid-terminal"
+    $invalidTerminalProducer = New-AtlasContractsV2Producer -AtlasRoot $atlasRoot -LogDirectory $invalidTerminalDirectory -RunId "invalid-terminal" -PromptRecord $prompt -RuntimePolicy $runtimePolicy -ExecutionClass "codex:repo:task" -Branch "codex/invalid-terminal" -WorkspaceRoot $temporaryRoot -Worktree (Join-Path $temporaryRoot "invalid-terminal-worktree") -WorkerId "worker-invalid-terminal" -AllowedPaths @("ops/**")
     $invalidTerminalProducer.lease.workspace.root = ""
     $invalidTerminalRejected = $false
     try { [void](Complete-AtlasContractsV2WorkerLease -Producer $invalidTerminalProducer -RunnerStatus "success" -ReleaseProven $true -RecoveryCheckpoint (Join-Path $invalidTerminalDirectory "run.json")) }
