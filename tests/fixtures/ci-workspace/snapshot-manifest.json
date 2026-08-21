@@ -129,8 +129,8 @@
     },
     {
       "path": "atlas/packages/atlas-contracts/schemas/atlas.worker-lease.v2.schema.json",
-      "sha256": "435091c9ff5d5f57d119ce040fcff05e644c5e64967f4fa5f19d5274a0222c44",
-      "bytes": 3283
+      "sha256": "42ba91b3e5d700d41ef6e13135c8e98789c93f08a3350eafe3c8b1e48e6ee9a3",
+      "bytes": 3377
     },
     {
       "path": "atlas/packages/atlas-contracts/scripts/lib/validate-json-schema.mjs",

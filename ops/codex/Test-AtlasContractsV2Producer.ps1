@@ -174,7 +174,7 @@ function requireDirectory(file) { return file.slice(0, Math.max(file.lastIndexOf
     Assert-Condition -Condition ([string]$approvalRecord.job_id -eq [string]$producer.jobId) -Message "ApprovalRecord must correlate to the governed job."
     Assert-Condition -Condition ([string]$approvalRecord.decision -eq "rejected" -and [string]$approvalRecord.action.kind -eq "external-mutation") -Message "ApprovalRecord must honestly reject ungranted external mutation authority."
     $activeLease = Get-Content -LiteralPath $producer.paths.workerLease -Raw | ConvertFrom-Json
-    Assert-Condition -Condition ($null -eq $activeLease.PSObject.Properties["writer_scope"]) -Message "Producer must not depend on an unshipped WorkerLease writer_scope field."
+    Assert-Condition -Condition ([string]$activeLease.writer_scope -eq "repo.atlas") -Message "Producer must bind the exact owner repository into WorkerLease writer_scope."
     Assert-Condition -Condition ([string]$activeLease.status -eq "active" -and $null -eq $activeLease.released_at) -Message "Preflight WorkerLease must be active and unreleased."
     Assert-Condition -Condition ([string]$activeLease.job_id -eq [string]$producer.jobId -and [string]$activeLease.component_id -eq [string]$producer.componentId -and [string]$activeLease.owner.worker_id -eq "worker-fixture") -Message "WorkerLease must retain job, component, and worker identity."
     Assert-Condition -Condition ([string]$activeLease.owner.thread_id -eq "thread-producer-fixture" -and [string]$activeLease.owner.turn_id -eq "turn-producer-fixture") -Message "WorkerLease must retain available native thread and turn IDs."

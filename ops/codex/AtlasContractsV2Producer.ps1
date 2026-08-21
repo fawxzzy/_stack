@@ -538,6 +538,7 @@ function New-AtlasContractsV2Producer {
         lease_id = $leaseId
         job_id = $jobId
         component_id = "stack"
+        writer_scope = "repo.$OwnerRepository"
         status = "active"
         acquired_at = $acquiredAt
         expires_at = $null
