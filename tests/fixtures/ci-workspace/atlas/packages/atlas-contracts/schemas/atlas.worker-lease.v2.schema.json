@@ -9,6 +9,7 @@
     "lease_id",
     "job_id",
     "component_id",
+    "writer_scope",
     "status",
     "acquired_at",
     "expires_at",
@@ -31,6 +32,10 @@
       "minLength": 1
     },
     "component_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "writer_scope": {
       "type": "string",
       "minLength": 1
     },
