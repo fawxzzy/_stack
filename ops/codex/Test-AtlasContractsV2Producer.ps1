@@ -1,3 +1,7 @@
+param(
+    [string]$AtlasRootOverride = $env:ATLAS_CONTRACTS_V2_TEST_ATLAS_ROOT
+)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -9,12 +13,17 @@ function Assert-Condition {
     if (-not $Condition) { throw $Message }
 }
 
-$repoRoot = (Resolve-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "..\..")).Path
-$gitCommonDirectory = (& git -C $repoRoot rev-parse --git-common-dir).Trim()
-if ($LASTEXITCODE -ne 0) { throw "Unable to resolve the _stack Git common directory for Atlas Contracts v2 tests." }
-if (-not [System.IO.Path]::IsPathRooted($gitCommonDirectory)) { $gitCommonDirectory = Join-Path $repoRoot $gitCommonDirectory }
-$logicalStackRoot = Split-Path -Parent ([System.IO.Path]::GetFullPath($gitCommonDirectory))
-$atlasRoot = (Resolve-Path -LiteralPath (Join-Path -Path $logicalStackRoot -ChildPath "..\..")).Path
+if (-not [string]::IsNullOrWhiteSpace($AtlasRootOverride)) {
+    $atlasRoot = (Resolve-Path -LiteralPath $AtlasRootOverride).Path
+}
+else {
+    $repoRoot = (Resolve-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath "..\..")).Path
+    $gitCommonDirectory = (& git -C $repoRoot rev-parse --git-common-dir).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "Unable to resolve the _stack Git common directory for Atlas Contracts v2 tests." }
+    if (-not [System.IO.Path]::IsPathRooted($gitCommonDirectory)) { $gitCommonDirectory = Join-Path $repoRoot $gitCommonDirectory }
+    $logicalStackRoot = Split-Path -Parent ([System.IO.Path]::GetFullPath($gitCommonDirectory))
+    $atlasRoot = (Resolve-Path -LiteralPath (Join-Path -Path $logicalStackRoot -ChildPath "..\..")).Path
+}
 $temporaryRoot = Join-Path -Path $atlasRoot -ChildPath ("tmp\tests\atlas-contracts-v2-producer-{0}" -f [guid]::NewGuid().ToString("N"))
 $previousThreadId = $env:CODEX_THREAD_ID
 $previousTurnId = $env:CODEX_TURN_ID
@@ -150,6 +159,7 @@ function requireDirectory(file) { return file.slice(0, Math.max(file.lastIndexOf
     $envelope = Get-Content -LiteralPath $producer.paths.jobEnvelope -Raw | ConvertFrom-Json
     $cardRecord = Get-Content -LiteralPath $producer.paths.cardRecord -Raw | ConvertFrom-Json
     $engineeringMemoryGate = Get-Content -LiteralPath $producer.paths.engineeringMemoryMutationGate -Raw | ConvertFrom-Json
+    Assert-Condition -Condition ($null -eq $envelope.PSObject.Properties["workspace"]) -Message "Producer must not depend on an unshipped JobEnvelope workspace field."
     Assert-Condition -Condition ([string]$envelope.extensions.engineering_memory.contract_version -eq "atlas.engineering-memory-profile.v1") -Message "JobEnvelope must carry the normalized engineering-memory profile."
     Assert-Condition -Condition ([string]$envelope.correlations.card_id -eq [string]$cardRecord.card_id -and [string]$cardRecord.lifecycle -eq "ready") -Message "JobEnvelope and canonical CardRecord must share one ready task identity."
     Assert-Condition -Condition ([string]$engineeringMemoryGate.status -eq "passed" -and [string]$engineeringMemoryGate.gate -eq "mutation") -Message "Producer must pass the root-owned mutation gate before worker launch."
@@ -164,6 +174,7 @@ function requireDirectory(file) { return file.slice(0, Math.max(file.lastIndexOf
     Assert-Condition -Condition ([string]$approvalRecord.job_id -eq [string]$producer.jobId) -Message "ApprovalRecord must correlate to the governed job."
     Assert-Condition -Condition ([string]$approvalRecord.decision -eq "rejected" -and [string]$approvalRecord.action.kind -eq "external-mutation") -Message "ApprovalRecord must honestly reject ungranted external mutation authority."
     $activeLease = Get-Content -LiteralPath $producer.paths.workerLease -Raw | ConvertFrom-Json
+    Assert-Condition -Condition ($null -eq $activeLease.PSObject.Properties["writer_scope"]) -Message "Producer must not depend on an unshipped WorkerLease writer_scope field."
     Assert-Condition -Condition ([string]$activeLease.status -eq "active" -and $null -eq $activeLease.released_at) -Message "Preflight WorkerLease must be active and unreleased."
     Assert-Condition -Condition ([string]$activeLease.job_id -eq [string]$producer.jobId -and [string]$activeLease.component_id -eq [string]$producer.componentId -and [string]$activeLease.owner.worker_id -eq "worker-fixture") -Message "WorkerLease must retain job, component, and worker identity."
     Assert-Condition -Condition ([string]$activeLease.owner.thread_id -eq "thread-producer-fixture" -and [string]$activeLease.owner.turn_id -eq "turn-producer-fixture") -Message "WorkerLease must retain available native thread and turn IDs."

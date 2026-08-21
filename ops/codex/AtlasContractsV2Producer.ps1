@@ -450,11 +450,6 @@ function New-AtlasContractsV2Producer {
         project_id = $ProjectId
         created_at = (Get-Date).ToUniversalTime().ToString("o")
         objective = [string](Get-ObjectPropertyValue -Object $PromptRecord -Name "Title" -DefaultValue "Governed Atlas task")
-        workspace = [ordered]@{
-            mode = if ($CanonicalWorkspace.IsPresent) { "canonical-workspace" } else { "isolated-worktree" }
-            base_ref = if (-not [string]::IsNullOrWhiteSpace($BaseRef)) { $BaseRef } elseif ($CanonicalWorkspace.IsPresent) { $null } else { "HEAD" }
-            path = if ($CanonicalWorkspace.IsPresent) { $WorkspaceRoot } else { $Worktree }
-        }
         scope = [ordered]@{ owner_repository = $OwnerRepository; allowed_paths = @($AllowedPaths); forbidden_paths = @($ForbiddenPaths) }
         runtime = $runtime
         authority = [ordered]@{ external_mutations = @(); production_deploy = $false; destructive_actions = $false }
@@ -543,7 +538,6 @@ function New-AtlasContractsV2Producer {
         lease_id = $leaseId
         job_id = $jobId
         component_id = "stack"
-        writer_scope = "repo.$OwnerRepository"
         status = "active"
         acquired_at = $acquiredAt
         expires_at = $null
