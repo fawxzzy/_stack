@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas://packages/contracts/atlas.engineering-memory-runner-verification.v1.schema.json",
+  "title": "ATLAS engineering memory runner verification v1",
+  "description": "Runner-owned verification evidence merged into terminal Engineering Memory state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "job_id", "recorded_at", "records", "no_change_proof_ref"],
+  "properties": {
+    "contract_version": {"type": "string", "const": "atlas.engineering-memory-runner-verification.v1"},
+    "job_id": {"type": "string", "minLength": 1},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "exit_code", "stdout_ref", "stderr_ref"],
+        "properties": {
+          "command": {"type": "string", "minLength": 1},
+          "exit_code": {"type": "integer"},
+          "stdout_ref": {"type": ["string", "null"], "minLength": 1},
+          "stderr_ref": {"type": ["string", "null"], "minLength": 1}
+        }
+      }
+    },
+    "no_change_proof_ref": {"type": ["string", "null"], "minLength": 1}
+  }
+}

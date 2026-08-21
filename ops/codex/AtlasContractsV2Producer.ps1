@@ -5,6 +5,14 @@ Set-StrictMode -Version Latest
 $script:AtlasContractsV2ArtifactNames = [ordered]@{
     componentManifest = "atlas.component-manifest.v2.json"
     jobEnvelope = "atlas.job-envelope.v2.json"
+    cardRecord = "atlas.card-record.v2.json"
+    engineeringMemorySource = "atlas.engineering-memory.source.md"
+    engineeringMemorySearch = "atlas.engineering-memory.precedent-search.json"
+    engineeringMemoryMutationGate = "atlas.engineering-memory.mutation-gate.json"
+    engineeringMemoryCloseout = "atlas.engineering-memory.closeout.v1.json"
+    engineeringMemoryRunnerVerification = "atlas.engineering-memory.runner-verification.v1.json"
+    engineeringMemoryVerifyGate = "atlas.engineering-memory.verify-gate.json"
+    engineeringMemoryArchiveGate = "atlas.engineering-memory.archive-gate.json"
     contextPacket = "atlas.context-packet.v2.json"
     approvalRecord = "atlas.approval-record.v2.json"
     workerLease = "atlas.worker-lease.v2.json"
@@ -18,17 +26,32 @@ function Get-AtlasContractsV2ContractPaths {
     $resolvedAtlasRoot = (Resolve-Path -LiteralPath $AtlasRoot -ErrorAction Stop).Path
     $packageRoot = Join-Path -Path $resolvedAtlasRoot -ChildPath "packages\atlas-contracts"
     $validatorPath = Join-Path -Path $packageRoot -ChildPath "scripts\validate-artifact.mjs"
+    $engineeringMemoryPreparerPath = Join-Path -Path $resolvedAtlasRoot -ChildPath "ops\atlas\prepare_engineering_memory_job.mjs"
+    $engineeringMemoryGatePath = Join-Path -Path $resolvedAtlasRoot -ChildPath "ops\atlas\engineering_memory_gate.mjs"
+    $engineeringMemoryCompleterPath = Join-Path -Path $resolvedAtlasRoot -ChildPath "ops\atlas\complete_engineering_memory_job.mjs"
     if (-not (Test-Path -LiteralPath $packageRoot -PathType Container)) {
         throw "atlas_contracts_v2_package_unavailable"
     }
     if (-not (Test-Path -LiteralPath $validatorPath -PathType Leaf)) {
         throw "atlas_contracts_v2_validator_unavailable"
     }
+    if (-not (Test-Path -LiteralPath $engineeringMemoryPreparerPath -PathType Leaf)) {
+        throw "atlas_engineering_memory_preparer_unavailable"
+    }
+    if (-not (Test-Path -LiteralPath $engineeringMemoryGatePath -PathType Leaf)) {
+        throw "atlas_engineering_memory_gate_unavailable"
+    }
+    if (-not (Test-Path -LiteralPath $engineeringMemoryCompleterPath -PathType Leaf)) {
+        throw "atlas_engineering_memory_completer_unavailable"
+    }
 
     return [pscustomobject]@{
         atlasRoot = $resolvedAtlasRoot
         packageRoot = $packageRoot
         validatorPath = $validatorPath
+        engineeringMemoryPreparerPath = $engineeringMemoryPreparerPath
+        engineeringMemoryGatePath = $engineeringMemoryGatePath
+        engineeringMemoryCompleterPath = $engineeringMemoryCompleterPath
     }
 }
 
@@ -109,6 +132,189 @@ function Assert-AtlasContractsV2Validation {
     if (-not [bool]$Validation.ok) { throw ([string]$Validation.reasonCode) }
 }
 
+function Invoke-AtlasEngineeringMemoryPreparation {
+    param(
+        [Parameter(Mandatory = $true)]$Contracts,
+        [Parameter(Mandatory = $true)][string]$JobEnvelopePath,
+        [Parameter(Mandatory = $true)][string]$SourceTextPath,
+        [Parameter(Mandatory = $true)][string]$CardRecordPath,
+        [Parameter(Mandatory = $true)][string]$SearchRecordPath,
+        [Parameter(Mandatory = $true)][string]$WorkspaceRoot
+    )
+
+    $processResult = Invoke-ProcessCapture `
+        -FilePath "node" `
+        -ArgumentList @(
+            $Contracts.engineeringMemoryPreparerPath,
+            "--job-envelope", $JobEnvelopePath,
+            "--source-text-file", $SourceTextPath,
+            "--card-record", $CardRecordPath,
+            "--search-record", $SearchRecordPath,
+            "--workspace-root", $WorkspaceRoot
+        ) `
+        -WorkingDirectory $Contracts.atlasRoot
+    $result = $null
+    if (-not [string]::IsNullOrWhiteSpace([string]$processResult.StdOut)) {
+        try { $result = $processResult.StdOut | ConvertFrom-Json -ErrorAction Stop }
+        catch { }
+    }
+    if ($processResult.ExitCode -ne 0 -or $null -eq $result -or [string]$result.status -ne "prepared") {
+        throw "atlas_engineering_memory_preparation_failed"
+    }
+    return $result
+}
+
+function Invoke-AtlasEngineeringMemoryMutationGate {
+    param(
+        [Parameter(Mandatory = $true)]$Contracts,
+        [Parameter(Mandatory = $true)][string]$JobEnvelopePath,
+        [Parameter(Mandatory = $true)][string]$CardRecordPath,
+        [Parameter(Mandatory = $true)][string]$ReceiptPath
+    )
+
+    $processResult = Invoke-ProcessCapture `
+        -FilePath "node" `
+        -ArgumentList @($Contracts.engineeringMemoryGatePath, "--job-envelope", $JobEnvelopePath, "--card-record", $CardRecordPath, "--gate", "mutation") `
+        -WorkingDirectory $Contracts.atlasRoot
+    $receipt = $null
+    $parseError = $null
+    if (-not [string]::IsNullOrWhiteSpace([string]$processResult.StdOut)) {
+        try { $receipt = $processResult.StdOut | ConvertFrom-Json -ErrorAction Stop }
+        catch { $parseError = $_.Exception.Message }
+    }
+    if ($null -ne $receipt) { Write-TextFile -Path $ReceiptPath -Content (($receipt | ConvertTo-Json -Depth 12) + "`r`n") }
+    $record = [pscustomobject]@{
+        invoked = $true
+        cliPath = $Contracts.engineeringMemoryGatePath
+        gate = "mutation"
+        jobEnvelopePath = $JobEnvelopePath
+        cardRecordPath = $CardRecordPath
+        receiptPath = $ReceiptPath
+        exitCode = [int]$processResult.ExitCode
+        result = $receipt
+        stderr = [string]$processResult.StdErr
+        parseError = $parseError
+        ok = $processResult.ExitCode -eq 0 -and $null -ne $receipt -and [string]$receipt.status -eq "passed"
+        reasonCode = $null
+    }
+    if (-not $record.ok) {
+        $record.reasonCode = "atlas_engineering_memory_mutation_gate_failed"
+        throw ([string]$record.reasonCode)
+    }
+    return $record
+}
+
+function ConvertTo-AtlasRootRelativePath {
+    param(
+        [Parameter(Mandatory = $true)][string]$AtlasRoot,
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    $resolvedRoot = [System.IO.Path]::GetFullPath($AtlasRoot).TrimEnd([char[]]@('\', '/'))
+    $resolvedPath = [System.IO.Path]::GetFullPath($Path)
+    $rootPrefix = $resolvedRoot + [System.IO.Path]::DirectorySeparatorChar
+    if (-not $resolvedPath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "atlas_engineering_memory_evidence_outside_atlas_root"
+    }
+    return $resolvedPath.Substring($rootPrefix.Length).Replace('\', '/')
+}
+
+function Complete-AtlasEngineeringMemoryCloseout {
+    param(
+        [Parameter(Mandatory = $true)]$Producer,
+        [Parameter(Mandatory = $true)][string]$WorkspacePath,
+        $VerificationRecords = @(),
+        [switch]$NoChange,
+        [string]$NoChangeProofRef
+    )
+
+    if (-not (Test-Path -LiteralPath $WorkspacePath -PathType Container)) {
+        throw "atlas_engineering_memory_closeout_workspace_missing"
+    }
+    if ($NoChange.IsPresent) {
+        $runtimeArchiveRef = ConvertTo-AtlasRootRelativePath -AtlasRoot $Producer.contracts.atlasRoot -Path $Producer.paths.engineeringMemoryCloseout
+        $closeout = [ordered]@{
+            contract_version = "atlas.engineering-memory-closeout.v1"
+            job_id = $Producer.jobId
+            card_id = $Producer.envelope.correlations.card_id
+            completed_at = (Get-Date).ToUniversalTime().ToString("o")
+            final_status = "complete"
+            archive_kind = "no-change-runtime"
+            archive_ref = $runtimeArchiveRef
+            verification = [ordered]@{ evidence = @(); unverified = @() }
+            blockers = @()
+            child_task_ids = @()
+        }
+        Write-TextFile -Path $Producer.paths.engineeringMemoryCloseout -Content (($closeout | ConvertTo-Json -Depth 16) + "`r`n")
+    }
+    elseif (-not (Test-Path -LiteralPath $Producer.paths.engineeringMemoryCloseout -PathType Leaf)) {
+        throw "atlas_engineering_memory_closeout_record_missing"
+    }
+
+    $runnerRecords = @($VerificationRecords | ForEach-Object {
+        [ordered]@{
+            command = [string]$_.command
+            exit_code = [int]$_.exitCode
+            stdout_ref = if ([string]::IsNullOrWhiteSpace([string]$_.stdoutPath)) { $null } else { [string]$_.stdoutPath }
+            stderr_ref = if ([string]::IsNullOrWhiteSpace([string]$_.stderrPath)) { $null } else { [string]$_.stderrPath }
+        }
+    })
+    $noChangeProofRelative = $null
+    if (-not [string]::IsNullOrWhiteSpace($NoChangeProofRef)) {
+        $noChangeProofRelative = ConvertTo-AtlasRootRelativePath -AtlasRoot $Producer.contracts.atlasRoot -Path $NoChangeProofRef
+    }
+    $runnerVerification = [ordered]@{
+        contract_version = "atlas.engineering-memory-runner-verification.v1"
+        job_id = $Producer.jobId
+        recorded_at = (Get-Date).ToUniversalTime().ToString("o")
+        records = @($runnerRecords)
+        no_change_proof_ref = $noChangeProofRelative
+    }
+    Write-TextFile -Path $Producer.paths.engineeringMemoryRunnerVerification -Content (($runnerVerification | ConvertTo-Json -Depth 16) + "`r`n")
+
+    $closeoutValidation = Invoke-AtlasContractsV2Validation -Contracts $Producer.contracts -SchemaId "atlas.engineering-memory-closeout.v1" -ArtifactPath $Producer.paths.engineeringMemoryCloseout -EvidencePath $Producer.validationPaths.engineeringMemoryCloseout
+    Assert-AtlasContractsV2Validation -Validation $closeoutValidation
+    $runnerVerificationValidation = Invoke-AtlasContractsV2Validation -Contracts $Producer.contracts -SchemaId "atlas.engineering-memory-runner-verification.v1" -ArtifactPath $Producer.paths.engineeringMemoryRunnerVerification -EvidencePath $Producer.validationPaths.engineeringMemoryRunnerVerification
+    Assert-AtlasContractsV2Validation -Validation $runnerVerificationValidation
+
+    $processResult = Invoke-ProcessCapture `
+        -FilePath "node" `
+        -ArgumentList @(
+            $Producer.contracts.engineeringMemoryCompleterPath,
+            "--job-envelope", $Producer.paths.jobEnvelope,
+            "--card-record", $Producer.paths.cardRecord,
+            "--closeout-record", $Producer.paths.engineeringMemoryCloseout,
+            "--runner-verification", $Producer.paths.engineeringMemoryRunnerVerification,
+            "--workspace-root", $WorkspacePath,
+            "--verify-receipt", $Producer.paths.engineeringMemoryVerifyGate,
+            "--archive-receipt", $Producer.paths.engineeringMemoryArchiveGate
+        ) `
+        -WorkingDirectory $Producer.contracts.atlasRoot
+    $result = $null
+    $parseError = $null
+    if (-not [string]::IsNullOrWhiteSpace([string]$processResult.StdOut)) {
+        try { $result = $processResult.StdOut | ConvertFrom-Json -ErrorAction Stop }
+        catch { $parseError = $_.Exception.Message }
+    }
+    if ($processResult.ExitCode -ne 0 -or $null -eq $result -or [string]$result.status -ne "completed") {
+        throw "atlas_engineering_memory_terminal_gate_failed"
+    }
+
+    $Producer.envelope = Get-Content -LiteralPath $Producer.paths.jobEnvelope -Raw | ConvertFrom-Json -ErrorAction Stop
+    $jobValidation = Invoke-AtlasContractsV2Validation -Contracts $Producer.contracts -SchemaId "atlas.job-envelope.v2" -ArtifactPath $Producer.paths.jobEnvelope -EvidencePath $Producer.validationPaths.jobEnvelopeTerminal
+    Assert-AtlasContractsV2Validation -Validation $jobValidation
+    $cardValidation = Invoke-AtlasContractsV2Validation -Contracts $Producer.contracts -SchemaId "atlas.card-record.v2" -ArtifactPath $Producer.paths.cardRecord -EvidencePath $Producer.validationPaths.cardRecordTerminal
+    Assert-AtlasContractsV2Validation -Validation $cardValidation
+    $Producer.validation.engineeringMemoryCloseout = $closeoutValidation
+    $Producer.validation.engineeringMemoryRunnerVerification = $runnerVerificationValidation
+    $Producer.validation.jobEnvelopeTerminal = $jobValidation
+    $Producer.validation.cardRecordTerminal = $cardValidation
+    $Producer.validation.engineeringMemoryVerifyGate = Get-Content -LiteralPath $Producer.paths.engineeringMemoryVerifyGate -Raw | ConvertFrom-Json -ErrorAction Stop
+    $Producer.validation.engineeringMemoryArchiveGate = Get-Content -LiteralPath $Producer.paths.engineeringMemoryArchiveGate -Raw | ConvertFrom-Json -ErrorAction Stop
+    $Producer.engineeringMemoryCloseout = $result
+    return $result
+}
+
 function Get-AtlasContractsV2ArtifactDigest {
     param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -131,6 +337,14 @@ function Get-AtlasContractsV2Surface {
         validation = [ordered]@{
             componentManifest = $Producer.validation.componentManifest
             jobEnvelope = $Producer.validation.jobEnvelope
+            cardRecord = $Producer.validation.cardRecord
+            engineeringMemoryMutationGate = $Producer.validation.engineeringMemoryMutationGate
+            engineeringMemoryCloseout = $Producer.validation.engineeringMemoryCloseout
+            engineeringMemoryRunnerVerification = $Producer.validation.engineeringMemoryRunnerVerification
+            engineeringMemoryVerifyGate = $Producer.validation.engineeringMemoryVerifyGate
+            engineeringMemoryArchiveGate = $Producer.validation.engineeringMemoryArchiveGate
+            jobEnvelopeTerminal = $Producer.validation.jobEnvelopeTerminal
+            cardRecordTerminal = $Producer.validation.cardRecordTerminal
             contextPacket = $Producer.validation.contextPacket
             approvalRecord = $Producer.validation.approvalRecord
             workerLease = $Producer.validation.workerLease
@@ -178,6 +392,7 @@ function New-AtlasContractsV2Producer {
         [string[]]$ForbiddenPaths = @(),
         [string[]]$VerificationCommands = @(),
         [string]$ProjectId = "atlas",
+        [string]$OwnerRepository,
         $CardId = $null,
         $ParentJobId = $null
     )
@@ -190,6 +405,8 @@ function New-AtlasContractsV2Producer {
         $validationPaths[$key] = "$($paths[$key]).validation.json"
     }
     $validationPaths.workerLeaseTerminal = "$($paths.workerLease).terminal.validation.json"
+    $validationPaths.jobEnvelopeTerminal = "$($paths.jobEnvelope).terminal.validation.json"
+    $validationPaths.cardRecordTerminal = "$($paths.cardRecord).terminal.validation.json"
     $runtime = ConvertTo-AtlasContractsV2Runtime -RuntimePolicy $RuntimePolicy
     $jobId = "atlas-stack-{0}" -f $RunId
     $leaseId = "atlas-stack-lease-{0}" -f $RunId
@@ -197,6 +414,7 @@ function New-AtlasContractsV2Producer {
     if ([string]::IsNullOrWhiteSpace($WorkspaceRoot)) {
         $WorkspaceRoot = if (-not [string]::IsNullOrWhiteSpace($Worktree)) { $Worktree } else { $contracts.atlasRoot }
     }
+    if ([string]::IsNullOrWhiteSpace($OwnerRepository)) { $OwnerRepository = $ProjectId }
     $threadId = if ([string]::IsNullOrWhiteSpace($env:CODEX_THREAD_ID)) { $null } else { [string]$env:CODEX_THREAD_ID }
     $turnId = if ([string]::IsNullOrWhiteSpace($env:CODEX_TURN_ID)) { $null } else { [string]$env:CODEX_TURN_ID }
     $acquiredAt = (Get-Date).ToUniversalTime().ToString("o")
@@ -232,7 +450,12 @@ function New-AtlasContractsV2Producer {
         project_id = $ProjectId
         created_at = (Get-Date).ToUniversalTime().ToString("o")
         objective = [string](Get-ObjectPropertyValue -Object $PromptRecord -Name "Title" -DefaultValue "Governed Atlas task")
-        scope = [ordered]@{ owner_repository = "stack"; allowed_paths = @($AllowedPaths); forbidden_paths = @($ForbiddenPaths) }
+        workspace = [ordered]@{
+            mode = if ($CanonicalWorkspace.IsPresent) { "canonical-workspace" } else { "isolated-worktree" }
+            base_ref = if (-not [string]::IsNullOrWhiteSpace($BaseRef)) { $BaseRef } elseif ($CanonicalWorkspace.IsPresent) { $null } else { "HEAD" }
+            path = if ($CanonicalWorkspace.IsPresent) { $WorkspaceRoot } else { $Worktree }
+        }
+        scope = [ordered]@{ owner_repository = $OwnerRepository; allowed_paths = @($AllowedPaths); forbidden_paths = @($ForbiddenPaths) }
         runtime = $runtime
         authority = [ordered]@{ external_mutations = @(); production_deploy = $false; destructive_actions = $false }
         verification = [ordered]@{ commands = @($VerificationCommands); evidence_required = @("runner-log", "terminal-receipt") }
@@ -248,6 +471,14 @@ function New-AtlasContractsV2Producer {
             native_thread_id = $env:CODEX_THREAD_ID
             native_turn_id = $env:CODEX_TURN_ID
             local_capability = $runtime.permissions
+            engineering_memory_intake = [ordered]@{
+                query_terms = @((Get-ObjectPropertyValue -Object $PromptRecord -Name "QueryTerms" -DefaultValue @()))
+                acceptance_criteria = @((Get-ObjectPropertyValue -Object $PromptRecord -Name "AcceptanceCriteria" -DefaultValue @()) | ForEach-Object { [string](Get-ObjectPropertyValue -Object $_ -Name "text" -DefaultValue $_) })
+                owner = $OwnerRepository
+                priority = "medium"
+                board_id = $ProjectId
+                board_version = 0
+            }
             inbox = [ordered]@{
                 sweep_id = if ([string]::IsNullOrWhiteSpace($env:ATLAS_INBOX_SWEEP_ID)) { $null } else { [string]$env:ATLAS_INBOX_SWEEP_ID }
                 correlation_id = if ([string]::IsNullOrWhiteSpace($env:ATLAS_INBOX_SWEEP_CORRELATION_ID)) { $null } else { [string]$env:ATLAS_INBOX_SWEEP_CORRELATION_ID }
@@ -268,16 +499,21 @@ function New-AtlasContractsV2Producer {
             [ordered]@{ kind = "repository"; ref = "AGENTS.md"; authority = "authoritative"; digest = $null },
             [ordered]@{ kind = "receipt"; ref = $paths.componentManifest; authority = "authoritative"; digest = $null },
             [ordered]@{ kind = "receipt"; ref = $paths.jobEnvelope; authority = "authoritative"; digest = $null },
+            [ordered]@{ kind = "receipt"; ref = $paths.cardRecord; authority = "authoritative"; digest = $null },
+            [ordered]@{ kind = "receipt"; ref = $paths.engineeringMemorySearch; authority = "authoritative"; digest = $null },
+            [ordered]@{ kind = "receipt"; ref = $paths.engineeringMemoryMutationGate; authority = "authoritative"; digest = $null },
             [ordered]@{ kind = "receipt"; ref = $paths.workerLease; authority = "authoritative"; digest = $null },
             [ordered]@{ kind = "decision"; ref = "runtime-policy"; authority = "advisory"; digest = $null }
         )
         rules = @(
             "Admit changes only within the governed allowed paths.",
+            "Inspect the bound engineering-memory precedents before source mutation.",
             "Preserve forbidden paths and do not expose secrets.",
             "Do not stage, commit, move Git refs, push, deploy, or mutate external systems."
         )
         decisions = @(
             "Atlas root owns schema validation through the canonical validator.",
+            "The root-owned engineering-memory gate passed before worker launch.",
             "Local full access is capability only and does not grant external authority."
         )
         risks = @(
@@ -307,6 +543,7 @@ function New-AtlasContractsV2Producer {
         lease_id = $leaseId
         job_id = $jobId
         component_id = "stack"
+        writer_scope = "repo.$OwnerRepository"
         status = "active"
         acquired_at = $acquiredAt
         expires_at = $null
@@ -323,8 +560,25 @@ function New-AtlasContractsV2Producer {
             external_authority = "denied"
         }
     }
+    $engineeringMemorySourceText = [string](Get-ObjectPropertyValue -Object $PromptRecord -Name "RawContent" -DefaultValue "")
+    if ([string]::IsNullOrWhiteSpace($engineeringMemorySourceText)) {
+        $engineeringMemorySourceText = [string](Get-ObjectPropertyValue -Object $PromptRecord -Name "Body" -DefaultValue "")
+    }
+    if ([string]::IsNullOrWhiteSpace($engineeringMemorySourceText)) {
+        $engineeringMemorySourceText = [string](Get-ObjectPropertyValue -Object $PromptRecord -Name "Title" -DefaultValue "Governed Atlas task")
+    }
     Write-TextFile -Path $paths.componentManifest -Content (($component | ConvertTo-Json -Depth 16) + "`r`n")
+    Write-TextFile -Path $paths.engineeringMemorySource -Content ($engineeringMemorySourceText.Trim() + "`r`n")
     Write-TextFile -Path $paths.jobEnvelope -Content (($envelope | ConvertTo-Json -Depth 16) + "`r`n")
+    $engineeringMemoryWorkspace = if (-not [string]::IsNullOrWhiteSpace($Worktree)) { $Worktree } else { $WorkspaceRoot }
+    $engineeringMemoryPreparation = Invoke-AtlasEngineeringMemoryPreparation `
+        -Contracts $contracts `
+        -JobEnvelopePath $paths.jobEnvelope `
+        -SourceTextPath $paths.engineeringMemorySource `
+        -CardRecordPath $paths.cardRecord `
+        -SearchRecordPath $paths.engineeringMemorySearch `
+        -WorkspaceRoot $engineeringMemoryWorkspace
+    $envelope = Get-Content -LiteralPath $paths.jobEnvelope -Raw | ConvertFrom-Json -ErrorAction Stop
     Write-TextFile -Path $paths.contextPacket -Content (($contextPacket | ConvertTo-Json -Depth 16) + "`r`n")
     Write-TextFile -Path $paths.approvalRecord -Content (($approvalRecord | ConvertTo-Json -Depth 16) + "`r`n")
     Write-TextFile -Path $paths.workerLease -Content (($workerLease | ConvertTo-Json -Depth 16) + "`r`n")
@@ -332,18 +586,25 @@ function New-AtlasContractsV2Producer {
     Assert-AtlasContractsV2Validation -Validation $componentValidation
     $jobValidation = Invoke-AtlasContractsV2Validation -Contracts $contracts -SchemaId "atlas.job-envelope.v2" -ArtifactPath $paths.jobEnvelope -EvidencePath $validationPaths.jobEnvelope
     Assert-AtlasContractsV2Validation -Validation $jobValidation
+    $cardValidation = Invoke-AtlasContractsV2Validation -Contracts $contracts -SchemaId "atlas.card-record.v2" -ArtifactPath $paths.cardRecord -EvidencePath $validationPaths.cardRecord
+    Assert-AtlasContractsV2Validation -Validation $cardValidation
     $contextValidation = Invoke-AtlasContractsV2Validation -Contracts $contracts -SchemaId "atlas.context-packet.v2" -ArtifactPath $paths.contextPacket -EvidencePath $validationPaths.contextPacket
     Assert-AtlasContractsV2Validation -Validation $contextValidation
     $approvalValidation = Invoke-AtlasContractsV2Validation -Contracts $contracts -SchemaId "atlas.approval-record.v2" -ArtifactPath $paths.approvalRecord -EvidencePath $validationPaths.approvalRecord
     Assert-AtlasContractsV2Validation -Validation $approvalValidation
     $workerLeaseValidation = Invoke-AtlasContractsV2Validation -Contracts $contracts -SchemaId "atlas.worker-lease.v2" -ArtifactPath $paths.workerLease -EvidencePath $validationPaths.workerLease
     if (-not [bool]$workerLeaseValidation.ok) { throw "atlas_contracts_v2_worker_lease_preflight_invalid" }
+    $engineeringMemoryMutationGate = Invoke-AtlasEngineeringMemoryMutationGate `
+        -Contracts $contracts `
+        -JobEnvelopePath $paths.jobEnvelope `
+        -CardRecordPath $paths.cardRecord `
+        -ReceiptPath $paths.engineeringMemoryMutationGate
 
     return [pscustomobject]@{
         contracts = $contracts
         paths = $paths
         validationPaths = $validationPaths
-        validation = [ordered]@{ componentManifest = $componentValidation; jobEnvelope = $jobValidation; contextPacket = $contextValidation; approvalRecord = $approvalValidation; workerLease = $workerLeaseValidation; workerLeaseTerminal = $null; evidenceBundle = $null }
+        validation = [ordered]@{ componentManifest = $componentValidation; jobEnvelope = $jobValidation; cardRecord = $cardValidation; engineeringMemoryMutationGate = $engineeringMemoryMutationGate; engineeringMemoryCloseout = $null; engineeringMemoryRunnerVerification = $null; engineeringMemoryVerifyGate = $null; engineeringMemoryArchiveGate = $null; jobEnvelopeTerminal = $null; cardRecordTerminal = $null; contextPacket = $contextValidation; approvalRecord = $approvalValidation; workerLease = $workerLeaseValidation; workerLeaseTerminal = $null; evidenceBundle = $null }
         componentId = "stack"
         jobId = $jobId
         runId = $RunId
@@ -353,6 +614,8 @@ function New-AtlasContractsV2Producer {
         lease = $workerLease
         leaseDigest = $null
         envelope = $envelope
+        engineeringMemoryPreparation = $engineeringMemoryPreparation
+        engineeringMemoryCloseout = $null
         preflightValidated = $true
     }
 }
@@ -369,14 +632,27 @@ function Get-AtlasContractsV2WorkerInstructions {
         "- Preflight status: validated.",
         ("- ComponentManifest: `{0}`." -f [string]$Producer.paths.componentManifest),
         ("- JobEnvelope: `{0}`." -f [string]$Producer.paths.jobEnvelope),
+        ("- Canonical CardRecord: `{0}`." -f [string]$Producer.paths.cardRecord),
+        ("- Rough-note source: `{0}`." -f [string]$Producer.paths.engineeringMemorySource),
+        ("- Precedent-search record: `{0}`." -f [string]$Producer.paths.engineeringMemorySearch),
+        ("- Passed mutation-gate receipt: `{0}`." -f [string]$Producer.paths.engineeringMemoryMutationGate),
+        ("- Required terminal closeout record: `{0}`." -f [string]$Producer.paths.engineeringMemoryCloseout),
         ("- ComponentManifest validation: `{0}`." -f [string]$Producer.validationPaths.componentManifest),
         ("- JobEnvelope validation: `{0}`." -f [string]$Producer.validationPaths.jobEnvelope),
+        ("- CardRecord validation: `{0}`." -f [string]$Producer.validationPaths.cardRecord),
         ("- ContextPacket: `{0}`." -f [string]$Producer.paths.contextPacket),
         ("- ApprovalRecord: `{0}`." -f [string]$Producer.paths.approvalRecord),
         ("- WorkerLease (active): `{0}`." -f [string]$Producer.paths.workerLease),
         ("- ContextPacket validation: `{0}`." -f [string]$Producer.validationPaths.contextPacket),
         ("- ApprovalRecord validation: `{0}`." -f [string]$Producer.validationPaths.approvalRecord),
         ("- WorkerLease active validation: `{0}`." -f [string]$Producer.validationPaths.workerLease),
+        "- Read the engineering_memory profile and exact precedent refs before editing source.",
+        "- Preserve the frozen acceptance criteria; record discoveries outside that scope as linked child tasks.",
+        "- Visual work still requires route-aware visual proof before verified or archived status.",
+        "- For a mutating task, create the repo-visible completion archive under the target repository's docs convention, then write the terminal closeout JSON at the exact path above.",
+        '- Closeout JSON shape: {"contract_version":"atlas.engineering-memory-closeout.v1","job_id":"<bound job id>","card_id":"<bound card id>","completed_at":"<UTC ISO-8601>","final_status":"complete","archive_kind":"repository-docs","archive_ref":"docs/<repo-relative completion archive>","verification":{"evidence":[{"kind":"test|screenshot|dom|local_run|visual_diff|manual|document","ref":"<evidence ref>","result":"passed","surfaces":[]}],"unverified":[]},"blockers":[],"child_task_ids":[]}.',
+        "- Do not edit the JobEnvelope, CardRecord, runner-verification artifact, or gate receipts. The runner alone reconciles terminal state and refuses success unless verify and archive gates pass.",
+        "- Verified no-change tasks use a runner-owned runtime closeout record and must not invent a repository change solely for archival.",
         "- These artifacts live in the parent runner log, not necessarily inside the isolated worktree.",
         "- Read the exact paths above when the task requires preflight evidence; do not rediscover them by scanning worktree-local `.codex/logs`."
     ) -join "`r`n"
@@ -440,6 +716,7 @@ function Write-AtlasContractsV2TerminalReceipt {
         "success_no_changes" { "succeeded" }
         "runtime_policy_blocked" { "blocked" }
         "verification_failed" { "failed" }
+        "engineering_memory_closeout_failed" { "failed" }
         "proof_gate_failed" { "failed" }
         "spec_to_diff_failed" { "failed" }
         "mutation_scope_failed" { "failed" }
@@ -513,12 +790,12 @@ function Write-AtlasContractsV2TerminalReceipt {
         recorded_at = (Get-Date).ToUniversalTime().ToString("o")
         status = $receiptStatus
         component_id = $Producer.componentId
-        project_id = "atlas"
+        project_id = $Producer.envelope.project_id
         runtime_effective = ConvertTo-AtlasContractsV2Runtime -RuntimePolicy $RuntimePolicy
         changed_paths = @($ChangedPaths)
         commits = $commitList
         verification = $verification
-        evidence_refs = @($EvidenceRefs | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) + @($Producer.paths.contextPacket, $Producer.paths.approvalRecord, $Producer.paths.workerLease, $Producer.paths.evidenceBundle, $Producer.validationPaths.contextPacket, $Producer.validationPaths.approvalRecord, $Producer.validationPaths.workerLease, $Producer.validationPaths.workerLeaseTerminal, $Producer.validationPaths.evidenceBundle)
+        evidence_refs = @($EvidenceRefs | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) + @($Producer.paths.cardRecord, $Producer.paths.engineeringMemorySource, $Producer.paths.engineeringMemorySearch, $Producer.paths.engineeringMemoryMutationGate, $Producer.paths.engineeringMemoryCloseout, $Producer.paths.engineeringMemoryRunnerVerification, $Producer.paths.engineeringMemoryVerifyGate, $Producer.paths.engineeringMemoryArchiveGate, $Producer.paths.contextPacket, $Producer.paths.approvalRecord, $Producer.paths.workerLease, $Producer.paths.evidenceBundle, $Producer.validationPaths.cardRecord, $Producer.validationPaths.jobEnvelopeTerminal, $Producer.validationPaths.cardRecordTerminal, $Producer.validationPaths.engineeringMemoryCloseout, $Producer.validationPaths.engineeringMemoryRunnerVerification, $Producer.validationPaths.contextPacket, $Producer.validationPaths.approvalRecord, $Producer.validationPaths.workerLease, $Producer.validationPaths.workerLeaseTerminal, $Producer.validationPaths.evidenceBundle)
         blockers = $blockerList
         follow_up = @()
         correlations = [ordered]@{ card_id = $Producer.envelope.correlations.card_id; thread_id = $Producer.lease.owner.thread_id; turn_id = $Producer.lease.owner.turn_id; branch = $Producer.lease.workspace.branch; worktree = $Producer.lease.workspace.worktree }
@@ -531,9 +808,9 @@ function Write-AtlasContractsV2TerminalReceipt {
             inbox = $Producer.envelope.extensions.inbox
             runtime_requested = ConvertTo-AtlasContractsV2Runtime -RuntimePolicy $RuntimePolicy -Layer "requested"
             identity_correlations = [ordered]@{ component_id = $Producer.componentId; job_id = $Producer.jobId; run_id = $Producer.runId; execution_class = $Producer.executionClass; worker_id = $Producer.workerId; branch = $Producer.lease.workspace.branch; workspace_root = $Producer.lease.workspace.root; worktree = $Producer.lease.workspace.worktree; thread_id = $Producer.lease.owner.thread_id; turn_id = $Producer.lease.owner.turn_id }
-            artifact_refs = [ordered]@{ context_packet = $Producer.paths.contextPacket; approval_record = $Producer.paths.approvalRecord; worker_lease = $Producer.paths.workerLease; evidence_bundle = $Producer.paths.evidenceBundle }
+            artifact_refs = [ordered]@{ card_record = $Producer.paths.cardRecord; engineering_memory_source = $Producer.paths.engineeringMemorySource; engineering_memory_search = $Producer.paths.engineeringMemorySearch; engineering_memory_mutation_gate = $Producer.paths.engineeringMemoryMutationGate; engineering_memory_closeout = $Producer.paths.engineeringMemoryCloseout; engineering_memory_runner_verification = $Producer.paths.engineeringMemoryRunnerVerification; engineering_memory_verify_gate = $Producer.paths.engineeringMemoryVerifyGate; engineering_memory_archive_gate = $Producer.paths.engineeringMemoryArchiveGate; context_packet = $Producer.paths.contextPacket; approval_record = $Producer.paths.approvalRecord; worker_lease = $Producer.paths.workerLease; evidence_bundle = $Producer.paths.evidenceBundle }
             worker_lease_binding = [ordered]@{ lease_id = $Producer.leaseId; status = [string]$leaseTerminal.status; digest = [string]$leaseTerminal.digest; artifact_ref = $Producer.paths.workerLease; active_validation_ref = $Producer.validationPaths.workerLease; terminal_validation_ref = $Producer.validationPaths.workerLeaseTerminal }
-            validation_evidence_refs = @($Producer.validationPaths.componentManifest, $Producer.validationPaths.jobEnvelope, $Producer.validationPaths.contextPacket, $Producer.validationPaths.approvalRecord, $Producer.validationPaths.workerLease, $Producer.validationPaths.workerLeaseTerminal, $Producer.validationPaths.evidenceBundle)
+            validation_evidence_refs = @($Producer.validationPaths.componentManifest, $Producer.validationPaths.jobEnvelope, $Producer.validationPaths.cardRecord, $Producer.paths.engineeringMemoryMutationGate, $Producer.validationPaths.engineeringMemoryCloseout, $Producer.validationPaths.engineeringMemoryRunnerVerification, $Producer.validationPaths.jobEnvelopeTerminal, $Producer.validationPaths.cardRecordTerminal, $Producer.paths.engineeringMemoryVerifyGate, $Producer.paths.engineeringMemoryArchiveGate, $Producer.validationPaths.contextPacket, $Producer.validationPaths.approvalRecord, $Producer.validationPaths.workerLease, $Producer.validationPaths.workerLeaseTerminal, $Producer.validationPaths.evidenceBundle)
             compatibility = [ordered]@{ v1 = "preserved"; cluster_1_artifacts = @("atlas.component-manifest.v2.json", "atlas.job-envelope.v2.json", "atlas.execution-receipt.v2.json"); run_manifest_surface = "atlasContractsV2" }
             commit_state = [ordered]@{ status = if ([string]::IsNullOrWhiteSpace($CommitSha)) { "not-created" } else { "recorded" }; sha = if ([string]::IsNullOrWhiteSpace($CommitSha)) { $null } else { $CommitSha }; branch = $Branch }
             prohibited_action_confirmation = [ordered]@{ push = "not-exercised"; deploy = "not-exercised"; production = "not-exercised"; discord = "not-exercised"; board = "not-exercised"; data_mutation = "not-exercised" }

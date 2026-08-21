@@ -63,8 +63,18 @@
           "artifacts": [
             "atlas.component-manifest.v2.json",
             "atlas.job-envelope.v2.json",
+            "atlas.card-record.v2.json",
+            "atlas.engineering-memory.source.md",
+            "atlas.engineering-memory.precedent-search.json",
+            "atlas.engineering-memory.mutation-gate.json",
+            "atlas.engineering-memory.closeout.v1.json",
+            "atlas.engineering-memory.runner-verification.v1.json",
+            "atlas.engineering-memory.verify-gate.json",
+            "atlas.engineering-memory.archive-gate.json",
             "atlas.execution-receipt.v2.json"
           ],
+          "engineeringMemoryGate": "required-before-codex-and-before-terminal-success",
+          "engineeringMemoryCloseout": "runner-reconciled-verify-and-archive",
           "externalAuthorityDefault": "denied"
         },
         "pushPolicy": "manual-only"

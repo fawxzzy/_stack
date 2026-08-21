@@ -134,6 +134,24 @@ export const knownSchemaPlan = Object.freeze([
     valid: "valid/knowledge-candidate.v2.json",
     invalid: "invalid/knowledge-candidate.v2.bad-kind.json",
   },
+  {
+    id: "atlas.engineering-memory-profile.v1",
+    file: "atlas.engineering-memory-profile.v1.schema.json",
+    valid: "valid/engineering-memory-profile.v1.json",
+    invalid: "invalid/engineering-memory-profile.v1.missing-precedent.json",
+  },
+  {
+    id: "atlas.engineering-memory-closeout.v1",
+    file: "atlas.engineering-memory-closeout.v1.schema.json",
+    valid: "valid/engineering-memory-closeout.v1.json",
+    invalid: "invalid/engineering-memory-closeout.v1.missing-archive.json",
+  },
+  {
+    id: "atlas.engineering-memory-runner-verification.v1",
+    file: "atlas.engineering-memory-runner-verification.v1.schema.json",
+    valid: "valid/engineering-memory-runner-verification.v1.json",
+    invalid: "invalid/engineering-memory-runner-verification.v1.missing-records.json",
+  },
 ]);
 
 const isoDateTimePattern =
